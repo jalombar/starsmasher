@@ -1,0 +1,96 @@
+%\documentclass[superscriptaddress,aps,prd,showpacs,preprint,floatfix]{revtex4}
+\documentclass[onecolumn,floatfix]{emulateapj}
+%\documentclass{aastex}
+
+\usepackage{color}
+\usepackage{graphics}
+\usepackage{graphicx}
+\usepackage{array}
+\usepackage{verbatim}
+
+\shorttitle{Artificial Viscosity in Starsmasher}
+\shortauthors{Lombardi}
+
+\begin{document}
+
+\title{Artificial Viscosity in Starsmasher}
+
+\author{James C. Lombardi, Jr.}
+\affil{Department of Physics, Allegheny College, Meadville, PA 16335, USA}
+\email{jalombar@allegheny.edu}
+
+\maketitle
+
+%\begin{abstract}
+%We describe the artificial viscosity used in {\tt Starsmasher}\\
+%\end{abstract}
+
+Our SPH evolution equations are described by Gaburov et al.\ (2010), but with a different AV implementation.
+In particular, the AV contribution to the acceleration of particle $i$ is calculated as
+\begin{equation}
+\dot{\bf v}_{{\rm AV},i} = -\sum_j m_j \left[
+\Pi_{ij} {\bf \nabla}_i W_{ij}(h_i)+
+\Pi_{ji} {\bf \nabla}_i W_{ij}(h_j)
+\right]/2\,. \label{vdotAV}
+\end{equation}
+We use the AV form
+\begin{equation}
+\Pi_{ij}=2 
+{P_i\over\rho_i^2}
+\left(-\alpha\mu_{ij}+
+      \beta\mu_{ij}^2\right)\,,
+\label{piDB}
+\end{equation}
+where
+\begin{equation}
+\mu_{ij}=
+\cases{
+  \medskip\displaystyle
+  {({\bf v}_i-{\bf v}_j)\cdot
+   ({\bf r}_i-{\bf r}_j)\over
+  c_i |{\bf r}_i -{\bf r}_j|}f_i
+  \,,
+    &if $({\bf v}_i-{\bf v}_j)\cdot({\bf r}_i-{\bf r}_j)<0$\,;\cr
+  0\,,
+    &if $({\bf v}_i-{\bf v}_j)\cdot({\bf r}_i-{\bf r}_j)\ge0$\,.\cr}
+\label{muDB}
+\end{equation}
+Here $c_i$ is the sound speed at the location ${\bf r}_i$ of particle $i$.  The Balsara switch $f_i$ for particle $i$ is defined by
+\begin{equation}
+f_i={|{\bf\nabla}\cdot{\bf v}|_i\over
+     |{\bf\nabla}\cdot{\bf v}|_i+
+     |{\bf\nabla}\times{\bf v}|_i+
+     \eta'c_i/h_i}\,,
+\label{fi}
+\end{equation}
+with
+$\eta'=10^{-5}$ preventing numerical divergences
+%\citep{Balsara:1995JCoPh.121..357B}
+The function $f_i$
+approaches unity in regions of strong compression ($|{\bf
+\nabla}\cdot{\bf v}|_i>>|{\bf\nabla}\times{\bf v}|_i$) and vanishes in
+regions of large vorticity ($|{\bf \nabla}\times {\bf v}|_i >>|{\bf
+\nabla}\cdot {\bf v}|_i$). Consequently, our evolution equations have the advantage that the artificial
+viscosity (AV) is suppressed in shear layers.  We note that the AV
+term is not symmetric under interchange of the indices $i$ and $j$
+(that is, $\Pi_{ij}\ne \Pi_{ji}$).  Such an approach reduces
+the number of
+arrays shared among parallel processes.  As the term in square brackets in equation (\ref{vdotAV}) is
+antisymmetric under the interchange of particles $i$ and $j$, momentum conservation is maintained.
+
+The rate of change of the specific internal energy due to AV is
+\begin{equation}
+  {du_i\over dt}_{\rm AV} = 
+  \sum_j \frac{\Pi_{ij}}{2}  m_j ({\bf v_i}-{\bf v_j})\cdot  
+\nabla_iW_{ij}(h_i),
+  \label{eq:dudtAV}
+\end{equation}
+which guarantees conservation of entropy in the
+absence of shocks.
+It is
+straightforward to show total energy is conserved by our AV
+treatment: $\sum_i m_i({\bf v}_i\cdot{\bf \dot v}_{{\rm AV},i}
++du_i/dt_{\rm AV})=0$.
+
+
+\end{document}

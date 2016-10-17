@@ -1,0 +1,21 @@
+#!/bin/tcsh
+#PBS -l walltime=2400:00:00
+#PBS -l nodes=1:ppn=12
+#PBS -q default
+set echo               # echo commands before execution; use for debugging
+
+set JOBID=`echo $PBS_JOBID | cut -d'.' -f1`
+
+echo The JOBID is $JOBID
+
+cd $PBS_O_WORKDIR
+setenv NP `wc -l ${PBS_NODEFILE} | cut -d'/' -f1`
+echo The variable NP=${NP}
+echo The PBS_NODEFILE is ${PBS_NODEFILE}
+echo "nodefile="
+cat ${PBS_NODEFILE}
+echo "=end nodefile"
+setenv LD_LIBRARY_PATH "/cm/shared/apps/intel/Compiler/11.1/046/lib/intel64:${LD_LIBRARY_PATH}"
+mpirun --bind-to core --map-by node -np ${NP} -machinefile ${PBS_NODEFILE} ./*_sph 
+
+
