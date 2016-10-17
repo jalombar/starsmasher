@@ -1,0 +1,13 @@
+ &input 
+ tf=  100.,     ! desired final time to stop simulation
+ dtout=  1.,    ! how often an out*.sph files should be dumped
+ n= 10000,     ! desired number of particles
+ alpha=  1.,    ! av coefficient for term linear in mu
+ beta=  1.,     ! av coefficient for mu^2 term
+ nrelax= 0,     ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star
+ neos = 0,      ! 0=polytropic equation of state (eos), 1=ideal gas + radiation pressure, 2=tabulated eos (to be implemented)
+ gam = 2,       ! the adiabatic index, leave this set a reasonable value regardless of neos
+ nselfgravity=0,! 0=no self-gravity in gas, 1=self-gravity
+ nintvar=2,     ! 1=a=p/rho^gam=entropic variable, 2=u=p/((gam-1)*rho)=specific energy
+ cn6=0.08,
+ &end 

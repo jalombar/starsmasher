@@ -1,0 +1,5 @@
+Relaxation of a rotating giant
+	model comes from eg.last1.muse_s2mm
+	omega_spin is set in sph.input
+	note: nrelax=1
+	note: trelax=approximate oscillation period of giant

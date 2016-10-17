@@ -1,0 +1,44 @@
+ &input
+ tf=300, ! desired final time to stop simulation
+ dtout=1, ! how often an out*.sph files should be dumped
+ n=20000, ! desired number of particles.  if n<0 then |n|=number of particles *per solar mass*.  used only if making a new star.
+ nnopt=23, ! controls neighbor number.  leave it at 22 to get almost 40 neighbors.
+ nav=3, ! artificial viscosity (av) flag.  leave it at 3 to get a hybrid balsara-monaghan av.
+ alpha=1, ! av coefficient for term linear in mu
+ beta=2, ! av coefficient for mu^2 term
+ ngr=3, ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
+ hmin=-.5, ! minimum smoothing length allowed.  leave it at 0 or a negative number to be safe.  no longer used.
+ hmax=1.d30, ! maximum smoothing length allowed.  leave it very large to be safe.  no longer used.
+ nrelax=1, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
+ trelax=1d30, ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
+ sep0=20000, ! initial separation of two stars in a binary or collision calculation
+ bimpact=1.d30, ! the impact parameter for collisions
+ vinf2=1.d30, ! the speed squared at infinity for a collision between two stars: 0 for parabolic, >0 for hyperbolic, <0 for elliptical.
+ equalmass=0, ! particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
+ treloff=0, ! time to end a relaxation and switch to a dynamical calculation
+ tresplintmuoff=0., ! time to stop resplinting the mean molecular weight.  leave this at 0.
+ nitpot=1, ! number of iterations between evaluation of the gravitational potential energy.
+ tscanon=0, ! time that the scan of a binary starts
+ sepfinal=1.d30, ! final separation for the scan of a binary
+ nintvar=2, ! 1=integrate entropic variable a, 2=integrate internal energy u
+ ngravprocs=-6, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+ qthreads=0 ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
+ gflag=1 ! set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes
+ mbh=5.0 !mass of black hole
+ runit=6.9599d10, ! number of cm in the unit of length.  use 6.9599d10 if want solar radius.
+ munit=1.9891d33, ! number of g in unit of mass.  use 1.9891d33 if want solar mass.
+! the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
+! dt_sph=1/(1/dt1 + 1/dt2 + 1/dt3 + 1/dt4)
+ cn1=.6d0,   ! dt1=cn1*h/v_signal
+ cn2=0.06d0, ! dt2=cn2*(h/|a-a_smoothed|)^0.5
+ cn3=0.06d0, ! dt3=cn3*u/|du/dt|
+ cn4=1.d30,  ! dt4=cn4*v_signal/|a-a_smoothed|
+! the courant numbers cn5, cn6, and cn7 are for a particle i that is a compact object (co):
+! dt_co=1/(1/dt5 + 1/dt6)
+ cn5=0.0005d0,! dt5=cn5*r_ij/v_ij (minimized over all other particles j)
+ cn6=0.01d0, ! dt6=cn6*(r_ij/a_ij)^.5 (minimized over all other particles j)
+ cn7=4.d0,   ! r_ij=(x_ij^2+y_ij^2+z_ij^2+cn7*h_i^2)^.5
+! the final timestep dt is the minimum of dt_sph and dt_co for all particles i
+ computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like forge
+ ppn=16, ! set this to the number of cpu cores per node
+ &end
