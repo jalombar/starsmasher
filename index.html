@@ -38,14 +38,14 @@ questions.</p>
 
 <p>The main directory contains at least three subdirectories:</p>
 
-<p>example_input:          contains example input files for various cases
-<br>misc:           miscellaneous files such as assorted makefiles and the StarCrash manual
-<br>parallel_bleeding_edge: latest version of code (this is probably what you want)</p>
+<p><font face="Consolas">example_input</font>:          contains example input files for various cases
+<br><font face="Consolas">misc</font>:           miscellaneous files such as assorted makefiles and the StarCrash manual
+<br><font face="Consolas">parallel_bleeding_edge</font>: latest version of code (this is probably what you want)</p>
 
 <p>For runs on a gpu-enabled cluster, the directory you care about is
-parallel_bleeding_edge.  Let's try to compile the code in there:</p>
+<font face="Consolas">parallel_bleeding_edge</font>.  Let's try to compile the code in there:</p>
 
-<p>cd parallel_bleeding_edge/src/SPHgrav_lib</p>
+<p style="font-family:Consolas">cd parallel_bleeding_edge/src/SPHgrav_lib</p>
 
 <p>The SPHgrav_lib subdirectory contains code written by Evghenii Gaburov
 (and somewhat modified by Jamie Lombardi and Sam Knarr) for
@@ -53,9 +53,9 @@ calculating softened gravitational forces and potentials on NVIDIA
 GPUs.  If you are running on something other than keeneland, you will
 need to customize the Makefile for your system: any path that contains
 "cuda" or "CUDA" probably needs to be changed.  To make the library,
-simply issue the command</p>
+simply issue the following command:</p>
 
-<p>make</p>
+<p style="font-family:Consolas">make</p>
 
 <p>(The final thing that make does is "./makelib.sh" which is what will make the
 library.)  If it doesn't work, and you want to have a fresh start,
