@@ -39,7 +39,7 @@ questions.</p>
 <p>The main directory contains at least three subdirectories:</p>
 
 <p><font face="Consolas">example_input</font>:          contains example input files for various cases
-<br><font size="4" face="Consolas">misc</font>:           miscellaneous files such as assorted makefiles and the StarCrash manual
+<br><font face="Consolas">misc</font>:           miscellaneous files such as assorted makefiles and the StarCrash manual
 <br><font face="Consolas">parallel_bleeding_edge</font>: latest version of code (this is probably what you want)</p>
 
 <p>For runs on a gpu-enabled cluster, the directory you care about is
@@ -47,7 +47,7 @@ questions.</p>
 
 <p style="font-family:Consolas">cd parallel_bleeding_edge/src/SPHgrav_lib</p>
 
-<p>The SPHgrav_lib subdirectory contains code written by Evghenii Gaburov
+<p>The <font face="Consolas">SPHgrav_lib</font> subdirectory contains code written by Evghenii Gaburov
 (and somewhat modified by Jamie Lombardi and Sam Knarr) for
 calculating softened gravitational forces and potentials on NVIDIA
 GPUs.  If you are running on something other than keeneland, you will
@@ -57,43 +57,44 @@ simply issue the following command:</p>
 
 <p style="font-family:Consolas">make</p>
 
-<p>(The final thing that make does is "./makelib.sh" which is what will make the
-library.)  If it doesn't work, and you want to have a fresh start,
-first use "make clean".  If all goes well the library
-libGPUsph_gatherscatter.a will be generated.</p>
+<p>(The final thing that <font face="Consolas">make</font> does is <font face="Consolas">./makelib.sh</font>
+which is what will make the library.)  If it doesn't work, and you want to have a fresh start,
+  first use <font face="Consolas">make clean</font>.  If all goes well, the library by the name
+  <font face="Consolas">libGPUsph_gatherscatter.a</font> will be generated.</p>
 
-<p>The SPH source code is in the .. directory.  This is a parallel code.
-Execute</p>
+<p>If you type the command below, you will be moved up a level in the directory structure. 
+  The SPH source code is in the ".." directory.  This is a parallel code.
+Execute the following command to move into the src subdirectory.</p>
 
-<p>cd ..</p>
+<p style="font-family:Consolas">cd ..</p>
 
-<p>so that you're in the src subdirectory.  Then</p>
+<p>Now, make a copy of the makefile.</p>
 
-<p>cp makefile.keeneland makefile</p>
+<p style="font-family:Consolas">cp makefile.keeneland makefile</p>
 
-<p>To compile, type</p>
+<p>To compile, type the command below.</p>
 
-<p>make</p>
+<p style="font-family:Consolas">make</p>
 
 <p>You will likely need to customize the makefile for your computer.  For
 example, you may need to change the compiler or update paths to point
-to the appropriate locations.  The executable name will end with _sph
+  to the appropriate locations.  The executable name will end with <font face="Consolas">_sph</font>
 and will depend on the name of the directory that src appears within.
 The executable will automatically be moved up a level in the directory
 structure (that is, to the ".."  directory).  You probably want to
 remove the executable for now so that you don't later copy it to other
 places where you don't want it:</p>
 
-<p>cd ..
+<p style="font-family:Consolas">cd ..<br>
    rm *_sph</p>
 
 <p>Although this Starsmasher code is not well documented, there is
 documentation for Starcrash, which is a previous version of this code
 (see <a href="http://ciera.northwestern.edu/StarCrash/">http://ciera.northwestern.edu/StarCrash/</a>).  Although Starcrash is
 not the same as Starsmasher, the variable names, input files, output
-files, and parallelization strategy is very similar.  The Starcrash
-documentation is available as the file usersmanual.pdf in the
-misc subdirectory and may be somewhat helpful to peruse.  You will
+files, and parallelization strategy are very similar.  The Starcrash
+documentation is available as the file <font face="Consolas">usersmanual.pdf</font> in the
+<font face="Consolas">misc</font> subdirectory and may be somewhat helpful to peruse.  You will
 be most interested in pages 31 - 36, which talks about input and
 output.  Remember, however, that this Starsmasher SPH code is different in
 many ways.  The algorithms of Starsmasher are mostly described in
@@ -119,10 +120,10 @@ governed by the adiabatic index gamma=5/3, and a structure specified
 by the polytropic index n=1.5.</p>
 
 <p>First, get the directories ready:
-   cd ..  ####   or maybe "cd ~/starsmasher" depending on where your installation is
-   cp -r parallel_bleeding_edge GAM1.667_n1.5
-   cd GAM1.667_n1.5
-   cp ../example_input/relaxation_preMS/sph.in* .
+  <br><font face="Consolas">cd ..  ####</font>   or maybe <font face="Consolas">cd ~/starsmasher</font> depending on where your installation is.
+  <br><font face="Consolas">cp -r parallel_bleeding_edge GAM1.667_n1.5</font>
+  <br><font face="Consolas">cd GAM1.667_n1.5</font>
+  <br><font face="Consolas">cp ../example_input/relaxation_preMS/sph.in* .</font>
 The file sph.init controls what type of calculation we will do.
 Confirm that the three letter code word inside sph.init is '1es' for
 this polytrope relaxation (and update the text if necessary):
