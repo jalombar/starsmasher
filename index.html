@@ -124,49 +124,49 @@ by the polytropic index n=1.5.</p>
   <br><font face="Consolas">cp -r parallel_bleeding_edge GAM1.667_n1.5</font>
   <br><font face="Consolas">cd GAM1.667_n1.5</font>
   <br><font face="Consolas">cp ../example_input/relaxation_preMS/sph.in* .</font>
-The file sph.init controls what type of calculation we will do.
-Confirm that the three letter code word inside sph.init is '1es' for
+<br>The file <font face="Consolas">sph.init</font> controls what type of calculation we will do.
+<br>Confirm that the three letter code word inside <font face="Consolas">sph.init</font> is '<font face="Consolas">1es</font>' for
 this polytrope relaxation (and update the text if necessary):
-   <br>emacs -nw sph.init
-You should look at sph.input:
-   emacs -nw sph.input #### [or use some other editor]
-Change line 4 of sph.input to be N=2000 and save the file.  There are
+  <br><font face="Consolas">emacs -nw sph.init</font>
+<br>You should look at sph.input:
+  <br><font face="Consolas">emacs -nw sph.input ####</font> [or use some other editor]
+  <br>Change <b>line 4</b> of <font face="Consolas">sph.input</font> to be <b>N=2000</b> and save the file.  There are
 several other variables that could be changed, but the defaults should
 be fine for now.  See the Starcrash documentation for an explanation
 of what some of the other variables are.</p>
 
 <p>Now let's compile the source code:
-   cd src
-   cat sphu.h
-Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
-   emacs -nw initialize_polyes.f
-Confirm that the lines right after the declaration section will set the
-polytropic constant npoly to be 1.5.
-The radius and mass are set on near here.  These values are
-in physical units of runit and munit, which are set at the end of sph.input
-and are typically the radius and mass of the sun in cgs units.  Save initialize_polyes.f
-when done and then try to compile:
-   make
-Once everything goes well with the
-compilation, the last line you should see is "mv GAM1.667_n1.5_sph
-..".  Get positioned to run the code:
-   cd ..
-and get a good batch script if you don't have one
-   cp ../sph.pbs.kfs sph.pbs
-The default sph.pbs file asks for only 1 minute, so you'll need to
+<br>   <font face="Consolas">cd src
+<br>   cat sphu.h</font>
+<br>Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
+<br>  <font face="Consolas">emacs -nw initialize_polyes.f</font>
+<br>Confirm that the lines right after the declaration section will set the
+  polytropic constant <font face="Consolas">npoly</font> to be <b>1.5</b>.
+<br>The radius and mass are set on near here.  These values are
+  in physical units of <i>runit</i> and <i>munit</i>, which are set at the end of <font face="Consolas">sph.input</font>
+  and are typically the radius and mass of the sun in <i>cgs</i> units.  Save <font face="Consolas">initialize_polyes.f</font>
+when you are done and then try to compile:
+<br>  <font face="Consolas">make</font>
+<br>Once everything goes well with the
+compilation, the last line you should see is "<font face="Consolas">mv GAM1.667_n1.5_sph
+  ..</font>".  Get positioned to run the code:
+  <br>   <font face="Consolas">cd ..</font>
+<br>and get a good batch script if you don't have one
+  <br>   <font face="Consolas">cp ../sph.pbs.kfs sph.pbs</font>
+  <br>The default <font face="Consolas">sph.pbs</font> file asks for only 1 minute, so you'll need to
 change that for a real run.  To run the code,
-   qsub -q debug sph.pbs ### or, for long jobs, "qsub sph.pbs"
-This creates, among other things, a file log0.sph that collects
+  <br>   <font face="Consolas">qsub -q debug sph.pbs ###</font> or, for long jobs, "<font face="Consolas">qsub sph.pbs</font>"
+  <br>This creates, among other things, a file <font face="Consolas">log0.sph</font> that collects
 ascii tex about the run.</p>
 
 <h2>
 <a id="step-1b-relaxing-a-twin-model" class="anchor" href="#step-1b-relaxing-a-twin-model" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Step 1(b): Relaxing a TWIN model</h2>
 
 <p>Get the directories ready:
-   cd ~/starsmasher   ### or cd to wherever your main installation is
-   cp -r parallel_bleeding_edge TWIN
-   cd TWIN
-   cp ../example_input/relaxation_TWIN_model/* .</p>
+<br><font face="Consolas">   cd ~/starsmasher   ### or cd to wherever your main installation is
+<br>   cp -r parallel_bleeding_edge TWIN
+<br>   cd TWIN
+  <br>   cp ../example_input/relaxation_TWIN_model/* .</font></p>
 
 <p>To relax a TWIN model instead, the three letter code word in sph.init
 should be 'erg'.  The SPH code will look for a model named
