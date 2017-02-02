@@ -139,9 +139,9 @@ be fine for now.  See the Starcrash documentation for an explanation
 of what some of the other variables are.</p>
 
 <p>Now let's compile the source code:
-<br>   <font face="Consolas">cd src
-<br>   cat sphu.h</font>
-<br>Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
+  <br>   <font face="Consolas">cd src
+  <br>   cat sphu.h</font>
+  <br>Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
   <br>  <font face="Consolas">emacs -nw initialize_polyes.f</font></p>
 <p>Confirm that the lines right after the declaration section will set the
  polytropic constant <font face="Consolas">npoly</font> to be <b>1.5</b>.
@@ -177,8 +177,8 @@ ascii tex about the run.</p>
 <p>To relax a TWIN model instead, the three letter code word in <font face="Consolas">sph.init</font>
  should be '<font face="Consolas">erg</font>'.  The SPH code will look for a model named
  '<font face="Consolas">eg.last1.muse_s2mm</font>'.  
-  <br>You can create a symbolic link from an appropriate output file of TWIN if you like (e.g.,
-  "<font face="Consolas">cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm</font>").  
+  <br>You can create a symbolic link from an appropriate output file of TWIN if you like 
+  <br>(e.g., "<font face="Consolas">cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm</font>").  
   <br>The file <font face="Consolas">m_8_t_5.7.last1.muse_s2mm</font> is the default in
   <font face="Consolas">example_input/relaxation_TWIN_model</font>.  It represents an <font face="Consolas">8M_sun</font> MS
 star at t=5.7Myr.</p>
