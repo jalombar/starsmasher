@@ -120,17 +120,20 @@ governed by the adiabatic index gamma=5/3, and a structure specified
 by the polytropic index n=1.5.</p>
 
 <p>First, get the directories ready:
-  <br><font face="Consolas">cd ..  ####</font>   or maybe <font face="Consolas">cd ~/starsmasher</font> depending on where your installation is.
-  <br><font face="Consolas">cp -r parallel_bleeding_edge GAM1.667_n1.5</font>
-  <br><font face="Consolas">cd GAM1.667_n1.5</font>
-  <br><font face="Consolas">cp ../example_input/relaxation_preMS/sph.in* .</font>
-<br>The file <font face="Consolas">sph.init</font> controls what type of calculation we will do.
+  <br><font face="Consolas"> cd ..  ####</font>   or maybe <font face="Consolas">cd ~/starsmasher</font> depending on where your installation is.
+  <br><font face="Consolas">cp -r parallel_bleeding_edge GAM1.667_n1.5
+  <br>cd GAM1.667_n1.5
+  <br>cp ../example_input/relaxation_preMS/sph.in* .</font></p>
+
+<p>The file <font face="Consolas">sph.init</font> controls what type of calculation we will do.
 <br>Confirm that the three letter code word inside <font face="Consolas">sph.init</font> is '<font face="Consolas">1es</font>' for
-this polytrope relaxation (and update the text if necessary):
-  <br><font face="Consolas">emacs -nw sph.init</font>
-<br>You should look at sph.input:
-  <br><font face="Consolas">emacs -nw sph.input ####</font> [or use some other editor]
-  <br>Change <b>line 4</b> of <font face="Consolas">sph.input</font> to be <b>N=2000</b> and save the file.  There are
+ this polytrope relaxation (and update the text if necessary):
+   <br><font face="Consolas">emacs -nw sph.init</font></p>
+
+<p>You should look at sph.input:
+  <br><font face="Consolas">emacs -nw sph.input ####</font> [or use some other editor]</p>
+
+<p>Change <b>line 4</b> of <font face="Consolas">sph.input</font> to be <b>N=2000</b> and save the file.  There are
 several other variables that could be changed, but the defaults should
 be fine for now.  See the Starcrash documentation for an explanation
 of what some of the other variables are.</p>
@@ -139,58 +142,61 @@ of what some of the other variables are.</p>
 <br>   <font face="Consolas">cd src
 <br>   cat sphu.h</font>
 <br>Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
-<br>  <font face="Consolas">emacs -nw initialize_polyes.f</font>
-<br>Confirm that the lines right after the declaration section will set the
-  polytropic constant <font face="Consolas">npoly</font> to be <b>1.5</b>.
+  <br>  <font face="Consolas">emacs -nw initialize_polyes.f</font></p>
+<p>Confirm that the lines right after the declaration section will set the
+ polytropic constant <font face="Consolas">npoly</font> to be <b>1.5</b>.
 <br>The radius and mass are set on near here.  These values are
-  in physical units of <i>runit</i> and <i>munit</i>, which are set at the end of <font face="Consolas">sph.input</font>
-  and are typically the radius and mass of the sun in <i>cgs</i> units.  Save <font face="Consolas">initialize_polyes.f</font>
+ in physical units of <i>runit</i> and <i>munit</i>, which are set at the end of <font face="Consolas">sph.input</font>
+ and are typically the radius and mass of the sun in <i>cgs</i> units.  Save <font face="Consolas">initialize_polyes.f</font>
 when you are done and then try to compile:
-<br>  <font face="Consolas">make</font>
-<br>Once everything goes well with the
+  <br>  <font face="Consolas">make</font></p>
+<p>Once everything goes well with the
 compilation, the last line you should see is "<font face="Consolas">mv GAM1.667_n1.5_sph
-  ..</font>".  Get positioned to run the code:
-  <br>   <font face="Consolas">cd ..</font>
-<br>and get a good batch script if you don't have one
-  <br>   <font face="Consolas">cp ../sph.pbs.kfs sph.pbs</font>
-  <br>The default <font face="Consolas">sph.pbs</font> file asks for only 1 minute, so you'll need to
+  ..</font>". 
+  <br>Get positioned to run the code:
+  <br>   <font face="Consolas">cd ..</font></p>
+  
+<p>And get a good batch script if you don't have one:
+  <br>   <font face="Consolas">cp ../sph.pbs.kfs sph.pbs</font></p>
+
+<p>The default <font face="Consolas">sph.pbs</font> file asks for only 1 minute, so you'll need to
 change that for a real run.  To run the code,
-  <br>   <font face="Consolas">qsub -q debug sph.pbs ###</font> or, for long jobs, "<font face="Consolas">qsub sph.pbs</font>"
-  <br>This creates, among other things, a file <font face="Consolas">log0.sph</font> that collects
+  <br>   <font face="Consolas">qsub -q debug sph.pbs ###</font> or, for long jobs, "<font face="Consolas">qsub sph.pbs</font>"</p>
+<p>This creates, among other things, a file <font face="Consolas">log0.sph</font> that collects
 ascii tex about the run.</p>
 
 <h2>
 <a id="step-1b-relaxing-a-twin-model" class="anchor" href="#step-1b-relaxing-a-twin-model" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Step 1(b): Relaxing a TWIN model</h2>
 
 <p>Get the directories ready:
-<br><font face="Consolas">   cd ~/starsmasher   ### or cd to wherever your main installation is
-<br>   cp -r parallel_bleeding_edge TWIN
-<br>   cd TWIN
+  <br><font face="Consolas">   cd ~/starsmasher   ###</font> or <font face="Consolas">cd</font> to wherever your main installation is
+  <br><font face="Consolas">   cp -r parallel_bleeding_edge TWIN
+  <br>   cd TWIN
   <br>   cp ../example_input/relaxation_TWIN_model/* .</font></p>
 
-<p>To relax a TWIN model instead, the three letter code word in sph.init
-should be 'erg'.  The SPH code will look for a model named
-'eg.last1.muse_s2mm'.  You can create a symbolic link from an
-appropriate output file of TWIN if you like (e.g.,
-"cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm").  The file
-m_8_t_5.7.last1.muse_s2mm is the default in
-example_input/relaxation_TWIN_model.  It represents an 8M_sun MS
+<p>To relax a TWIN model instead, the three letter code word in <font face="Consolas">sph.init</font>
+ should be '<font face="Consolas">erg</font>'.  The SPH code will look for a model named
+ '<font face="Consolas">eg.last1.muse_s2mm</font>'.  
+  <br>You can create a symbolic link from an appropriate output file of TWIN if you like (e.g.,
+  "<font face="Consolas">cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm</font>").  
+  <br>The file <font face="Consolas">m_8_t_5.7.last1.muse_s2mm</font> is the default in
+  <font face="Consolas">example_input/relaxation_TWIN_model</font>.  It represents an <font face="Consolas">8M_sun</font> MS
 star at t=5.7Myr.</p>
 
-<p>The sph.input file, also available within
-example_input/relaxation_TWIN_model/, should be similar to the
-sph.input file used above for the polytrope (probably just change N
+<p>The <font face="Consolas">sph.input</font> file, also available within
+  <font face="Consolas">example_input/relaxation_TWIN_model/</font>, should be similar to the
+  <font face="Consolas">sph.input</font> file used above for the polytrope (probably just change N
 and nothing else unless necessary).  The file on the svn site does
 have TRELOFF to 200 in this case, to make sure there was enough time
 for oscillations to die off, and TF is 300 so the star could be
 monitored for 100 time units after the relaxation was turned off.</p>
 
 <p>Run the code like before:
-   cd src
-   make
-   cd ..
-   cp ../sph.pbs.kfs ./sph.pbs
-   qsub -q debug sph.pbs</p>
+  <br><font face="Consolas">   cd src
+  <br>   make
+  <br>   cd ..
+  <br>   cp ../sph.pbs.kfs ./sph.pbs
+  <br>  qsub -q debug sph.pbs</font></p>
 
 <h2>
 <a id="step-2-dynamical-calculation" class="anchor" href="#step-2-dynamical-calculation" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Step 2: Dynamical calculation</h2>
@@ -198,68 +204,79 @@ monitored for 100 time units after the relaxation was turned off.</p>
 <p>If the model from the relaxation run at t=TRELOFF looks good, then you
 can use that to start a dynamical calculation.  Start by get the
 directories ready:
-  cd ~/starsmasher   ### or cd to wherever your main installation is
-  cp -r parallel_bleeding_edge/ collision_rp3.9_a119
-  cd collision_rp3.9_a119
-  cp ../example_input/collision/sph.in* .
-  emacs -nw sph.init
-Make sure the second line of sph.init says INAME='hyp'.</p>
+  <br><font face="Consolas">  cd ~/starsmasher   ###</font> or <font face="Consolas">cd</font> to wherever your main installation is
+  <br><font face="Consolas">  cp -r parallel_bleeding_edge/ collision_rp3.9_a119
+  <br>  cd collision_rp3.9_a119
+  <br>  cp ../example_input/collision/sph.in* .
+  <br>  emacs -nw sph.init</font></p>
 
-<p>The new sph.input file is set up for doing dynamical calculations.
+<p>Make sure <b>line 2</b> of <font face="Consolas">sph.init</font> says <b>INAME='hyp'</b>.</p>
+
+<p>The new <font face="Consolas">sph.input</font> file is set up for doing dynamical calculations.
 Take a look at it:
-  emacs -nw sph.input
-While you're in the file, check that DTOUT=1 on line 3, which
-means that an out*.sph file will be dumped every 1 time unit.  Also,
-on line 16 or so, make BIMPACT=3.9d0, which means the periastron separation
+  <br><font face="Consolas">  emacs -nw sph.input</font></p>
+
+<p>While you're in the file, check that <b>DTOUT=1</b> on <b>line 3</b>, which
+means that an <font face="Consolas">out*.sph</font> file will be dumped every 1 time unit.  Also,
+on line 16 or so, make <b>BIMPACT=3.9d0</b>, which means the periastron separation
 of the initial orbit is 3.9 stellar radii.</p>
 
-<p>In sph.input you can use any of the following pairs of data to initialize a collision in hyperbolic.f: (e0,vinf2), (e0,bimpact), (semimajoraxis,bimpact), (semimajoraxis,e0), (bimpact,vinf2).  Here e0 is the eccentricity of the initial orbit, and bimpact is the periastron separation (not really the impact parameter).  For example, sph.input could contain</p>
+<p>In sph.input you can use any of the following pairs of data to initialize a collision in 
+  <font face="Consolas">hyperbolic.f: (e0,vinf2), (e0,bimpact), (semimajoraxis,bimpact), (semimajoraxis,e0), (bimpact,vinf2).</font>
+  Here, <i>e0</i> is the eccentricity of the initial orbit, and bimpact is the periastron separation 
+  (not really the impact parameter).  For example, <font face="Consolas">sph.input</font> could contain the following.</p>
 
-<p>BIMPACT=4.d0,
- semimajoraxis=118.57d0,</p>
+<p><font face="Consolas">BIMPACT=4.d0,
+  <br>semimajoraxis=118.57d0,</font></p>
 
-<p>and e0 and vinf2 could be unspecified.  Or you could specify BIMPACT and e0, and the same code works, etc.  The code in initialize_hyperbolic.f figures out what it needs to solve for.</p>
+<p>and <i>e0</i> and <i>vinf2</i> could be unspecified.  Or you could specify <i>BIMPACT</i> and <i>e0</i>, and 
+the same code works, etc.  The code in <font face="Consolas">initialize_hyperbolic.f</font> figures out what 
+it needs to solve for.</p>
 
 <p>Whether the encounter is hyperbolic, parabolic, or elliptical is
-controlled by the velocity at infinity squared, vinf2, or the semimajoraxis a.
-The value of vinf2 is negative for elliptical encounters, zero for
+  controlled by the velocity at infinity squared, <i>vinf2</i>, or the semi-major axis <i>a</i>.
+  The value of <i>vinf2</i> is negative for elliptical encounters, zero for
 parabolic encounters, and positive for hyperbolic encounters.  Note
-that the orbital energy G<em>M</em>mu/(-2a) just equals mu<em>vinf2/2.
-Therefore, there is a simple relation between the semimahor axis a and
-vinf2, namely.  a=-G</em>M/vinf2, where M is the total mass of the two
-stars.  For example, if you are colliding a 0.3 Msun and 8Msun star
-and if vinf2=-0.07, then the semimajor axis a=(0.3+8)/0.07=118.57,
+  that the orbital energy G<em>M</em>mu/(-2a) just equals mu<em>vinf2</em>/2.
+  <br>Therefore, there is a simple relation between the semi-major axis <i>a</i> and
+  <i>vinf2</i>, namely.  a=-G<em>M</em>/vinf2, where <em>M</em> is the total mass of the two
+stars.  For example, if you are colliding a 0.3 Msun and 8 Msun star
+and if vinf2=-0.07, then the semi-major axis a=(0.3+8)/0.07=118.57,
 where I assume the units chosen are the usual G=Msun=Rsun=1.</p>
 
-<p>Note that ngravprocs=-6 and ppn=16... this means there are
-abs(ngravprocs)=6 GPU units per 16 CPU cores, as on one node of the
+<p>Note that <font face="Consolas">ngravprocs=-6</font> and <font face="Consolas">ppn=16...</font> this means there are
+<font face="Consolas">abs(ngravprocs)=6</font> GPU units per 16 CPU cores, as on one node of the
 supercomputer forge.  You should change these values to be appropriate
 for your machine.  For example, on Keeneland KFS, there are 3 gpus and
 12 cores per node.</p>
 
 <p>Let's get the star models:
-  cp ../TWIN/<em>/out0200.sph ./sph.start1u
-  cp ../GAM1.667_n1.5/</em>/out0100.sph ./sph.start2u
-where we assume the 8 solar mass ZAMS star was relaxed in the directory ../TWIN/.
-Now let's compile the code:
-  cd src
-  make
-To run the code, get to the same directory as the executable:
-  cd ..
-then
-  cp ../sph.pbs.kfs ./sph.pbs
-  qsub -q debug sph.pbs</p>
+  <br><font face="Consolas">  cp ../TWIN/<em>/out0200.sph ./sph.start1u
+  <br>  cp ../GAM1.667_n1.5/</em>/out0100.sph ./sph.start2u</font></p>
+
+<p>Where we assume the 8 solar mass ZAMS star was relaxed in the directory <font face="Consolas">../TWIN/.</font></p>
+
+<p>Now let's compile the code:
+  <br><font face="Consolas">  cd src
+  <br>  make</font></p>
+
+<p>To run the code, get to the same directory as the executable:
+  <br><font face="Consolas">  cd ..</font></p>
+
+<p>Then,
+  <br><font face="Consolas">  cp ../sph.pbs.kfs ./sph.pbs
+  <br>  qsub -q debug sph.pbs</font></p>
 
 <h2>
 <a id="restarting-runs" class="anchor" href="#restarting-runs" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>RESTARTING RUNS</h2>
 
 <p>Every few iterations, a restartrad.sph file is dumped (overwriting any
-previously existing restartrad.sph file).  If a restartrad.sph file
+  previously existing restartrad.sph file).  If a <font face="Consolas">restartrad.sph</font> file
 exists in the directory when a new run is launched, then the code will
 automatically use that file to initiate the calculation.  This is
 useful for restarting in the middle of a long simulation.  You can
-also restart from any out*.sph file simply by renaming it to
-restartrad.sph.</p>
+  also restart from any <font face="Consolas">out*.sph</font> file simply by renaming it to
+  <font face="Consolas">restartrad.sph</font>.</p>
 
 <h2>
 <a id="data-visualization" class="anchor" href="#data-visualization" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>DATA VISUALIZATION</h2>
