@@ -6,7 +6,7 @@ c     hyperbolic collision with a neutron star
      $     eorb0check,eorb0
       real*8 altotint,r,amu,ak,vxcm,vycm,xcm,ycm
       integer nnoptold,noutold,nitold,navold,ngrold,nrelaxold
-      real*8 hminold,hmaxold,sep0old,tfold,dtoutold,told,
+      real*8 hcoold,hfloorold,sep0old,tfold,dtoutold,told,
      $     alphaold,betaold,trelaxold,dtold
       real*8 deltax1,deltay1,deltavx1,deltavy1
       real*8 deltax2,deltay2,deltavx2,deltavy2
@@ -17,11 +17,11 @@ c     hyperbolic collision with a neutron star
       real*8 hpcore
       integer idumb
       real*8 costh2,sinth2,ps2
-      real*8 xold,yold,zold,vxold,vyold,vzold,ran1
+      real*8 xold,yold,zold,vxold,vyold,vzold,ran1,hmax,hmin
 
       call cpu_time(time1)
 
-      hpcore=hmax
+      hpcore=1d30
 
 c         write(69,*)'hns: rp=',rp
       if(vinf2.ne.0) then
@@ -32,7 +32,7 @@ c         write(69,*)'hns: rp=',rp
          open(12,file='sph.startu',form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-         read(12) n1,nnoptold,hminold,hmaxold,sep0old,
+         read(12) n1,nnoptold,hcoold,hfloorold,sep0old,
      $        tfold,dtoutold,noutold,nitold,told,navold,
      $        alphaold,betaold,tjumpahead,ngrold,
      $        nrelaxold,trelaxold,dtold
@@ -61,7 +61,7 @@ c     used in subroutine dump)
 
       if (nchk.ne.n1) stop 'hbs: problem with file'
 
-      if(hpcore.eq.hmax) then
+      if(hpcore.eq.1d30) then
          hmin=1.d30
          hmax=0.d0
          do i=1,n1
@@ -75,7 +75,7 @@ c     used in subroutine dump)
 
 c     make the bh-wd binary:
          corepts=corepts+2
-         am(ntot-1)=15d0        ! a bh mass
+         am(ntot-1)=mbh         ! a bh mass
          am(ntot)=0.6d0         ! a wd mass
          am2=am(ntot-1)+am(ntot)
          x(ntot-1)=-sepfinal*am(ntot)/am2

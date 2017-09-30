@@ -65,7 +65,7 @@ c     binary dump files.
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
 
-      write(iu) ntot,nnopt,hmin,hmax,sep0,tf,dtout,nout,nit,t,
+      write(iu) ntot,nnopt,hco,hfloor,sep0,tf,dtout,nout,nit,t,
      $     nav,alpha,beta,tjumpahead,ngr,nrelax,trelax,dt,omega2,
      $     ncooling,erad,ndisplace,displacex,displacey,displacez
       if(ncooling.eq.0) then
@@ -232,6 +232,11 @@ c     do loop to get total gravitational potential energy:
                endif
 c             if(u(i).ne.0.d0)then
                epot=epot+am(i)*grpot(i)
+
+               if(grpot(i).ne.grpot(i)) then
+                  write(129,*) epot,i,am(i),grpot(i),hp(i),x(i),y(i),z(i),u(i)
+               endif
+
 c             else
 c              epot=epot+am(i)**2*42.d0/30.d0/hp(i) ! undo self-energy of point mass
 c             endif
@@ -383,21 +388,21 @@ c     so updating the entropy calculation is a low priority.
          
          if(mod(nit,nitpot).eq.0)then
             write (69,904) epot,ekin,eint,etot,stot,vcm,ajtot
- 904        format('   energies: w=',g10.3,' t=',f10.4,' u=',f10.4,/,
-     $           '     etot=',f10.4,' stot=',g10.3,' vcm=',g10.3,
-     $           ' jtot=',g10.3)
+ 904        format('   energies: W=',g10.3,' T=',f10.4,' U=',f10.4,/,
+     $           '     Etot=',f10.4,' Stot=',g10.3,' vcm=',g10.3,
+     $           ' Jtot=',g10.3)
          else
             write (69,905) epot,ekin,eint,etot,stot,vcm,ajtot
- 905        format('   energies:w''=',g10.3,' t=',f10.4,' u=',f10.4,/,
-     $           '    etot''=',f10.4,' stot=',g10.3,' vcm=',g10.3,
-     $           ' jtot=',g10.3)
+ 905        format('   energies:W''=',g10.3,' T=',f10.4,' U=',f10.4,/,
+     $           '    Etot''=',f10.4,' Stot=',g10.3,' vcm=',g10.3,
+     $           ' Jtot=',g10.3)
          endif
 
          nneavr=nneavr/n
          nnesig=sqrt(nnesig/n-nneavr**2)
          write (69,92) nneavr,nnesig,nnemin(1),nnemax(1),nnemin(2),
      $        nnemax(2)
- 92      format('   neighbors: avr=',f4.1,' sig=',f4.1,'  min=',i4,
+ 92      format('   neighbors: avr=',f4.0,' sig=',f4.0,'  min=',i4,
      $        ' max=',i5,i6,i6)
          
  906     format('   density: rhomin=',g10.3,' at (',g10.3,',',g10.3,',',

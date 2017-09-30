@@ -358,7 +358,7 @@ c     hydro), while myrank=2,3,4,5,6,7 do hydro (and no gravity):
                qtest=4
 c     the first call to a gpu is usually slow, so let's not time this one:
                call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength, x,y,z,
-     $              am, range, qtest)
+     $              am, range, qtest, nkernel)
                call lasthalf_grav_forces(ntot, gx, gy,gz, grpot)
                
                mintime=1d30
@@ -368,7 +368,7 @@ c     the first call to a gpu is usually slow, so let's not time this one:
                   call cpu_time(time0)
                   do i=1,imax
                      call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength, x,y,z,
-     $                    am, range, qtest)
+     $                    am, range, qtest, nkernel)
                      call lasthalf_grav_forces(ntot, gx, gy,gz, grpot)
                   enddo
                   call cpu_time(time1)

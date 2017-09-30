@@ -17,7 +17,7 @@
       integer ntab
       parameter(ntab=100000)                                           
       real*8 pi,alpha,beta
-      real*8 trelax,sep0,t,tf,dtout,dt,dth,hmin,hmax,tscanon,sepfinal
+      real*8 trelax,sep0,t,tf,dtout,dt,dth,hco,hfloor,tscanon,sepfinal
       real*8 dgdhtab(ntab), dgtab(ntab), gtab(ntab)
       real*8 wtab(ntab),dwtab(ntab),ctab,dwdhtab(ntab),dphidhtab(ntab)
       real*8 x(nmax),y(nmax),z(nmax),vx(nmax),vy(nmax),vz(nmax)  
@@ -49,7 +49,7 @@
       common/grav/ ngr,computeexclusivemode
       real*8 omega2,omega_spin
       common/relaxp/ trelax,bimpact,vinf2,equalmass,treloff,tresplintmuoff,omega2,omega_spin,nrelax,nitpot
-      common/intpar/ dt,n,nnopt,hmin,hmax,dth,ntot
+      common/intpar/ dt,n,nnopt,hco,hfloor,dth,ntot
       common/out/ t,tf,dtout,nout,nit     
       common/wtabul/dgdhtab,dgtab,gtab,wtab,dwtab,ctab,dwdhtab,dphidhtab
       common/part/ x,y,z,vx,vy,vz,am,hp,u,rho,por2,grpot,zeta,bonet_omega,bonet_0mega, bonet_psi, bonet_wn, max_vsig
@@ -63,7 +63,7 @@
       real*8 gam,teq,tjumpahead
       character*255 startfile1,startfile2,eosfile,opacityfile,profilefile
       logical throwaway
-      namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hmin,hmax,nrelax,trelax,sep0,bimpact,e0,semimajoraxis,vinf2,              &
+      namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hco,hfloor,nrelax,trelax,sep0,bimpact,e0,semimajoraxis,vinf2,             &
      &equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,nintvar,ngravprocs,qthreads,gflag,mbh,runit,munit,                   &
      &cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,               &
      &ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,opacityfile,profilefile,nkernel,throwaway

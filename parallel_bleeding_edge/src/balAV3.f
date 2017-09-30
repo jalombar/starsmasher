@@ -46,6 +46,8 @@ c     variables used for radiative cooling portion of the code:
       real*8 zeroin
       common/ueqstuff/rhocgs,teq
       real*8 grpottot(nmax),uraddoti
+      real*8 hpitilde,h2tilde,invh2tilde
+      integer itabtilde
 
       if(nav.eq.0) then
          if(nintvar.eq.1)then
@@ -96,10 +98,13 @@ c     strength as in other implementations of sph, we multiply by 2 here.
 c     for each particle:
       do i=n_lower,n_upper
          hpi=hp(i)
+         hpitilde=hpi - hfloor
          h2=hpi**2
+         h2tilde=hpitilde**2
          h5=hpi*h2**2
          invh  = 1.0/hpi
          invh2 = 1.0/h2
+         invh2tilde = 1.0/h2tilde
          invh5 = 1.0/h5
          ami=am(i)
          por2i=por2(i)
@@ -126,8 +131,15 @@ c     calculate gradwij's to all neighbors:
             dvz = vzi - vz(j)
             r2 = dx*dx + dy*dy + dz*dz 
             itab=int(ctab*r2*invh2)+1
+
+            if(r2.lt.4d0*h2tilde) then                                                                                                   
+               itabtilde=int(ctab*r2*invh2tilde)+1
+               diwkin = dgtab(itabtilde) * invh2tilde
+            else                                                                                                                         
+               diwkin = 0d0
+            endif                                                                                                                        
+
             dwijin = dwtab(itab) * invh5
-            diwkin = dgtab(itab) * invh2
 
             if(u(j).ne.0.d0 .and. u(i).ne.0) then
               divin = dx*dvx + dy*dvy + dz*dvz
@@ -142,11 +154,15 @@ c     calculate dinshaw balsara's (db) \mu_{ij}: see equation (a12) of http://ad
 c                 fj=abs(divv(j))/(abs(divv(j))+
 c     $                    sqrt(curlvx(j)**2+curlvy(j)**2+curlvz(j)**2)+
 c     $                    0.00001d0*cj/hp(j))
-c     very old version:
-c     udbij=hij*div(in)/((ci+cj)*(r2+eta2*hij**2))*(fi+fj)
+c     modified from very old version:
+                  if(r2.gt.0) then
+                     udbij=hpi*divin/(ci*r2)*fi
+                  else
+                     udbij=0d0
+                  endif
 c     old version:
 c     udbij=div(in)/((ci+cj)*r2**0.5d0)*(fi+fj)
-                  udbij=divin/(ci*r2**0.5d0)*fi
+c     udbij=divin/(ci*r2**0.5d0)*fi
                   if(abs(udbij).gt.1.d8) then
                      write(69,*)'c warning large udbij...',i,j, udbij,divin,ci,
      $                    am(i),am(j),u(i),u(j)

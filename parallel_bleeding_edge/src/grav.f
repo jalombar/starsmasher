@@ -23,7 +23,7 @@ ccc   ********* build the tree **********
          mygravlength=ngrav_upper-ngrav_lower+1
 
          call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength, x, y, z, 
-     $        am, range,q)
+     $        am, range,q,nkernel)
          if(myrank.eq.ngravprocs-1) then
             call cpu_time(time2)         
             write (6,'( a, f6.3, a,i4, a, i4)')'1sthalf:',time2-time1

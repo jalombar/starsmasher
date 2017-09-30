@@ -31,7 +31,7 @@ c     derived constants:
       real*8 hpguess,xacc,dxmax
       real*8 mci
       integer nmin
-      real*8 amass1,amass2
+      real*8 amass1,amass2,hmax
       common/forcompbest/ amass1,amass2
       common/presarray/ pres,i
       common/hack/tem,redge1,masscgs,utot2,wtota2
@@ -39,6 +39,7 @@ c     derived constants:
       integer comm_worker, irank
       common/gravworkers/comm_worker
       integer status(mpi_status_size)
+      real*8 hmin
 
       call splinesetup
 
@@ -57,8 +58,8 @@ c     derived constants:
          hc=0.5d0*radius*(1.3d0*nnopt/n)**(1.d0/3.d0) !trying to better estimate the nearest neighbor number... about 1.3*nnopt
       endif
 
-      redge2=radius-3.d0*hc
-      if(myrank.eq.0)write(69,*)'3h away from surface is redge2=',redge2
+      redge2=radius-2*hc
+      if(myrank.eq.0)write(69,*)'2*h away from surface is redge2=',redge2
 
       redge=max(redge1,redge2)
       if(myrank.eq.0)write(69,*)'redge=max(redge1,redge2)=',redge
@@ -206,7 +207,7 @@ c     start following loop at the first sph particle (with index 2, not 1, if th
          anumden=rhoi/am(i)
 c     the actual number of neighbors is closer to 1.9*nnopt
          hp(i)=(3.d0/32.d0/3.1415926535897932384626d0*
-     $        1.9d0*nnopt/anumden)**(1.d0/3.d0)
+     $        1.9d0*nnopt/anumden)**(1.d0/3.d0) + hfloor
 
       enddo
       
@@ -253,7 +254,7 @@ c     below here, n=total number of particles
          vz(1)=0.d0
          am(1)=amass-amtot
          if(myrank.eq.0)write(69,*) 'mass of core = ',am(1),'msun'
-         hp(1)=hmin/1.5d0
+         hp(1)=(hmin-hfloor)/1.5d0 + hfloor
          if(myrank.eq.0)write(69,*)'hp(core mass)',hp(1)
          cc(1)=int(2.d0*log(1.35d0*a1*
      $        (integral/(4.d0/3.d0*pi*redge**3))**(1.d0/3.d0))
@@ -285,7 +286,7 @@ c     below here, n=total number of particles
      $           rhoex)
             anumden=rhoex/am(i)
             hp(i)=(3.d0/32.d0/3.1415926535897932384626d0*
-     $           1.9d0*nnopt/anumden)**(1.d0/3.d0)
+     $           1.9d0*nnopt/anumden)**(1.d0/3.d0) + hfloor
 
          enddo
 

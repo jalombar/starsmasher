@@ -2,8 +2,8 @@
 c     initialize look-up tables:
       include 'starsmasher.h'
       integer i
-      real*8 u2,dig,ig,w,dw,dwdh,dphidh
-      real*8 dw332h,dw332hdh,w332h
+      real*8 u2,dig,ig,w,dw,dwdh,dphidh,dphi332hdh,dphic42hdh
+      real*8 dw332h,dw332hdh,w332h,dwc42h,dwc42hdh,wc42h
 
       if(myrank.eq.0) write(69,*)'gflag=',gflag
 
@@ -35,17 +35,27 @@ c         dgtab(i)   = dwtab(sqrt(u2))
 c         dgdhtab(i) = u2*dwtab(sqrt(u2))
          
          if (nkernel.eq.0) then
+c     cubic spline
             wtab(i)=w(sqrt(u2))
             dwtab(i)=dw(sqrt(u2))
             dwdhtab(i)=dwdh(sqrt(u2))
+            dphidhtab(i)=dphidh(sqrt(u2))
          elseif (nkernel.eq.1) then
+c     Wendland 3,3 kernel
             wtab(i)=w332h(sqrt(u2))
             dwtab(i)=dw332h(sqrt(u2))
             dwdhtab(i)=dw332hdh(sqrt(u2))
+            dphidhtab(i)=dphi332hdh(sqrt(u2))
+         elseif (nkernel.eq.2) then
+c     Wendland C4 kernel
+            wtab(i)=wc42h(sqrt(u2))
+            dwtab(i)=dwc42h(sqrt(u2))
+            dwdhtab(i)=dwc42hdh(sqrt(u2))
+            dphidhtab(i)=dphic42hdh(sqrt(u2))
          else
-            write(69,*) 'nkernel must equal 0 or 1'
+            write(69,*) 'nkernel must equal 0, 1, or 2'
+            stop
          endif
-         dphidhtab(i)=dphidh(sqrt(u2))
       enddo
 
       return
@@ -203,6 +213,7 @@ c     $        +u**3*(3.d0+nu)/4.d0)
       end
 ************************************************************************
       real*8 function dphidh(u)
+c     Cubic spline kernel
 c     The dphidh(u) function is related to d(phi)/dh, where phi is the
 c     specific gravitational potential given by eq. (A1) of Hernquist &
 c     Katz (1989,HK) or introduced in equation (A17) of Gaburov et
@@ -241,6 +252,28 @@ c         dphidh=-4*u**2+4*u**3-1.5d0*u**4+0.2d0*u**5+1.6d0
       else
          dphidh=0.d0
       endif
+      
+      return
+      end
+************************************************************************
+      real*8 function dphi332hdh(u)
+c     Wendland 3,3 kernel with compact support 2h
+      implicit none
+      real*8 u,q
+      
+      q=u/2.d0                  !  q=r/(2h) is the fractional radius
+      dphi332hdh=(35*(1 - q)**9*(7 + 63*q + 237*q**2 + 453*q**3 + 384*q**4))/128d0
+      
+      return
+      end
+************************************************************************
+      real*8 function dphic42hdh(u)
+c     Wendland C4 kernel with compact support 2h
+      implicit none
+      real*8 u,q
+      
+      q=u/2.d0                  !  q=r/(2h) is the fractional radius
+      dphic42hdh=(55*(1 - q)**7*(1 + 7*q + 19*q**2 + 21*q**3))/32d0
       
       return
       end
@@ -304,7 +337,7 @@ c     and W=Wendland 3,3 kernel scaled to have a compact support 2h
       implicit none
       real*8 q,sigW,u
       parameter(sigW =1365.d0/(512.d0*3.1415926535897932384626d0)) ! Note the 512
-
+!     We're using 512 instead of 64 because the output is W*h^3 and not W*(2h)^3
       q=u/2.d0                  !  q=r/(2h) is the fractional radius
       w332h = sigW*(1.d0-q)**8.d0*(32.d0*q**3.d0+25.d0*q**2.d0+8.d0*q+1.d0)
 
@@ -318,6 +351,8 @@ c     length & W=Wendland 3,3 kernel scaled to have a compact support 2h
       implicit none
       real*8 q,sigW,u
       parameter(sigW =1365.d0/(512.d0*3.1415926535897932384626d0)) ! Note the 512
+!     Note: the output is dW/dr*h^5/r = d(Wh^3)/dr*h^2/r = 0.25 * d(Wh^3)/dr*(2h)^2/r
+!     so below we have -11/2 instead of -22
 
       q=u/2.d0                  !  q=r/(2h) is the fractional radius
       dw332h = -11.d0/2.d0*sigW*(1.d0-q)**7.d0*(1+7*q+16*q**2)
@@ -335,6 +370,65 @@ c     length & W=Wendland 3,3 kernel scaled to have a compact support 2h
 
       q=u/2.d0                  !  q=r/(2h) is the fractional radius
       dw332hdh =  sigW*(1.d0-q)**7.d0*(-3-21*q-29*q**2+133*q**3+448*q**4)
+
+      return
+      end
+
+************************************************************************
+cC Wendland c4 kernel
+c      real*8 function wc4(q)
+c      implicit none
+c      real*8 q,sigW
+c      sigW =495.d0/(32.d0*3.1415926535897932384626d0)
+c
+c      if (q.lt.0.d0) then
+c          wc4 = 0.d0
+c      elseif (q.lt.1.d0) then
+c          wc4 = sigW*(1.d0-q)**6.d0*(35.d0/3d0*q**2.d0+6.d0*q+1.d0)
+c      else
+c          wc4 = 0.d0
+c      endif
+c
+c      return
+c      end
+
+      real*8 function wc42h(u)  ! NOTE... function of u=r/h
+c     input: u=r/h from 0 to 2 
+c     output: the dimensionless quantity W*h^3, where h=smoothing length
+c     and W=Wendland C4 kernel scaled to have a compact support 2h
+      implicit none
+      real*8 q,sigW,u
+      parameter(sigW =495.d0/(256.d0*3.1415926535897932384626d0)) ! Note the 256 instead of 32 (this is because the output is W*h^3 and not W*(2h)^3
+
+      q=u/2.d0                  !  q=r/(2h) is the fractional radius
+      wc42h = sigW*(1.d0-q)**6.d0*(35.d0/3d0*q**2.d0+6.d0*q+1.d0)
+      return
+      end
+ 
+      real*8 function dwc42h(u)
+c     input: u=r/h from 0 to 2 
+c     output: the dimensionless quantity dW/dr*h^5/r, where h=smoothing
+c     length & W=Wendland C4 kernel scaled to have a compact support 2h
+      implicit none
+      real*8 q,sigW,u
+      parameter(sigW =495.d0/(256.d0*3.1415926535897932384626d0)) ! Note the 256
+
+      q=u/2.d0                  !  q=r/(2h) is the fractional radius
+      dwc42h = -14.d0/3.d0*sigW*(1.d0-q)**5.d0*(1+5*q)
+
+      return
+      end
+ 
+      real*8 function dwc42hdh(u)
+c     input: u=r/h from 0 to 2 
+c     output: the dimensionless quantity dW/dh*h^4, where h=smoothing
+c     length & W=Wendland C4 kernel scaled to have a compact support 2h
+      implicit none
+      real*8 q,sigW,u
+      parameter(sigW =495.d0/(256.d0*3.1415926535897932384626d0)) ! Note the 256
+
+      q=u/2.d0                  !  q=r/(2h) is the fractional radius
+      dwc42hdh =  sigW*(1.d0-q)**5.d0*(-9-45*q+5*q**2+385*q**3)/3d0
 
       return
       end

@@ -49,7 +49,7 @@ gpu: $(GPUOBJS)
 	echo ***MADE VERSION THAT USES GPUS***
 
 cpu: $(CPUOBJS)
-	$(LD) -o $(CPUEXEC) $(LDFLAGS) $(CPUOBJS) $(LIBS) 
+	$(LD) -o $(CPUEXEC) $(LDFLAGS) $(CPUOBJS) $(LIBS) -L/cm/shared/apps/openmpi/gcc/64/1.8.1/lib64 -lmpi_mpifh
 	mv $(CPUEXEC) ..
 	echo ***MADE VERSION THAT DOES NOT NEED GPUS***
 

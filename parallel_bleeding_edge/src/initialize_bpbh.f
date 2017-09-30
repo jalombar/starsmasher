@@ -6,7 +6,7 @@
       real*8 altotint,r,amu,ak,vxcm,vycm,xcm,ycm
       integer n2,i,nchk,corepts
       integer nnoptold,noutold,nitold,navold,ngrold,nrelaxold
-      real*8 hminold,hmaxold,sep0old,tfold,dtoutold,told,
+      real*8 hcoold,hfloorold,sep0old,tfold,dtoutold,told,
      $     alphaold,betaold,trelaxold,dtold
       real*8 deltax1,deltay1,deltavx1,deltavy1
       real*8 deltax2,deltay2,deltavx2,deltavy2
@@ -29,7 +29,7 @@
       open(12,file=startfile1,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-      read(12) n1,nnoptold,hminold,hmaxold,sep0old,
+      read(12) n1,nnoptold,hcoold,hfloorold,sep0old,
      $     tfold,dtoutold,noutold,nitold,told,
      $     navold,alphaold,betaold,tjumpahead,
      $     ngrold,

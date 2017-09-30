@@ -7,7 +7,7 @@
       real*8 altotint,r,amu,ak,vxcm,vycm,xcm,ycm
       integer n2,i,nchk,corepts
       integer nnoptold,noutold,nitold,navold,ngrold,nrelaxold
-      real*8 hminold,hmaxold,sep0old,tfold,dtoutold,told,
+      real*8 hcoold,hfloorold,sep0old,tfold,dtoutold,told,
      $     alphaold,betaold,trelaxold,dtold
       logical twofiles
       real*8 deltax1,deltay1,deltavx1,deltavy1
@@ -43,7 +43,7 @@
       open(12,file=startfile1,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-      read(12) n1,nnoptold,hminold,hmaxold,sep0old,
+      read(12) n1,nnoptold,hcoold,hfloorold,sep0old,
      $     tfold,dtoutold,noutold,nitold,told,
      $     navold,alphaold,betaold,tjumpahead,
      $     ngrold,
@@ -129,7 +129,7 @@ c     place velocities at same time as everything else:
          open(12,file=startfile2,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-         read(12) n2,nnoptold,hminold,hmaxold,sep0old,
+         read(12) n2,nnoptold,hcoold,hfloorold,sep0old,
      $        tfold,dtoutold,noutold,nitold,told,navold,
      $        alphaold,betaold,tjumpahead,ngrold,
      $        nrelaxold,trelaxold,dtold,omega2
@@ -199,8 +199,8 @@ c     place velocities at same time as everything else:
          vzdot(i)=0.d0
          u(i)=0.d0
          udot(i)=0.d0
-         if(hmin.gt.0.d0) then
-            hp(i)=hmin
+         if(hco.gt.0.d0) then
+            hp(i)=hco
          else
             hp(i)=hp(n1)
          endif

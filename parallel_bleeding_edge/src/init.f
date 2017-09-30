@@ -7,7 +7,7 @@ c     initialization of run (new or restart)
 
       integer i,nchk,nrelaxold,nnoptold,navold,ngrold
       integer corepts
-      real*8 hminold,hmaxold,tfold,dtoutold,
+      real*8 hcoold,hfloorold,tfold,dtoutold,
      $     alphaold,betaold,trelaxold
       logical restart
       character*3 iname
@@ -70,7 +70,7 @@ c     if dump file exists, read it and restart from it:
          open(12,file='restartrad.sph',form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-         read(12,iostat=iostatus) ntot,nnoptold,hminold,hmaxold,sep0,tfold,
+         read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0,tfold,
      $        dtoutold,nout,nit,t,navold,alphaold,betaold,tjumpaheadold,
      $        ngrold,nrelaxold,trelaxold,dt,omega2,ncoolingold,erad,
      $        ndisplace,displacex,displacey,displacez
@@ -84,7 +84,7 @@ c     used in subroutine dump)
      $           trelaxold
             close(12)
             open(12,file='restartrad.sph',form='unformatted')
-            read(12,iostat=iostatus) ntot,nnoptold,hminold,hmaxold,sep0,tfold,
+            read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0,tfold,
      $           dtoutold,nout,nit,t,navold,alphaold,betaold,tjumpaheadold,
      $           ngrold,nrelaxold,trelaxold,dt,omega2,ncoolingold,erad
          endif
@@ -95,7 +95,7 @@ c     used in subroutine dump)
      $           trelaxold
             close(12)
             open(12,file='restartrad.sph',form='unformatted')
-            read(12,iostat=iostatus) ntot,nnoptold,hminold,hmaxold,sep0,tfold,
+            read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0,tfold,
      $           dtoutold,nout,nit,t,navold,alphaold,betaold,tjumpaheadold,
      $           ngrold,nrelaxold,trelaxold,dt,omega2
          endif
@@ -245,8 +245,8 @@ ccccccccccccccc               treloff=dble(nint(t))
                if(myrank.eq.0) write(69,*) 'sep0 & sepfinal set to',sep0
             endif
 
-            hmax=hmaxold
-            if(myrank.eq.0) write(69,*) 'set hmax=hmaxold=',hmax            
+            hfloor=hfloorold
+            if(myrank.eq.0) write(69,*) 'set hfloor=hfloorold=',hfloor
 
          endif
    
@@ -338,10 +338,10 @@ c     write run parameters:
 c here !!!!!
       if(myrank.eq.0) then
          write(69,*)'init: t=',t,' nit=',nit
-         write(69,101) n,nnopt,hmin,hmax,dtout,nout,tf,sep0,nav,
+         write(69,101) n,nnopt,hco,hfloor,dtout,nout,tf,sep0,nav,
      $     alpha,beta,ngr,nrelax,trelax,dt,ntot-n
  101     format (' init: parameters for this ideal + radiation run:',/,
-     $        ' n=',i7,' nnopt=',i4,' hmin=',g12.4,' hmax=',g12.4,/,
+     $        ' n=',i7,' nnopt=',i4,' hco=',g12.4,' hfloor=',g12.4,/,
      $        ' dtout=',g10.3,' nout=',i4,' tf=',g10.3,/,
      $        ' sep0=',g12.4,/,
      $        ' nav=',i2,' alpha=',f6.2,' beta=',f6.2,/,
@@ -511,8 +511,8 @@ c     set some default values, so that they don't necessarily have to be set in 
       alpha=1                  ! av coefficient for term linear in mu
       beta=2                   ! av coefficient for mu^2 term
       ngr=3                    ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
-      hmin=-.5                 ! minimum smoothing length allowed.  leave it at 0 or a negative number to be safe.  no longer used.
-      hmax=1.d30               ! maximum smoothing length allowed.  leave it very large to be safe.  no longer used.
+      hco=1d0                  ! softening/smoothing length for compact object or core particle
+      hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
       trelax=1.d30             ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
       sep0=200                 ! initial separation of two stars in a binary or collision calculation
@@ -523,9 +523,9 @@ c     set some default values, so that they don't necessarily have to be set in 
       tscanon=0                ! time that the scan of a binary starts
       sepfinal=1.d30           ! final separation for the scan of a binary
       nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u
-      ngravprocs=-2             ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
-      qthreads=0                ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
-      mbh=4.0                   !mass of black hole
+      ngravprocs=-2            ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+      qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
+      mbh=20d0                 ! mass of black hole
       runit=6.9599d10          ! number of cm in the unit of length.  use 6.9599d10 if want solar radius.
       munit=1.9891d33          ! number of g in unit of mass.  use 1.9891d33 if want solar mass.
 !     the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
@@ -736,7 +736,7 @@ c     6/22/94 - all initial parameters except for n come from sph.input
       include 'starsmasher.h' 
       integer i,nchk,nrelaxold,nnoptold,noutold,nitold,navold,
      $     ngrold,corepts
-      real*8 hminold,hmaxold,sep0old,tfold,dtoutold,told,
+      real*8 hcoold,hfloorold,sep0old,tfold,dtoutold,told,
      $     alphaold,betaold,trelaxold
 
 c     read in data from previous run:      
@@ -745,7 +745,7 @@ c     read in data from previous run:
       open(12,file='startu.sph',form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-      read(12) ntot,nnoptold,hminold,hmaxold,sep0old,
+      read(12) ntot,nnoptold,hcoold,hfloorold,sep0old,
      $     tfold,dtoutold,noutold,nitold,told,navold,
      $     alphaold,betaold,tjumpahead,ngrold,nrelaxold,
      $     trelaxold,dt
