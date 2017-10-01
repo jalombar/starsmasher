@@ -28,8 +28,8 @@ You should look at sph.input:
 ```
 emacs -nw sph.input
 ```
-Change line 4 of sph.input to be N=2000 and save the file.  
-There are several other variables that could be changed, but the defaults should be fine for now.  
+Change line 4 of sph.input to be N=2000 and save the file.
+There are several other variables that could be changed, but the defaults should be fine for now.
 See the Starcrash documentation for an explanation of what some of the other variables are.
 
 Now let's compile the source code:
@@ -42,8 +42,8 @@ Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
 emacs -nw initialize_polyes.f
 ```
 Confirm that the lines right after the declaration section will set the polytropic constant npoly to be 1.5.
-The radius and mass are set on near here.  
-These values are in physical units of runit and munit, which are set at the end of sph.input and are typically the radius and mass of the sun in cgs units.  
+The radius and mass are set on near here.
+These values are in physical units of runit and munit, which are set at the end of sph.input and are typically the radius and mass of the sun in cgs units.
 Save initialize_polyes.f when done and then try to compile:
 ```
 make
@@ -76,13 +76,13 @@ cd TWIN
 cp ../example_input/relaxation_TWIN_model/* .
 ```
 
-To relax a TWIN model instead, the three letter code word in sph.init should be 'erg'.  
-The SPH code will look for a model named 'eg.last1.muse_s2mm'.  
-You can create a symbolic link from an appropriate output file of TWIN if you like (e.g., "cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm").  
-The file m_8_t_5.7.last1.muse_s2mm is the default in example_input/relaxation_TWIN_model.  
+To relax a TWIN model instead, the three letter code word in sph.init should be 'erg'.
+The SPH code will look for a model named 'eg.last1.muse_s2mm'.
+You can create a symbolic link from an appropriate output file of TWIN if you like (e.g., "cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm").
+The file m_8_t_5.7.last1.muse_s2mm is the default in example_input/relaxation_TWIN_model.
 It represents an 8M_sun MS star at t=5.7Myr.
 
-The sph.input file, also available within example_input/relaxation_TWIN_model/, should be similar to the sph.input file used above for the polytrope (probably just change N and nothing else unless necessary).  
+The sph.input file, also available within example_input/relaxation_TWIN_model/, should be similar to the sph.input file used above for the polytrope (probably just change N and nothing else unless necessary).
 The file on the svn site does have TRELOFF to 200 in this case, to make sure there was enough time for oscillations to die off, and TF is 300 so the star could be monitored for 100 time units after the relaxation was turned off.
 
 Run the code like before:
@@ -96,7 +96,7 @@ qsub -q debug sph.pbs
 
 ### Step 2: Dynamical calculation
 
-If the model from the relaxation run at t=TRELOFF looks good, then you can use that to start a dynamical calculation.  
+If the model from the relaxation run at t=TRELOFF looks good, then you can use that to start a dynamical calculation.
 Start by get the directories ready:
 ```
 cd ~/starsmasher   ### or cd to wherever your main installation is
@@ -112,10 +112,10 @@ Take a look at it:
 ```
 emacs -nw sph.input
 ```
-While you're in the file, check that DTOUT=1 on line 3, which means that an out*.sph file will be dumped every 1 time unit.  
+While you're in the file, check that DTOUT=1 on line 3, which means that an out*.sph file will be dumped every 1 time unit.
 Also, on line 16 or so, make BIMPACT=3.9d0, which means the periastron separation of the initial orbit is 3.9 stellar radii.
 
-In sph.input you can use any of the following pairs of data to initialize a collision in hyperbolic.f: (e0,vinf2), (e0,bimpact), (semimajoraxis,bimpact), (semimajoraxis,e0), (bimpact,vinf2).  Here e0 is the eccentricity of the initial orbit, and bimpact is the periastron separation (not really the impact parameter).  
+In sph.input you can use any of the following pairs of data to initialize a collision in hyperbolic.f: (e0,vinf2), (e0,bimpact), (semimajoraxis,bimpact), (semimajoraxis,e0), (bimpact,vinf2).  Here e0 is the eccentricity of the initial orbit, and bimpact is the periastron separation (not really the impact parameter).
 For example, sph.input could contain
 
 ```
@@ -123,19 +123,19 @@ BIMPACT=4.d0,
 semimajoraxis=118.57d0,
 ```
 
-and e0 and vinf2 could be unspecified.  
-Or you could specify BIMPACT and e0, and the same code works, etc.  
+and e0 and vinf2 could be unspecified.
+Or you could specify BIMPACT and e0, and the same code works, etc.
 The code in initialize_hyperbolic.f figures out what it needs to solve for.
 
 Whether the encounter is hyperbolic, parabolic, or elliptical is controlled by the velocity at infinity squared, vinf2, or the semimajoraxis a.
-The value of vinf2 is negative for elliptical encounters, zero for parabolic encounters, and positive for hyperbolic encounters.  
+The value of vinf2 is negative for elliptical encounters, zero for parabolic encounters, and positive for hyperbolic encounters.
 Note that the orbital energy G*M*mu/(-2a) just equals mu*vinf2/2.
 Therefore, there is a simple relation between the semimahor axis a and vinf2, namely.  
 a=-G*M/vinf2, where M is the total mass of the two stars.  
 For example, if you are colliding a 0.3 Msun and 8Msun star and if vinf2=-0.07, then the semimajor axis a=(0.3+8)/0.07=118.57, where I assume the units chosen are the usual G=Msun=Rsun=1.
 
-Note that ngravprocs=-6 and ppn=16... this means there are abs(ngravprocs)=6 GPU units per 16 CPU cores, as on one node of the supercomputer forge.  
-You should change these values to be appropriate for your machine.  
+Note that ngravprocs=-6 and ppn=16... this means there are abs(ngravprocs)=6 GPU units per 16 CPU cores, as on one node of the supercomputer forge.
+You should change these values to be appropriate for your machine.
 For example, on Keeneland KFS, there are 3 gpus and 12 cores per node.
 
 Let's get the star models:
@@ -161,8 +161,8 @@ qsub -q debug sph.pbs
 
 ## RESTARTING RUNS
 
-Every few iterations, a restartrad.sph file is dumped (overwriting any previously existing restartrad.sph file).  
-If a restartrad.sph file exists in the directory when a new run is launched, then the code will automatically use that file to initiate the calculation.  
-This is useful for restarting in the middle of a long simulation.  
+Every few iterations, a restartrad.sph file is dumped (overwriting any previously existing restartrad.sph file).
+If a restartrad.sph file exists in the directory when a new run is launched, then the code will automatically use that file to initiate the calculation.
+This is useful for restarting in the middle of a long simulation.
 You can also restart from any out*.sph file simply by renaming it to restartrad.sph.
 
