@@ -2,7 +2,14 @@
 
 Please contact Jamie Lombardi (jamie.lombardi@allegheny.edu) with any questions.
 
-##OBTAINING AND COMPILING
+## Roadmap
+- [ ] Integrate equations of state to handle planet-planet collisions
+- [ ] Link to data analysis libraries
+- [ ] Improve documentation
+- [ ] Update README
+  - [ ] Add in references to papers and algorithms
+
+## OBTAINING AND COMPILING
 
 To get the code, first get an account on carrv109.allegheny.edu and ask Jamie to open up connections to carrv109 from your preferred IP address.  Then issue the commands
 
@@ -93,9 +100,9 @@ There are two steps to modelling a collision or fly-by of two stars.
 First, you have to model the individual star: a relaxation run.
 Second, you simulate the interaction: a dynamical calculation.
 
-###Step 1: Relaxation runs
+### Step 1: Relaxation runs
 
-###Step 1(a): Relaxing a n=1.5 polytrope
+### Step 1(a): Relaxing a n=1.5 polytrope
 
 Let's have you do your own simulation for practice.  We'll use N=1000,
 so that the code runs very quickly.  Let's try an equation of state
@@ -156,7 +163,7 @@ qsub -q debug sph.pbs ### or, for long jobs, "qsub sph.pbs"
 This creates, among other things, a file log0.sph that collects
 ascii tex about the run.
 
-###Step 1(b): Relaxing a TWIN model
+### Step 1(b): Relaxing a TWIN model
 
 Get the directories ready:
 ```
@@ -184,7 +191,7 @@ cp ../sph.pbs.kfs ./sph.pbs
 qsub -q debug sph.pbs
 ```
 
-###Step 2: Dynamical calculation
+### Step 2: Dynamical calculation
 
 If the model from the relaxation run at t=TRELOFF looks good, then you can use that to start a dynamical calculation.  
 Start by get the directories ready:
@@ -249,14 +256,14 @@ cp ../sph.pbs.kfs ./sph.pbs
 qsub -q debug sph.pbs
 ```
 
-##RESTARTING RUNS
+## RESTARTING RUNS
 
 Every few iterations, a restartrad.sph file is dumped (overwriting any previously existing restartrad.sph file).  
 If a restartrad.sph file exists in the directory when a new run is launched, then the code will automatically use that file to initiate the calculation.  
 This is useful for restarting in the middle of a long simulation.  
 You can also restart from any out*.sph file simply by renaming it to restartrad.sph.
 
-##DATA VISUALIZATION
+## DATA VISUALIZATION
 
 I recommend Price's SPLASH software.  
 It will need to be customized to read in our output file type.
