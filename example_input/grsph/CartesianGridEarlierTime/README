@@ -1,0 +1,13 @@
+Matthew Duez <mduez137@yahoo.com>
+9/25/12
+
+to Francois, Marcelo, me 
+Hi guys,
+
+Francois and I have recovered data for this run at an earlier time, t=11877.720.  The matter profiles are in
+RelSPH/TailInitialData/CartesianGridEarlierTime.
+The extents of the box are -100<=x<=150,   -180<=y<=110,  0<=z<=35.
+At this time, the black hole is located at (-0.3266, -0.7796, 0).  (Motion of the black hole is probably a much smaller source of error than Newtonian physics and coordinate issues.)
+
+
+Matt

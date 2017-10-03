@@ -1,0 +1,122 @@
+#!/bin/tcsh
+#  Batch Script for a parallel sph job
+#
+#
+#  Submit this script using the command: qsub <script_name>
+#
+#  Use the "qstat" command to check the status of a job.
+#
+# The following are embedded QSUB options. The syntax is #PBS (the # does
+# _not_  denote that the lines are commented out so do not remove).
+#
+###PBS -A TG-AST100048 
+#PBS -A TG-AST120011
+#
+#
+# walltime : maximum wall clock time (hh:mm:ss)
+#PBS -l walltime=00:01:00
+#
+# nodes: number of 16-core nodes
+#   ppn: how many cores per node to use (1 through 16)
+#PBS -l nodes=1:ppn=16
+#
+# export all my environment variables to the job
+###PBS -V
+#
+# job name (default = name of script file)
+#PBS -N starsmasher
+####PBS -N '$(pwd | xargs basename)'
+#
+#
+# Send a notification email when the job (b)egins and when the (e)nds
+# remove the line below to disable email notification.
+#PBS -m be
+#PBS -M jamie.lombardi@allegheny.edu
+#
+#
+# filename for standard output (default = <job_name>.o<job_id>)
+# at end of job, it is in directory from which qsub was executed
+# remove extra ## from the line below if you want to name your own file
+###PBS -o timing.sph
+#
+# filename for standard error (default = <job_name>.e<job_id>)
+# at end of job, it is in directory from which qsub was executed
+# remove extra ## from the line below if you want to name your own file
+###PBS -e errors.sph
+#
+#PBS -q batch
+# End of embedded QSUB options
+#
+set echo               # echo commands before execution; use for debugging
+#
+
+set JOBID=`echo $PBS_JOBID | cut -d'.' -f1`
+set FOLDERNAME=PARALLEL
+
+echo The JOBID is $JOBID
+echo The folder name is $FOLDERNAME
+
+cd $PBS_O_WORKDIR
+###cp * $SCR
+###cp -pr src $SCR
+###ln -s $SCR .
+###cd $SCR                # change to job scratch directory
+                       # use cdjob <jobid> to go to this directory once
+                       # the job has started
+####chmod g+r -R $SCR
+####chmod g+w $SCR
+###chmod -R g+r $SCR
+###chmod g+wx $SCR
+
+
+# Get executable and input files from mass storage
+# **** IF THEY ARE STORED ON MSS ****
+# otherwise copy your executable to $SCR(the job's scratch directory)
+# Ex.   cp ~/subdir01/subdir02/a.out $SCR 
+###msscmd "cd dir1, get a.out, mget *.input"
+
+
+# mss doesn't keep executable bit set, so need to set it on program
+
+#mvapich2-start-mpd
+# mpd &
+
+#setenv NP `wc -l ${PBS_NODEFILE} | cut -d' ' -f1`
+setenv NP `wc -l ${PBS_NODEFILE} | cut -d'/' -f1`
+
+module unload cuda
+module load cuda/5.0
+
+echo The variable NP=${NP}
+echo The PBS_NODEFILE is ${PBS_NODEFILE}
+echo "nodefile="
+cat ${PBS_NODEFILE}
+echo "=end nodefile"
+
+### setenv any other vars you might need
+### must setenv these to avoid hanging on ib
+###setenv OMPI_MCA_btl_openib_flags 1
+###setenv OMPI_MCA_btl_mpi_leave_pinned 0
+###setenv OMPI_MCA_btl_openib_warn_default_gid_prefix 0
+
+####mpirun -np ${NP} ./*_sph
+###mpirun -np ${NP} -hostfile ${PBS_NODEFILE} ./*_sph
+######mpirun -np ${NP} -machinefile ${PBS_NODEFILE} ./*_sph >> timing.sph 2> errors.sph
+
+#
+# This syntax may run your application more quickly, if performance seems 
+# much slower than expected, try this:
+#
+# mpirun --mca mpi_leave_pinned 1 -np ${NP} -machinefile ${PBS_NODEFILE} \
+#  a.out
+
+# To arrange mpi ranks in a round-robin fasion by machines, add the -bynode flag
+#
+# mpirun -bynode -np ${NP} -machinefile ${PBS_NODEFILE} a.out
+
+mpirun --mca mpi_paffinity_alone 1 -bynode -np ${NP} -machinefile ${PBS_NODEFILE} ./*_sph
+
+#mpdallexit
+
+# save output files back to mass storage
+#msscmd mkdir $FOLDERNAME, cd $FOLDERNAME, mkdir Job.${JOBID},cd Job.${JOBID}, mput *.*
