@@ -29,10 +29,10 @@ The AV scheme is described in Ponce et al. (2011).
   - [ ] Add in references to papers and algorithms
 
 ## Installation
-[Installing StarSmasher](https://github.com/jalombar/starsmasher/blob/bleeding-edge/INSTALLATION.md)
+[Installing StarSmasher](https://github.com/jalombar/starsmasher/blob/bleeding-edge/documentation/installation.md)
 
 ## Example calculation
-[Star-star fly-by calculation](https://github.com/jalombar/starsmasher/blob/bleeding-edge/WALKTHROUGH.md)
+[Star-star fly-by calculation](https://github.com/jalombar/starsmasher/blob/bleeding-edge/documentation/walkthroughs/star_star_flyby.md)
 
 ## Papers using StarSmasher
 [Hydrodynamics of Collisions Between Sub-Neptunes](https://arxiv.org/abs/1707.01628)
