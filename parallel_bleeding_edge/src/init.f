@@ -542,7 +542,7 @@ c     set some default values, so that they don't necessarily have to be set in 
 !     the final timestep dt is the minimum of dt_sph and dt_co for all particles i
       computeexclusivemode=0   ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
       omega_spin=0.d0 ! angular rotation rate of star, used in nrelax=1 relaxations to give a rigidly rotating model
-      ppn=8
+      ppn=12
       neos=1 ! 0 for polytropic equation of state (eos), 1 for ideal gas + radiation pressure, 2 for tabulated eos
       nselfgravity=1 ! 0 if just do gravity to point particles, 1 if self-gravitating
       gam=5.d0/3.d0 ! leave this set at a reasonable value even if using neos=1 or 2 (because the value of gam is used in estimating the local sound speed in balav3.f)
