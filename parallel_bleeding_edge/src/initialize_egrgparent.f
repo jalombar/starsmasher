@@ -253,7 +253,7 @@ c     below here, n=total number of particles
          vz(1)=0.d0
          am(1)=amass-amtot
          if(myrank.eq.0)write(69,*) 'mass of core = ',am(1),'msun'
-         hp(1)=hmin/1.5d0
+         hp(1)=hmin
          if(myrank.eq.0)write(69,*)'hp(core mass)',hp(1)
          cc(1)=int(2.d0*log(1.35d0*a1*
      $        (integral/(4.d0/3.d0*pi*redge**3))**(1.d0/3.d0))
