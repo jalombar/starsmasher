@@ -28,7 +28,7 @@ FOBJS = kdtree2.o advance.o balAV3.o \
         main.o output.o pressure.o\
         ran1.o spline.o splint.o\
         initialize_polyes.o initialize_polymces.o\
-        initialize_corotating.o relax.o zeroin.o resplintmu.o grav.o initialize_triple.o temperaturefunction.o initialize_bps.o initialize_bpbh.o calccom.o elements.o initialize_smbh.o initialize_egrgparent.o initialize_hyperbolic_binary_single.o skipahead.o compbest3.o componentize3.o changetf.o tstep.o initialize_grsph.o eatem.o useeostable.o hunt.o usekappatable.o initialize_asciiimage.o
+        initialize_corotating.o relax.o zeroin.o resplintmu.o grav.o initialize_triple.o temperaturefunction.o initialize_bps.o initialize_bpbh.o calccom.o elements.o initialize_smbh.o initialize_parent.o initialize_hyperbolic_binary_single.o skipahead.o compbest3.o componentize3.o changetf.o tstep.o initialize_grsph.o eatem.o useeostable.o hunt.o usekappatable.o initialize_asciiimage.o
 #  grav.o 
 COBJS = rtc.o #peano_sort.o
 CPUOBJS = $(FOBJS) $(COBJS) cpu_grav.o

@@ -32,7 +32,7 @@ c break.  and that doesn't seem to be happening fortunately!
       real*8 vxcm,vycm,vzcm,xcm,ycm,zcm
       integer n3,i,nchk,corepts
       integer nnoptold,noutold,nitold,navold,ngrold,nrelaxold
-      real*8 hminold,hmaxold,sep0old,tfold,dtoutold,told,
+      real*8 hcoold,hfloorold,sep0old,tfold,dtoutold,told,
      $     alphaold,betaold,trelaxold,dtold
       real*8 costh1,sinth1,costh2,sinth2,cosps1,sinps1,ps2,cosph1,sinph1
       real*8 xold,yold,zold,vxold,vyold,vzold
@@ -283,7 +283,7 @@ c     determine coefficients of rotation matrix for the binary
       open(12,file=startfile1,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-      read(12) nbinary,nnoptold,hminold,hmaxold,sep0old,
+      read(12) nbinary,nnoptold,hcoold,hfloorold,sep0old,
      $     tfold,dtoutold,noutold,nitold,told,
      $     navold,alphaold,betaold,tjumpahead,
      $     ngrold,
@@ -504,7 +504,7 @@ c      write(69,*) '...end natural units'
       open(12,file=startfile2,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-      read(12) n3,nnoptold,hminold,hmaxold,sep0old,
+      read(12) n3,nnoptold,hcoold,hfloorold,sep0old,
      $     tfold,dtoutold,noutold,nitold,told,navold,
      $     alphaold,betaold,tjumpahead,ngrold,
      $     nrelaxold,trelaxold,dtold

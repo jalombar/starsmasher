@@ -557,8 +557,8 @@ c      n=ntot
       vzdot(i)=0.d0
       u(i)=0.d0
       udot(i)=0.d0
-      if(hmin.gt.0.d0) then
-         hp(i)=hmin
+      if(hco.gt.0.d0) then
+         hp(i)=hco
       else
          hp(i)=hp(ntot-1)
       endif

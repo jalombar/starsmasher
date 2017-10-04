@@ -12,7 +12,7 @@ c     calls gravquant,lfstart
       common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       integer n2,i,nchk,corepts
       integer nnoptold,noutold,nitold,navold,ngrold,nrelaxold
-      real*8 hminold,hmaxold,sep0old,tfold,dtoutold,told,
+      real*8 hcoold,hfloorold,sep0old,tfold,dtoutold,told,
      $     alphaold,betaold,trelaxold,dtold
       integer istart,corepts1,corepts2
       common/core/corepts1,corepts2
@@ -110,7 +110,7 @@ c     calls gravquant,lfstart
       open(12,file=startfile1,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-      read(12) n1,nnoptold,hminold,hmaxold,sep0old,
+      read(12) n1,nnoptold,hcoold,hfloorold,sep0old,
      $     tfold,dtoutold,noutold,nitold,told,
      $     navold,alphaold,betaold,tjumpahead,
      $     ngrold,
@@ -144,7 +144,7 @@ c     used in subroutine dump)
          open(12,file=startfile2,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-         read(12) n2,nnoptold,hminold,hmaxold,sep0old,
+         read(12) n2,nnoptold,hcoold,hfloorold,sep0old,
      $        tfold,dtoutold,noutold,nitold,told,navold,
      $        alphaold,betaold,tjumpahead,ngrold,
      $        nrelaxold,trelaxold,dtold
@@ -202,8 +202,8 @@ c     $           cc(i)
          vzdot(i)=0.d0
          u(i)=0.d0
          udot(i)=0.d0
-         if(hmin.gt.0.d0) then
-            hp(i)=hmin
+         if(hco.gt.0.d0) then
+            hp(i)=hco
          else
             hp(i)=hp(n1)
          endif

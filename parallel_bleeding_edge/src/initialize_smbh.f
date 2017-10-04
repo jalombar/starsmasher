@@ -3,7 +3,7 @@
       real*8 vxcm,vycm,vzcm,xcm,ycm,zcm
       integer n2,i,nchk,corepts,n3
       integer nnoptold,noutold,nitold,navold,ngrold,nrelaxold
-      real*8 hminold,hmaxold,sep0old,tfold,dtoutold,told,
+      real*8 hcoold,hfloorold,sep0old,tfold,dtoutold,told,
      $     alphaold,betaold,trelaxold,dtold
       real*8 deltax1,deltay1,deltaz1,deltavx1,deltavy1,deltavz1
       real*8 deltax2,deltay2,deltaz2,deltavx2,deltavy2,deltavz2
@@ -28,7 +28,7 @@
       open(12,file=startfile1,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-      read(12) n1,nnoptold,hminold,hmaxold,sep0old,
+      read(12) n1,nnoptold,hcoold,hfloorold,sep0old,
      $     tfold,dtoutold,noutold,nitold,told,
      $     navold,alphaold,betaold,tjumpahead,
      $     ngrold,
@@ -63,7 +63,7 @@ c            stop
       open(12,file=startfile2,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-      read(12) n2,nnoptold,hminold,hmaxold,sep0old,
+      read(12) n2,nnoptold,hcoold,hfloorold,sep0old,
      $     tfold,dtoutold,noutold,nitold,told,navold,
      $     alphaold,betaold,tjumpahead,ngrold,
      $     nrelaxold,trelaxold,dtold
@@ -147,7 +147,7 @@ c            stop
       vy(ntot)=deltavy3
       vz(ntot)=deltavz3
       am(ntot)=am3
-      hp(ntot)=hmin
+      hp(ntot)=hco
       u(ntot)=0.d0
       meanmolecular(ntot)=0.d0
       cc(ntot)=1

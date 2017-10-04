@@ -67,7 +67,8 @@ c     when neos=0 and when neos=2.
                else
                   ucgs=u(i)*gravconst*munit/runit
                endif
-               por2(i)=useeostable(ucgs,rhocgs,3)/rho(i)**2/punit
+               por2(i)=useeostable(ucgs,rhocgs,meanmolecular(i),3)
+     $              /rho(i)**2/punit
             else
                por2(i)=0.d0
             endif

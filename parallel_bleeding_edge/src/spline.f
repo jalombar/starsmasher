@@ -2,7 +2,7 @@
       implicit none
       integer n,nmax
       real*8 yp1,ypn,x(n),y(n),y2(n)
-      parameter (nmax=1400)
+      parameter (nmax=5000)
       integer i,k
       real*8 p,qn,sig,un,u(nmax)
       if (yp1.gt..99d30) then

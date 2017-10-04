@@ -24,7 +24,8 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       common/splinestuff/rarray,uarray,muarray,rhoarray
       common/presarray/ pres,i
 
-      ufunction=1.d0-useeostable(ucgsi,rhoarray(i),3)/pres(i)
+      ufunction=1.d0-useeostable(ucgsi,rhoarray(i),muarray(i),3)
+     $     /pres(i)
 
       return
       end
@@ -32,10 +33,10 @@ ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
       double precision function ueqfunction(ucgsi)
 
       real*8 ucgsi,useeostable
-      real*8 rhocgs,teq
-      common/ueqstuff/rhocgs,teq
+      real*8 rhocgs,teq,mucgs
+      common/ueqstuff/rhocgs,teq,mucgs
 
-      ueqfunction=1.d0-useeostable(ucgsi,rhocgs,1)/teq
+      ueqfunction=1.d0-useeostable(ucgsi,rhocgs,mucgs,1)/teq
 
       return
       end

@@ -1,4 +1,4 @@
-      subroutine egrgparent
+      subroutine parent
 c     creates a star from the data file yrec output
       include 'starsmasher.h'
       include 'mpif.h'
@@ -31,7 +31,7 @@ c     derived constants:
       real*8 hpguess,xacc,dxmax
       real*8 mci
       integer nmin
-      real*8 amass1,amass2
+      real*8 amass1,amass2,hmax
       common/forcompbest/ amass1,amass2
       common/presarray/ pres,i
       common/hack/tem,redge1,masscgs,utot2,wtota2
@@ -39,6 +39,7 @@ c     derived constants:
       integer comm_worker, irank
       common/gravworkers/comm_worker
       integer status(mpi_status_size)
+      real*8 hmin
 
       call splinesetup
 
@@ -178,7 +179,7 @@ c     (particle is accepted)
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 c     (note that n will be slightly changed!)
       n=ip-corepts
-      if(myrank.eq.0) write (69,*) 'egrgparent: n=',n
+      if(myrank.eq.0) write (69,*) 'parent: n=',n
       amass1=n
       amass2=0
       if (n+corepts.gt.nmax) stop 'parent: n>nmax ???'
@@ -206,7 +207,7 @@ c     start following loop at the first sph particle (with index 2, not 1, if th
          anumden=rhoi/am(i)
 c     the actual number of neighbors is closer to 1.9*nnopt
          hp(i)=(3.d0/32.d0/3.1415926535897932384626d0*
-     $        1.9d0*nnopt/anumden)**(1.d0/3.d0)
+     $        1.9d0*nnopt/anumden)**(1.d0/3.d0) + hfloor
 
       enddo
       
@@ -285,7 +286,7 @@ c     below here, n=total number of particles
      $           rhoex)
             anumden=rhoex/am(i)
             hp(i)=(3.d0/32.d0/3.1415926535897932384626d0*
-     $           1.9d0*nnopt/anumden)**(1.d0/3.d0)
+     $           1.9d0*nnopt/anumden)**(1.d0/3.d0) + hfloor
 
          enddo
 
@@ -461,15 +462,15 @@ c      endif
       if(myrank.eq.0)then
          write(69,*)'hmin=',hmin
          write(69,*)'hmax=',hmax
-         write(69,*)'egrgparent: tf=',tf,dtout
-         write(69,*)'parent: exiting egrgparent'
+         write(69,*)'parent: tf=',tf,dtout
+         write(69,*)'parent: exiting parent'
       endif
 
       return
 
       end
       subroutine splinesetup
-c     creates a star from the data file yrec output
+c     Read in a stellar evolution code file
       include 'starsmasher.h'
       integer numlines,i,j
       real*8 amass,radiuscgs,masscgs,radius
@@ -505,85 +506,188 @@ c     derived constants:
       common/presarray/ pres,i
       common/hack/tem,redge1,masscgs,utot2,wtota2
       integer k
+      integer model_number, num_zones, zone
+      real*8 initial_mass,initial_z,              
+     $     star_age,time_step,Teff,photosphere_L,photosphere_r,         
+     $     center_eta,center_h1,center_he3,center_he4,center_c12,       
+     $     center_n14,center_o16,center_ne20,star_mass,star_mdot,       
+     $     star_mass_h1,star_mass_he3,star_mass_he4,star_mass_c12,      
+     $     star_mass_n14,star_mass_o16,star_mass_ne20,he_core_mass,     
+     $     c_core_mass,o_core_mass,si_core_mass,fe_core_mass,           
+     $     neutron_rich_core_mass                 
+      real*8 qq, logR, logRho, logT, logP, logPgas,
+     $     luminosity, x_mass_fraction_H,y_mass_fraction_He,            
+     $     z_mass_fraction_metals,gamma1,opacity,pp,cno,gradr,gradT,    
+     $     grada,actual_gradT,total_energy,total_energy_integral,       
+     $     scale_height,mu,dummy
+      integer ii
 
-c     h, he4 , c12, n14, o16, ne20
-      ln(1)=0
-      ln(2)=2
-      ln(3)=6
-      ln(4)=7
-      ln(5)=8
-      ln(6)=10
-      ln(7)=12
-      ln(8)=14
-      ln(9)=30
-
-      lz(1)=1
-      lz(2)=2
-      lz(3)=6
-      lz(4)=7
-      lz(5)=8
-      lz(6)=10
-      lz(7)=12
-      lz(8)=14
-      lz(9)=26
-
-c     get profiles:
+      if(myrank.eq.0) then
+         write(69,*) 'splinesetup: stellarevolutioncodetype=',
+     $        stellarevolutioncodetype
+         write(69,*) '             about to read file ',trim(profilefile)
+      endif
       open(io,file=profilefile,status='old')
-      i=0
-      do k=1,kdm
-         i=i+1
-         read(io,*, end=21) xm(i),rarray(i),pres(i),rhoarray(i),
-     $        (xx(j,i),j=1,ndim)
-         if(i.gt.1 .and. rarray(i).le.rarray(i-1)) then
-            if(myrank.eq.0) write(69,*)'ignoring shell',k
-            i=i-1
-         endif
-      enddo
-      if(myrank.eq.0)write(69,*)'need to increase kdm'
-      stop
- 21   close(io)
-      numlines=i-1
-      xm(numlines+1)=xm(numlines)
-      rarray(numlines+1)=rarray(numlines)
-      pres(numlines+1)=0.d0
-      rhoarray(numlines+1)=0.d0
-      do j=1,ndim
-         xx(j,numlines+1)=xx(j,numlines)
-      enddo
-      if(myrank.eq.0)write(69,*)'number of shells=',numlines
-
-      maxmu=0.d0
-      minmu=1.d30
-      do i=1,numlines
- 123     continue
-         muarray(i)=0.d0
-         sum=0.d0
-         do j=1,ndim  
-            muarray(i)=muarray(i)+xx(j,i)
-     $           *dble(1+lz(j))/dble(ln(j)+lz(j))
-            sum=sum+xx(j,i)
-         enddo
-         if(dabs(sum-1.d0).gt.1.d-8) then
-            if(myrank.eq.0)
-     $           write(69,*) 'problem with abundances',sum-1.d0,i
-            if(i.gt.0.9*numlines) then
-               if(myrank.eq.0)
-     $              write(69,*)'solving by using previous shell values'
-               do j=1,ndim
-                  xx(j,i)=xx(j,i-1)
-               enddo
-               goto 123
-            else
-               stop
+      if(stellarevolutioncodetype.eq.0) then
+c     This is a *.s2mm file made by TWIN on starsmasher.allegheny.edu
+c     h, he4 , c12, n14, o16, ne20
+         ln(1)=0
+         ln(2)=2
+         ln(3)=6
+         ln(4)=7
+         ln(5)=8
+         ln(6)=10
+         ln(7)=12
+         ln(8)=14
+         ln(9)=30
+         
+         lz(1)=1
+         lz(2)=2
+         lz(3)=6
+         lz(4)=7
+         lz(5)=8
+         lz(6)=10
+         lz(7)=12
+         lz(8)=14
+         lz(9)=26
+         
+c     get profiles:
+         i=0
+         do k=1,kdm
+            i=i+1
+            read(io,*, end=21) xm(i),rarray(i),pres(i),rhoarray(i),
+     $           (xx(j,i),j=1,ndim)
+            if(i.gt.1 .and. rarray(i).le.rarray(i-1)) then
+               if(myrank.eq.0) write(69,*)'ignoring shell',k
+               i=i-1
             endif
-         endif
-         muarray(i)=1.d0/muarray(i)*1.67262158d-24
-         maxmu=max(maxmu,muarray(i))
-         minmu=min(minmu,muarray(i))
-      enddo
+         enddo
+         if(myrank.eq.0)write(69,*)'need to increase kdm'
+         stop
+ 21      close(io)
+         numlines=i-1
+         xm(numlines+1)=xm(numlines)
+         rarray(numlines+1)=rarray(numlines)
+         pres(numlines+1)=0.d0
+         rhoarray(numlines+1)=0.d0
+         do j=1,ndim
+            xx(j,numlines+1)=xx(j,numlines)
+         enddo
+         if(myrank.eq.0)write(69,*)'number of shells=',numlines
 
+         maxmu=0.d0
+         minmu=1.d30
+         do i=1,numlines
+ 123        continue
+            muarray(i)=0.d0
+            sum=0.d0
+            do j=1,ndim  
+               muarray(i)=muarray(i)+xx(j,i)
+     $              *dble(1+lz(j))/dble(ln(j)+lz(j))
+               sum=sum+xx(j,i)
+            enddo
+            if(dabs(sum-1.d0).gt.1.d-8) then
+               if(myrank.eq.0)
+     $              write(69,*) 'problem with abundances',sum-1.d0,i
+               if(i.gt.0.9*numlines) then
+                  if(myrank.eq.0)
+     $                 write(69,*)
+     $                 'solving by using previous shell values'
+                  do j=1,ndim
+                     xx(j,i)=xx(j,i-1)
+                  enddo
+                  goto 123
+               else
+                  stop
+               endif
+            endif
+            muarray(i)=1.d0/muarray(i)*1.67262158d-24
+            maxmu=max(maxmu,muarray(i))
+            minmu=min(minmu,muarray(i))
+         enddo
+      else if(stellarevolutioncodetype.eq.1) then
+c     profilefile comes from MESA
+         read(io,*)             ! list of integers                   
+         read(io,*)             ! names of scalar variables associated with those integers                   
+         read(io,*) model_number,num_zones,initial_mass,initial_z,           
+     $        star_age,time_step,Teff,photosphere_L,photosphere_r,           
+     $        center_eta,center_h1,center_he3,center_he4,center_c12,         
+     $        center_n14,center_o16,center_ne20,star_mass,star_mdot,         
+     $        star_mass_h1,star_mass_he3,star_mass_he4,star_mass_c12,        
+     $        star_mass_n14,star_mass_o16,star_mass_ne20,he_core_mass,       
+     $        c_core_mass,o_core_mass,si_core_mass,fe_core_mass,             
+     $        neutron_rich_core_mass
+         if(myrank.eq.0) then
+            write(69,*)'model_number=',model_number            
+            write(69,*)'num_zones=',num_zones                  
+         endif
+         read(io,*)             ! blank line     
+         read(io,*)             ! list of integers                   
+         read(io,*)             ! names of profiles in corresponding column
+         maxmu=0.d0                  
+         minmu=1.d30                 
+         i=num_zones                 
+         do k=1,num_zones            
+c            read(io,*) zone, xm(i), logR, logT, logRho, logP,
+c     $           x_mass_fraction_H,y_mass_fraction_He,             
+c     $           z_mass_fraction_metals
+
+c     This is for the format of files that Pablo sent
+            read(io,*) zone, logT, logRho, logP, logR, (dummy, ii=1,29),
+     $           x_mass_fraction_H,y_mass_fraction_He,             
+     $           z_mass_fraction_metals, (dummy, ii=1,26),xm(i)
+
+
+            xm(i)=xm(i)*1.9892d33
+
+c            read(io,*) zone, qq, logR, logRho, logT, logP, logPgas,             
+c     $           luminosity,x_mass_fraction_H,y_mass_fraction_He,             
+c     $           z_mass_fraction_metals,gamma1,opacity,pp,cno,gradr,
+c     $           gradT,grada,actual_gradT,total_energy,
+c     $           total_energy_integral,scale_height,mu           
+c            xm(i)=star_mass*qq*1.9892d33     
+
+            if(k.eq.1 .and. myrank.eq.0) then
+               write(69,*) 'Surface x,y,z=',x_mass_fraction_H,
+     $              y_mass_fraction_He,z_mass_fraction_metals
+            endif
+
+            rarray(i)=10d0**logR*6.9598d10
+            if(i.lt.num_zones .and. rarray(i+1).le.rarray(i)) then             
+               write(69,*)'ignoring shell',k
+               stop      
+            endif        
+            rhoarray(i)=10d0**logRho       
+            pres(i)=10d0**logP             
+            muarray(i)=1/(2*x_mass_fraction_H+0.75d0*
+     $              y_mass_fraction_He+0.5d0*z_mass_fraction_metals)*1.67262158d-24   
+            maxmu=max(maxmu,muarray(i))    
+            minmu=min(minmu,muarray(i))    
+            if(abs(x_mass_fraction_H + y_mass_fraction_He +      
+     $           z_mass_fraction_metals -1d0) .gt. 1d-15) then  
+               print *, x_mass_fraction_H + y_mass_fraction_He +               
+     $              z_mass_fraction_metals -1d0,'mass problem in zone',k          
+               stop      
+            endif
+            i=i-1        
+         enddo           
+         close(io)       
+         numlines=num_zones                
+         xm(numlines+1)=xm(numlines)       
+         rarray(numlines+1)=rarray(numlines)                 
+         pres(numlines+1)=0.d0             
+         rhoarray(numlines+1)=0.d0         
+         if(myrank.eq.0) then
+            write(69,*)'number of shells=',numlines              
+            do i=1,numlines 
+               write(69,'(9g13.5)')xm(i),rarray(i),pres(i),rhoarray(i),
+     $              muarray(i)    
+            enddo      
+         endif
+         
+      endif   
       if(myrank.eq.0)
-     $     write(69,*)'done reading eg.last1.muse_s2mm',muarray(1)
+     $     write(69,*)'done reading ',trim(profilefile)
       
 c     this routine matches the pressure and
 c     density profiles from the stellar evolution code.  this way, hydrostatic
@@ -595,7 +699,7 @@ c     uses this temperature to get the internal energy assuming an eos that is
 c     ideal gas plus radiation pressure (if neos=1).  if the stellar model used a
 c     different eos of state, the temperature and internal energy profiles in
 c     the sph code will be a bit different than that from the stellar
-c     evolution code.  it's only the pressure and density
+c     evolution code.  it is only the pressure and density
 c     profiles that should match between the sph and stellar codes.  because
 c     the gravitational potential depends only on density, that profile should be
 c     the same in the sph and stellar evolution models as well.
@@ -610,12 +714,16 @@ c     the same in the sph and stellar evolution models as well.
          uupperlimit=1.5d0*boltz*temupperlimit/muarray(i)
      $        +arad*temupperlimit**4/rhoarray(i)+1d13
  1233    continue
+
          uarray(i)=zeroin(0.d0,uupperlimit,ufunction,1.d-11)
          if(ufunction(uarray(i)).gt.1d-10) then
             uupperlimit=2*uupperlimit
             goto 1233
          endif
-         tem(i)=useeostable(uarray(i),rhoarray(i),1)
+
+         tem(i)=useeostable(uarray(i),rhoarray(i),muarray(i),1)
+c         write(101,*) i,uarray(i)
+
       else
          print *,'this initialization script currently assumes that',
      $        'the eos is ideal gas + radiation pressure (neos=1)',
@@ -623,6 +731,7 @@ c     the same in the sph and stellar evolution models as well.
          stop
       endif
       if(myrank.eq.0)then
+         write(69,*)'central mu=',muarray(1)
          write(69,*)'central u=',uarray(1)
          write(69,*)'central temperature=',tem(1)
       endif
@@ -657,8 +766,9 @@ c     rhoarray(i) is the average density in the vicinity of rarray(i)
                uupperlimit=2*uupperlimit
                goto 1234
             endif
-            tem(i)=useeostable(uarray(i),rhoarray(i),1)
+            tem(i)=useeostable(uarray(i),rhoarray(i),muarray(i),1)
 c     make sure i=1 shell is done same way up above
+c            write(102,*) i,uarray(i),tem(i)
 
          endif
          utot2=utot2+uarray(i)*rhoarray(i)*4.d0*pi*
@@ -736,10 +846,10 @@ c     $        /(radius**2/amass)**2
       
       open(21, file='parent.sph',status='unknown')
       do i=1,numlines
-         write(21,'(5g15.7)') rarray(i),pres(i)*
+         write(21,'(9g15.7)') rarray(i),pres(i)*
      $        (radiuscgs**2/masscgs)**2/gravconst/
      $        (radius**2/amass)**2,
-     $        rhoarray(i),tem(i),muarray(i)
+     $        rhoarray(i),tem(i),muarray(i),uarray(i)
       enddo
       close(21)
       

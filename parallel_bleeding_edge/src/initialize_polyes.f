@@ -30,12 +30,12 @@ c     creates a star from the data file yrec output
 
       integer maxtablesize
       parameter(maxtablesize=1000)
-      integer numrho,numu,iu,irho,iup
-      real*8 eostable(maxtablesize,maxtablesize,3)
-      real*8 steprho,stepu,rhotable1,utable1,
-     $     rhotablelast,utablelast
-      common/eoscom/ numrho,numu,rhotable1,utable1,
-     $     steprho,stepu,eostable
+      integer numrho,numu,numx,iu,irho,iup
+      real*8 eostable(maxtablesize,maxtablesize,maxnumx,3)
+      real*8 zzz,steprho,stepu,stepx,rhotable1,utable1,xtable1,
+     $     rhotablelast,utablelast,xtablelast
+      common/eoscom/ zzz,rhotable1,utable1,xtable1,
+     $     steprho,stepu,stepx,eostable,numrho,numu,numx
 
       real*8 rhocgs,log10rho,ucgsguess,pressurecgs,log10u
       real*8 rholow,rhohigh
@@ -202,8 +202,8 @@ c     $              eostable(229,irho,3),eostable(230,irho,3),'...',
 c     $              eostable(numu,irho,3)
 c               write(35,*)i,iu,log10u,irho,log10rho,pressurecgs
 
-               call hunt(eostable(1,irho,3),numu,pressurecgs,iu)
-               call hunt(eostable(1,irho+1,3),numu,pressurecgs,iup)
+               call hunt(eostable(1,irho,1,3),numu,pressurecgs,iu)
+               call hunt(eostable(1,irho+1,1,3),numu,pressurecgs,iup)
                if(iu.le.0 .or. iu.ge.numu .or.
      $              iup.le.0 .or. iup.ge.numu)then
                   write(69,*)'iu problem',i,iu,iup,log10u,irho,log10rho
@@ -212,12 +212,12 @@ c               write(35,*)i,iu,log10u,irho,log10rho,pressurecgs
 
                rholow=log10rho-(rhotable1+(irho-1)*steprho)
                rhohigh=rhotable1+irho*steprho-log10rho ! equals steprho-rholow
-               plow=pressurecgs-eostable(iu,irho,3)
-               phigh=eostable(iu+1,irho,3)-pressurecgs
-               stepp=eostable(iu+1,irho,3)-eostable(iu,irho,3)
-               plowp=pressurecgs-eostable(iup,irho+1,3)
-               phighp=eostable(iup+1,irho+1,3)-pressurecgs
-               steppp=eostable(iup+1,irho+1,3)-eostable(iup,irho+1,3)
+               plow=pressurecgs-eostable(iu,irho,1,3)
+               phigh=eostable(iu+1,irho,1,3)-pressurecgs
+               stepp=eostable(iu+1,irho,1,3)-eostable(iu,irho,1,3)
+               plowp=pressurecgs-eostable(iup,irho+1,1,3)
+               phighp=eostable(iup+1,irho+1,1,3)-pressurecgs
+               steppp=eostable(iup+1,irho+1,1,3)-eostable(iup,irho+1,1,3)
 c     use bi-linear interpolation among the four cartesian
 c     grid points (irho,iu), (irho+1,iu), (irho,iu+1), and (irho+1,iu+1)
                f00=rholow*plowp/(steprho*steppp)

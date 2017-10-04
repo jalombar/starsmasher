@@ -164,7 +164,6 @@
 !     if binary relaxation, adjust center of mass positions and velocities:
       if (nrelax.ge.2 .and. .not.gonedynamic) call cmadj
 
-
       return
       end
 !***********************************************************************
@@ -362,6 +361,9 @@
             goto 60909
          endif
 
+         ! Change hp(i) to mean hptilde(i) while solving eq.(A1) of GLPZ 2010.
+         hp(i)=hp(i) - hfloor
+
          xacc=1.d-4*hp(i)
          hpguess=max(hp(i)*(1.d0+divv(i)*dt/3.d0),xacc)
          dxmax=min(max(xacc,abs(hp(i)*divv(i)*dt)),0.5d0*hpguess)
@@ -377,6 +379,7 @@
 
          r2=4.d0*hp(i)**2.d0
          r2last=r2
+
          call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
               r2=r2,nfound=cnt,nalloc=n,results=results)
          nn(i)=cnt
@@ -514,14 +517,16 @@
          
          
 60908    hp(i)=ezrtsafe
+
+         ! Change hp(i) back to the true smoothing length now that done solving eq. (A1) of GLPZ 2010.  
+         hp(i) = hp(i) + hfloor
          
-60909    continue
+60909    continue  ! code is jumped to here for point particles (with u=0)
 
 !     here ends the replacement for the line of code
 !         hp(i) = ezrtsafe(hpguess,xacc,i,dxmax)
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-         
          r2=4.d0*hp(i)**2.d0
          if(r2.le.r2last) then
             ! there's no need to search the entire tree, because the
@@ -547,7 +552,7 @@
          call bonetsumwithphi(i,rho(i), bonet_omega(i),&
               bonet_0mega(i),&
               bonet_psi(i), bonet_wn(i))
-         
+
 !         write(16,*) i,rho(i), bonet_omega(i),&
 !             bonet_0mega(i),&
 !             bonet_psi(i), bonet_wn(i)
@@ -677,6 +682,8 @@
       integer itab,j,in,i
       real*8 ctaboverh2
       real*8 bonetdphidh
+      real*8 hpitilde,h2tilde,ctaboverh2tilde
+      integer itabtilde
 
       if(u(i).ne.0.d0) then
 
@@ -687,8 +694,11 @@
          bonet1_wn    = 0.d0
          
          hpi=hp(i)
+         hpitilde=hpi - hfloor
          h2=hpi**2
+         h2tilde=hpitilde**2
          ctaboverh2=ctab/h2
+         ctaboverh2tilde=ctab/h2tilde
          h3=hpi*h2
          h4=h2*h2
          !     accuumulate contributions:
@@ -696,12 +706,16 @@
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
             itab=int(ctaboverh2*r2)+1
+
 ! the u(j).eq.0 is necessary in the next line because we always do gravity with point particles
             if(nselfgravity.eq.1 .or. u(j).eq.0.d0)&
                  bonet1_psi   = bonet1_psi   + am(j)*dphidhtab(itab)
             if(u(j).ne.0.d0) then
-               bonet1_wn    = bonet1_wn    + gtab(itab)
-               bonet1_0mega = bonet1_0mega - dgdhtab(itab)
+               if(r2.lt.4d0*h2tilde) then
+                  itabtilde=int(ctaboverh2tilde*r2)+1
+                  bonet1_wn    = bonet1_wn    + gtab(itabtilde)
+                  bonet1_0mega = bonet1_0mega - dgdhtab(itabtilde)
+               endif
                bonet1_rho   = bonet1_rho   + am(j)*wtab(itab)
                bonet1_omega = bonet1_omega + am(j)*dwdhtab(itab)
             endif
@@ -709,19 +723,22 @@
          bonet1_rho   = bonet1_rho/h3
          bonet1_omega = bonet1_omega/h4
          bonet1_psi   = bonet1_psi/h2
-         bonet1_0mega = bonet1_0mega/hpi
+         bonet1_0mega = bonet1_0mega/hpitilde
          !      if(nn(i).eq.0) bonet1_rho = 0.d0
       else
          bonet1_rho   = 0.d0
          do in=1,nn(i)
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
+            hpi=hp(i)
+            h2=hpi**2
+            ctaboverh2=ctab/h2
             itab=int(ctaboverh2*r2)+1
             if(u(j).ne.0.d0) then
                bonet1_rho   = bonet1_rho   + am(j)*wtab(itab)
             endif
          enddo
-         bonet1_rho   = bonet1_rho/hp(i)**3
+         bonet1_rho   = bonet1_rho/hpi**3
          bonet1_omega = 0.d0
          bonet1_psi   = 0.d0
          bonet1_0mega = 1.d30

@@ -20,7 +20,7 @@ c      parameter(maxtry=300000000)
       real*8 ak
 c      real*8 rarrayi,rarrayim1
       integer numlines
-      real*8 coremass,amasstot
+      real*8 coremass,amasstot,hmax,hmin
       
       npoly=1.d0/(gam-1.d0)
       amasstot=starmass
