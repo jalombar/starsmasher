@@ -36,21 +36,31 @@ The AV scheme is described in Ponce et al. (2011).
 
 ## Papers using StarSmasher
 [Hydrodynamics of Collisions Between Sub-Neptunes](https://arxiv.org/abs/1707.01628)
+
 [Dynamics and Collisional Evolution of Closely Packed Planetary Systems](http://adsabs.harvard.edu/abs/2017MNRAS.470.4145H)
+
 [Stability and Coalescence of Massive Twin Binaries](http://adsabs.harvard.edu/abs/2015ApJ...806..135H)
 
 ## DATA VISUALIZATION
-I recommend Price's SPLASH software.
+I recommend Price's SPLASH software (Price 2007).
 It will need to be customized to read in our output file type.
 
 ## Citations
 Balsara, D. S. 1995, Journal of Computational Physics, 121, 357
+
 Gaburov, E., Bédorf, J., & Portegies Zwart, S. 2010, Procedia Computer Science, volume 1, p. 1119-1127
+
 Gaburov, E., Lombardi, J. C., Jr., & Portegies Zwart, S. 2010, MNRAS, 402, 105
+
 Faber, J. A., & Rasio, F. A. 2000, Phys. Rev. D, 62, 064012
+
 Lombardi, J. C., Sills, A., Rasio, F. A., & Shapiro, S. L. 1999, Journal of Computational Physics, 152, 687
-Lombardi, J. C., Jr., Proulx, Z. F., Dooley, K. L., et al. 2006, ApJ, 640, 44
+
+Lombardi, J. C., Jr., Proulx, Z. F., Dooley, K. L., et al. 2008, ApJ, 640, 44
+
 Monaghan, J. J., & Lattanzio, J. C. 1985, A&A, 149, 135
+
 Price, D. J. 2007, PASA, 24, 159
+
 Rasio, F. A. 1991, Ph.D. Thesis
 
