@@ -1,4 +1,4 @@
-## Papers using StarSmasher
+## Papers using StarSmasher and its predecessors
 ### Algorithms
 [An Efficient Radiative Cooling Approximation for Use in Hydrodynamic Simulations](http://adsabs.harvard.edu/abs/2015MNRAS.447...25L)
 
