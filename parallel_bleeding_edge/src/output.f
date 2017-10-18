@@ -73,8 +73,8 @@ c     binary dump files.
             write(iu) x(i),y(i),z(i),am(i),hp(i),rho(i),
      $           vx(i),vy(i),vz(i),vxdot(i),vydot(i),vzdot(i),
      $           u(i),udot(i),  !gx(i),gy(i),gz(i),
-     $           grpot(i),meanmolecular(i),cc(i),divv(i),
-     $           por2(i)*rho(i)**2
+     $           grpot(i),meanmolecular(i),cc(i),divv(i)!,
+!     $           por2(i)*rho(i)**2
          enddo
       else
          do i=1,ntot
@@ -82,8 +82,8 @@ c     binary dump files.
      $           vx(i),vy(i),vz(i),vxdot(i),vydot(i),vzdot(i),
      $           u(i),udot(i),  !gx(i),gy(i),gz(i),
      $           grpot(i),meanmolecular(i),cc(i),divv(i),
-     $           ueq(i),tthermal(i),
-     $           por2(i)*rho(i)**2
+     $           ueq(i),tthermal(i)!,
+!     $           por2(i)*rho(i)**2
          enddo
       endif
       write(iu) ntot            ! to check that the file was not corrupted

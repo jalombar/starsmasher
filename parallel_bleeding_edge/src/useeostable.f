@@ -160,7 +160,12 @@ c     $        'and ix=',ix
 c         stop
 c      endif
 
-      if(ix.lt.1) then
+      if((ix.lt.1 .or. ix.ge.numx) .and. numx.gt.1) then
+         write(69,*)'xtable1=',xtable1
+         write(69,*)'stepx=',stepx
+         write(69,*)'numx=',numx
+         write(69,*)'particle X=',xxx
+         write(69,*)'ix=',ix
          write(69,*)'Expand X range covered by EOS file'
          stop
       endif
@@ -186,45 +191,53 @@ c     grid points (irho,iu), (irho+1,iu), (irho,iu+1), and (irho+1,iu+1)
             f01=rholow*uhigh
             f11=rhohigh*uhigh
             
-            useeostable0=
-     $              f00*eostable(iu+1,irho+1,ix,which)
-     $           +  f10*eostable(iu+1,irho,  ix,which)
-     $           +  f01*eostable(iu,  irho+1,ix,which)
-     $           +  f11*eostable(iu,  irho,  ix,which)
-            useeostable1=
-     $              f00*eostable(iu+1,irho+1,ix+1,which)
-     $           +  f10*eostable(iu+1,irho,  ix+1,which)
-     $           +  f01*eostable(iu,  irho+1,ix+1,which)
-     $           +  f11*eostable(iu,  irho,  ix+1,which)
-            useeostable=(xlow*useeostable1+xhigh*useeostable0)
-     $           /(steprho*stepu*stepx)
+            if(numx.gt.1) then
+               useeostable0=
+     $                 f00*eostable(iu+1,irho+1,ix,which)
+     $              +  f10*eostable(iu+1,irho,  ix,which)
+     $              +  f01*eostable(iu,  irho+1,ix,which)
+     $              +  f11*eostable(iu,  irho,  ix,which)
+               useeostable1=
+     $                 f00*eostable(iu+1,irho+1,ix+1,which)
+     $              +  f10*eostable(iu+1,irho,  ix+1,which)
+     $              +  f01*eostable(iu,  irho+1,ix+1,which)
+     $              +  f11*eostable(iu,  irho,  ix+1,which)
+               useeostable=(xlow*useeostable1+xhigh*useeostable0)
+     $              /(steprho*stepu*stepx)
+            else
+               useeostable=
+     $              (f00*eostable(iu+1,irho+1,1,which)
+     $              +  f10*eostable(iu+1,irho,  1,which)
+     $              +  f01*eostable(iu,  irho+1,1,which)
+     $              +  f11*eostable(iu,  irho,  1,which))/(steprho*stepu)
+            endif
 
          else if(iu.le.0) then
             
 c     print *,'l iu=',log10u,log10rho,iu,irho
             
-            useeostable0=rholow*eostable(1,irho+1,ix,  which)
-     $           +      rhohigh*eostable(1,irho,  ix,  which)
-            useeostable1=rholow*eostable(1,irho+1,ix+1,which)
-     $           +      rhohigh*eostable(1,irho,  ix+1,which)
-            if(which.ne.2) then
-c     we are at very low specific internal energy u, where the pressure
-c     or temperature should be nearly proportional to rho*u (at fixed
-c     composition)
-               
-c     use linear interpolation between the two cartesian
-c     grid points (1,irho), (1,irho+1) and in addition extrapolate
-c     to smaller u
-               useeostable=ucgs/10d0**utable1*
-     $              (xlow*useeostable1+xhigh*useeostable0)
-     $              /(steprho*stepx)
-            else
-c     Reminder: which=2 returns mean molecular weight from EOS table
+c     First we get the value at the edge of the table with smallest u 
+            if(numx.gt.1) then
+               useeostable0=rholow*eostable(1,irho+1,ix,  which)
+     $              +      rhohigh*eostable(1,irho,  ix,  which)
+               useeostable1=rholow*eostable(1,irho+1,ix+1,which)
+     $              +      rhohigh*eostable(1,irho,  ix+1,which)
                useeostable=
      $              (xlow*useeostable1+xhigh*useeostable0)
      $              /(steprho*stepx)
+            else
+               useeostable=(rholow*eostable(1,irho+1,1,which)
+     $              +     rhohigh*eostable(1,irho,  1,which))/steprho
             endif
-            
+            if(which.ne.2) then
+c     Reminder: which=2 returns mean molecular weight from EOS table
+               
+c     we are at very low specific internal energy u, where the pressure
+c     or temperature should be nearly proportional to rho*u (at fixed
+c     composition).  We use this to extrapolate to smaller u:
+               useeostable=ucgs/10d0**utable1*useeostable
+            endif
+
          else if(iu.ge.numu) then
             
 c     print *,'h iu=',log10u,log10rho,iu,irho
@@ -236,13 +249,18 @@ c     nearly proportional to u (at fixed rho and composition)
 c     use linear interpolation between the two cartesian
 c     grid points (irho,numu), (irho+1,numu) and in addition extrapolate
 c     to larger u
-               useeostable0=rholow*eostable(numu,irho+1,ix,  which)
-     $              +      rhohigh*eostable(numu,irho,  ix,  which)
-               useeostable1=rholow*eostable(numu,irho+1,ix+1,which)
-     $              +      rhohigh*eostable(numu,irho,  ix+1,which)
-               useeostable=ucgs/10d0**(utable1+(numu-1)*stepu)*
-     $              (xlow*useeostable1+xhigh*useeostable0)
-     $              /(steprho*stepx)
+               if(numx.gt.1) then
+                  useeostable0=rholow*eostable(numu,irho+1,ix,  which)
+     $                 +      rhohigh*eostable(numu,irho,  ix,  which)
+                  useeostable1=rholow*eostable(numu,irho+1,ix+1,which)
+     $                 +      rhohigh*eostable(numu,irho,  ix+1,which)
+                  useeostable=ucgs/10d0**(utable1+(numu-1)*stepu)*
+     $                 (xlow*useeostable1+xhigh*useeostable0)
+     $                 /(steprho*stepx)
+               else
+                  useeostable=(rholow*eostable(numu,irho+1,1,which)
+     $                 +      rhohigh*eostable(numu,irho, 1,which))/steprho
+               endif
             else if(which.eq.1) then
 c     we are at very high specific internal energy u, where the temperature
 c     is nearly proportional to u^(1/4) (at fixed rho and composition)
@@ -250,22 +268,32 @@ c     is nearly proportional to u^(1/4) (at fixed rho and composition)
 c     use linear interpolation between the two cartesian
 c     grid points (irho,numu), (irho+1,numu) and in addition extrapolate
 c     to larger u
-               useeostable0=rholow*eostable(numu,irho+1,ix,  which)
-     $              +      rhohigh*eostable(numu,irho,  ix,  which)
-               useeostable1=rholow*eostable(numu,irho+1,ix+1,which)
-     $              +      rhohigh*eostable(numu,irho,  ix+1,which)
-               useeostable=
-     $              (ucgs/10d0**(utable1+(numu-1)*stepu))**0.25d0*
-     $              (xlow*useeostable1+xhigh*useeostable0)
-     $              /(steprho*stepx)
+               if(numx.gt.1) then
+                  useeostable0=rholow*eostable(numu,irho+1,ix,  which)
+     $                 +      rhohigh*eostable(numu,irho,  ix,  which)
+                  useeostable1=rholow*eostable(numu,irho+1,ix+1,which)
+     $                 +      rhohigh*eostable(numu,irho,  ix+1,which)
+                  useeostable=
+     $                 (ucgs/10d0**(utable1+(numu-1)*stepu))**0.25d0*
+     $                 (xlow*useeostable1+xhigh*useeostable0)
+     $                 /(steprho*stepx)
+               else
+                  useeostable=(rholow*eostable(numu,irho+1,1,which)
+     $                 +      rhohigh*eostable(numu,irho, 1,which))/steprho
+               endif
             else
-               useeostable0=rholow*eostable(numu,irho+1,ix,  which)
-     $              +      rhohigh*eostable(numu,irho,  ix,  which)
-               useeostable1=rholow*eostable(numu,irho+1,ix+1,which)
-     $              +      rhohigh*eostable(numu,irho,  ix+1,which)
-               useeostable=
-     $              (xlow*useeostable1+xhigh*useeostable0)
-     $              /(steprho*stepx)
+               if(numx.gt.1) then
+                  useeostable0=rholow*eostable(numu,irho+1,ix,  which)
+     $                 +      rhohigh*eostable(numu,irho,  ix,  which)
+                  useeostable1=rholow*eostable(numu,irho+1,ix+1,which)
+     $                 +      rhohigh*eostable(numu,irho,  ix+1,which)
+                  useeostable=
+     $                 (xlow*useeostable1+xhigh*useeostable0)
+     $                 /(steprho*stepx)
+               else
+                  useeostable=(rholow*eostable(numu,irho+1,1,which)
+     $                 +      rhohigh*eostable(numu,irho, 1,which))/steprho
+               endif
             endif
             
          endif
@@ -276,21 +304,34 @@ c     at extreme densities we will use ideal gas + radiation pressure
          if(irho.gt.numrho) irho=numrho
 
          if(iu.lt.1) then
-            meanmu0=eostable(1,irho,ix,  2)
-            meanmu1=eostable(1,irho,ix+1,2)
-            meanmu=(xlow*meanmu1+xhigh*meanmu0)/stepx
+            if(numx.gt.1) then
+               meanmu0=eostable(1,irho,ix,  2)
+               meanmu1=eostable(1,irho,ix+1,2)
+               meanmu=(xlow*meanmu1+xhigh*meanmu0)/stepx
+            else
+               meanmu=eostable(1,irho,1,2)
+            endif
          else if (iu.ge.numu) then
-            meanmu0=eostable(numu,irho,ix  ,2)
-            meanmu1=eostable(numu,irho,ix+1,2)
-            meanmu=(xlow*meanmu1+xhigh*meanmu0)/stepx
+            if(numx.gt.1) then
+               meanmu0=eostable(numu,irho,ix  ,2)
+               meanmu1=eostable(numu,irho,ix+1,2)
+               meanmu=(xlow*meanmu1+xhigh*meanmu0)/stepx
+            else
+               meanmu=eostable(numu,irho,1,2)
+            endif   
          else
             ulow=log10u-(utable1+(iu-1)*stepu)
             uhigh=utable1+iu*stepu-log10u
-            meanmu0=ulow*eostable(iu+1,irho,ix,  2)
-     $           + uhigh*eostable(iu,  irho,ix,  2)
-            meanmu1=ulow*eostable(iu+1,irho,ix+1,2)
-     $           + uhigh*eostable(iu,  irho,ix+1,2)
-            meanmu=(xlow*meanmu1+xhigh*meanmu0)/(stepu*stepx)
+            if(numx.gt.1) then
+               meanmu0=ulow*eostable(iu+1,irho,ix,  2)
+     $              + uhigh*eostable(iu,  irho,ix,  2)
+               meanmu1=ulow*eostable(iu+1,irho,ix+1,2)
+     $              + uhigh*eostable(iu,  irho,ix+1,2)
+               meanmu=(xlow*meanmu1+xhigh*meanmu0)/(stepu*stepx)
+            else
+               meanmu=(ulow*eostable(iu+1,irho, 1,2)
+     $              + uhigh*eostable(iu,  irho,1,2))/stepu
+            endif
          endif
 
 c     print *,'input=',qconst*rhocgs/meanmu,

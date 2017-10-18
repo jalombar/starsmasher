@@ -530,7 +530,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       munit=1.9891d33          ! number of g in unit of mass.  use 1.9891d33 if want solar mass.
 !     the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
 !     dt_sph=1/(1/dt1 + 1/dt2 + 1/dt3 + 1/dt4)
-      cn1=.6d0                 ! dt1=cn1*h/v_signal
+      cn1=.5d0                 ! dt1=cn1*h/v_signal
       cn2=0.06d0               ! dt2=cn2*(h/|a-a_smoothed|)^0.5
       cn3=0.06d0               ! dt3=cn3*u/|du/dt|
       cn4=1.d30                ! dt4=cn4*v_signal/|a-a_smoothed|
