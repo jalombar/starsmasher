@@ -520,7 +520,14 @@ c     derived constants:
      $     z_mass_fraction_metals,gamma1,opacity,pp,cno,gradr,gradT,    
      $     grada,actual_gradT,total_energy,total_energy_integral,       
      $     scale_height,mu,dummy
-      integer ii,one
+      integer ii,one,maxnumcol
+      parameter(maxnumcol=99)
+      integer in(maxnumcol),numcol
+      character*41 headers(maxnumcol)
+      integer imass,ilogR,ilogT,
+     $     ilogRho,ilogP,ix_mass_fraction_H,iy_mass_fraction_He,
+     $     iz_mass_fraction_metals      
+      real*8 mesadata(2:maxnumcol)
 
       if(myrank.eq.0) then
          write(69,*) 'splinesetup: stellarevolutioncodetype=',
@@ -629,6 +636,38 @@ c     profilefile comes from MESA
          endif
 
          read(io,*)             ! names of scalar variables associated with those integers                   
+         read(io,*)             ! read past all the global data... we'll read this in later
+         read(io,*)             ! blank line
+         
+         
+
+
+
+
+
+
+         do i=1,maxnumcol
+            in(i)=0
+         enddo
+         
+         read(io,*,err=99) (in(i),i=1,maxnumcol)
+         print *,'should never see this'
+         
+ 99      continue
+         numcol=0
+         do while(in(numcol+1).ne.0)
+            numcol=numcol+1
+         enddo
+         close(io)
+         print *,'number of columns=',numcol
+         
+         open(io,file=profilefile,status='old')
+         read(io,*) one         ! list of integers                   
+         if(one.ne.1) then
+            write(69,*) 'what?'
+            stop
+         endif
+         read(io,*)             ! names of scalar variables associated with those integers                   
          read(io,*) model_number,num_zones,initial_mass,initial_z,           
      $        star_age,time_step,Teff,photosphere_L,photosphere_r,           
      $        center_eta,center_h1,center_he3,center_he4,center_c12,         
@@ -637,6 +676,45 @@ c     profilefile comes from MESA
      $        star_mass_n14,star_mass_o16,star_mass_ne20,he_core_mass,       
      $        c_core_mass,o_core_mass,si_core_mass,fe_core_mass,             
      $        neutron_rich_core_mass
+         read(io,*)             ! blank line
+         read(io,*)             ! list of integers                   
+
+         read(io,'(99a)')(headers(i), i=1,numcol)
+
+         do i=1,numcol
+            headers(i)=adjustl(headers(i))
+            print *,i,headers(i)
+            if(trim(headers(i)).eq.'mass') then
+               imass=i
+            elseif(trim(headers(i)).eq.'logR') then
+               ilogR=i
+            elseif(trim(headers(i)).eq.'logT') then
+               ilogT=i
+            elseif(trim(headers(i)).eq.'logRho') then
+               ilogRho=i
+            elseif(trim(headers(i)).eq.'logP') then
+               ilogP=i
+            elseif(trim(headers(i)).eq.'x_mass_fraction_H') then
+               ix_mass_fraction_H=i
+            elseif(trim(headers(i)).eq.'y_mass_fraction_He') then
+               iy_mass_fraction_He=i
+            elseif(trim(headers(i)).eq.'z_mass_fraction_metals') then
+               iz_mass_fraction_metals=i
+            endif
+         enddo
+         
+         if(myrank.eq.0) then
+            write(69,*)'Interesting data are in columns ',imass,ilogR,
+     $           ilogT,ilogRho,ilogP,ix_mass_fraction_H,
+     $           iy_mass_fraction_He,iz_mass_fraction_metals
+         endif
+
+
+
+
+         
+
+
          if(myrank.eq.0) then
             write(69,*)'model_number=',model_number            
             write(69,*)'num_zones=',num_zones                  
@@ -653,10 +731,20 @@ c     $           x_mass_fraction_H,y_mass_fraction_He,
 c     $           z_mass_fraction_metals
 
 c     This is for the format of files that Pablo sent
-            read(io,*) zone, logT, logRho, logP, logR, (dummy, ii=1,29),
-     $           x_mass_fraction_H,y_mass_fraction_He,             
-     $           z_mass_fraction_metals, (dummy, ii=1,26),xm(i)
+c            read(io,*) zone, logT, logRho, logP, logR, (dummy, ii=1,29),
+c     $           x_mass_fraction_H,y_mass_fraction_He,             
+c     $           z_mass_fraction_metals, (dummy, ii=1,26),xm(i)
 
+            read(io,*) zone, (mesadata(col), col=2,numcol)
+            xm(i)= mesadata(imass)
+            logR=mesadata(ilogR)
+            logT=mesadata(ilogT)
+            logRho=mesadata(ilogRho)
+            logP=mesadata(ilogP)
+            x_mass_fraction_H=mesadata(ix_mass_fraction_H)
+            y_mass_fraction_He=mesadata(iy_mass_fraction_He)
+            z_mass_fraction_metals=mesadata(iz_mass_fraction_metals)
+            
 
             xm(i)=xm(i)*1.9892d33
 
