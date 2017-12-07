@@ -51,3 +51,6 @@ grid-based methods.
 A good description of the particular SPH algorithm implemented in our code can be found in
 Rasio & Shapiro (1992). We are going to summarize the most important features for you here.
 
+
+\alpha
+
