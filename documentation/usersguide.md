@@ -52,5 +52,9 @@ A good description of the particular SPH algorithm implemented in our code can b
 Rasio & Shapiro (1992). We are going to summarize the most important features for you here.
 
 
-[\alpha]
+\begin{equation}
+...
+\end{equation}
+or inline equations
 
+$ \sum_{\forall i}{x_i^{2}} $
