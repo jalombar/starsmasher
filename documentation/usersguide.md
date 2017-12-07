@@ -46,4 +46,8 @@ also makes it easy to track the hydrodynamic ejection of matter to large distanc
 dense regions. Sophisticated nested-grid algorithms are necessary to accomplish the same with
 grid-based methods.
 
-####
+#### SPH Density: Kernels, Sums, and all that Jazz
+
+A good description of the particular SPH algorithm implemented in our code can be found in
+Rasio & Shapiro (1992). We are going to summarize the most important features for you here.
+
