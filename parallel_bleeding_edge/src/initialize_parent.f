@@ -695,11 +695,14 @@ c     profilefile comes from MESA
                ilogRho=i
             elseif(trim(headers(i)).eq.'logP') then
                ilogP=i
-            elseif(trim(headers(i)).eq.'x_mass_fraction_H') then
+            elseif(trim(headers(i)).eq.'x_mass_fraction_H' .or.
+     $             trim(headers(i)).eq.'x') then
                ix_mass_fraction_H=i
-            elseif(trim(headers(i)).eq.'y_mass_fraction_He') then
+            elseif(trim(headers(i)).eq.'y_mass_fraction_He' .or.
+     $             trim(headers(i)).eq.'y') then
                iy_mass_fraction_He=i
-            elseif(trim(headers(i)).eq.'z_mass_fraction_metals') then
+            elseif(trim(headers(i)).eq.'z_mass_fraction_metals' .or.
+     $             trim(headers(i)).eq.'z') then
                iz_mass_fraction_metals=i
             endif
          enddo
@@ -743,7 +746,14 @@ c     $           z_mass_fraction_metals, (dummy, ii=1,26),xm(i)
             x_mass_fraction_H=mesadata(ix_mass_fraction_H)
             y_mass_fraction_He=mesadata(iy_mass_fraction_He)
             z_mass_fraction_metals=mesadata(iz_mass_fraction_metals)
-            
+
+            if(  abs(x_mass_fraction_H  + y_mass_fraction_He +
+     $           z_mass_fraction_metals - 1d0) .gt. 1.d-15) then
+               write(69,*)' X + Y + Z - 1 should equal 0 but equals',
+     $              x_mass_fraction_H  + y_mass_fraction_He +
+     $              z_mass_fraction_metals - 1d0
+               stop
+            endif
 
             xm(i)=xm(i)*1.9892d33
 
