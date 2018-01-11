@@ -748,7 +748,7 @@ c     $           z_mass_fraction_metals, (dummy, ii=1,26),xm(i)
             z_mass_fraction_metals=mesadata(iz_mass_fraction_metals)
 
             if(  abs(x_mass_fraction_H  + y_mass_fraction_He +
-     $           z_mass_fraction_metals - 1d0) .gt. 1.d-15) then
+     $           z_mass_fraction_metals - 1d0) .gt. 1.d-8) then
                write(69,*)' X + Y + Z - 1 should equal 0 but equals',
      $              x_mass_fraction_H  + y_mass_fraction_He +
      $              z_mass_fraction_metals - 1d0
