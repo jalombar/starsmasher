@@ -164,7 +164,7 @@ c     (a3 vector)=(8/3)^0.5*a1*(z hat)
 c     (particle is accepted)    
                      ip=ip+1                 
                      if(rtry.le.a1 .and. myrank.eq.0) then
-                        write(69,'(4i5,4e11.4)')ip,ix,iy,iz,
+                        write(69,'(4i6,4e12.4)')ip,ix,iy,iz,
      $                       xtry,ytry,ztry,rtry
                      endif
                      x(ip)=xtry        
@@ -520,7 +520,7 @@ c     derived constants:
      $     z_mass_fraction_metals,gamma1,opacity,pp,cno,gradr,gradT,    
      $     grada,actual_gradT,total_energy,total_energy_integral,       
      $     scale_height,mu,dummy
-      integer ii,one,maxnumcol
+      integer ii,one,maxnumcol,col
       parameter(maxnumcol=99)
       integer in(maxnumcol),numcol
       character*41 headers(maxnumcol)
@@ -659,12 +659,13 @@ c     profilefile comes from MESA
             numcol=numcol+1
          enddo
          close(io)
-         print *,'number of columns=',numcol
-         
+         if(myrank.eq.0) then
+            write(69,*) 'number of columns in MESA file=',numcol
+         endif
          open(io,file=profilefile,status='old')
          read(io,*) one         ! list of integers                   
          if(one.ne.1) then
-            write(69,*) 'what?'
+            write(69,*) 'wait... I thought this was a MESA file...'
             stop
          endif
          read(io,*)             ! names of scalar variables associated with those integers                   
@@ -683,7 +684,7 @@ c     profilefile comes from MESA
 
          do i=1,numcol
             headers(i)=adjustl(headers(i))
-            print *,i,headers(i)
+            if(myrank.eq.0) write(69,*) i,headers(i)
             if(trim(headers(i)).eq.'mass') then
                imass=i
             elseif(trim(headers(i)).eq.'logR') then
@@ -704,24 +705,22 @@ c     profilefile comes from MESA
          enddo
          
          if(myrank.eq.0) then
-            write(69,*)'Interesting data are in columns ',imass,ilogR,
-     $           ilogT,ilogRho,ilogP,ix_mass_fraction_H,
-     $           iy_mass_fraction_He,iz_mass_fraction_metals
+            write(69,*)'Relevant data in these columns of MESA file:'
+            write(69,*) imass,': mass'
+            write(69,*) ilogR,': log_10 radius'
+            write(69,*) ilogT,': log_10 temperature'
+            write(69,*) ilogRho,': log_10 density'
+            write(69,*) ilogP,' : log_10 pressure'
+            write(69,*) ix_mass_fraction_H,' : X'
+            write(69,*) iy_mass_fraction_He,' : Y'
+            write(69,*) iz_mass_fraction_metals,' : Z'
          endif
-
-
-
-
-         
 
 
          if(myrank.eq.0) then
             write(69,*)'model_number=',model_number            
             write(69,*)'num_zones=',num_zones                  
          endif
-         read(io,*)             ! blank line     
-         read(io,*)             ! list of integers                   
-         read(io,*)             ! names of profiles in corresponding column
          maxmu=0.d0                  
          minmu=1.d30                 
          i=num_zones                 
@@ -787,6 +786,7 @@ c            xm(i)=star_mass*qq*1.9892d33
          rhoarray(numlines+1)=0.d0         
          if(myrank.eq.0) then
             write(69,*)'number of shells=',numlines              
+            write(69,'(9a13)')'mass','radius','pressure','density','mu'
             do i=1,numlines 
                write(69,'(9g13.5)')xm(i),rarray(i),pres(i),rhoarray(i),
      $              muarray(i)    
