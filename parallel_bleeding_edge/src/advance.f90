@@ -22,16 +22,19 @@
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
 
-      ! coming into this routine, positions, udot, and accelerations are a half-timestep behind u and velocities
+      ! coming into this routine, positions, udot, and accelerations are a half-timestep
+      ! behind the specific internal energies u and the velocities
       
       dth=0.5d0*dt
 
-      ! Let's figure out how much the center of mass of the stars (but not the black hole!) will shift in this timestep
+      displacexdot=0d0
+      displaceydot=0d0
+      displacezdot=0d0
 
       if(ndisplace.ne.0) then
-         displacexdot=0d0
-         displaceydot=0d0
-         displacezdot=0d0
+         ! Let's figure out how much the center of mass of the stars (but not the black
+         ! hole!) will shift in this timestep
+
          amdisplace=0d0
          do i=1,n-1 ! ends at n-1 because don't want to consider the black hole
             displacexdot=displacexdot+am(i)*vx(i)
@@ -39,6 +42,13 @@
             displacezdot=displacezdot+am(i)*vz(i)
             amdisplace=amdisplace+am(i)
          enddo
+
+         if(u(n).ne.0) then
+            write(69,*) 'Was assuming last particle was a black hole.'
+            write(69,*) 'If that is not the case, then adjust src code.'
+            stop
+         endif
+
          displacexdot=displacexdot/amdisplace
          displaceydot=displaceydot/amdisplace
          displacezdot=displacezdot/amdisplace
@@ -84,11 +94,14 @@
 
       if(nrelax.gt.0 .and. t.lt.tresplintmuoff) call resplintmu
 
+      ! Note: we call rho_and_h before gravforce because the gravity calculation can
+      ! need the most up-to-date smoothing lengths for the integrator to achieve
+      ! second order accuracy
+      call rho_and_h            ! evaluate rho and h at half-timestep
+
 !     get potential energy at half-timestep:
 !      if( ngr.ne.0 .and. mod(nit,nitpot).eq.0 ) call gravpot
       if(ngr.ne.0) call gravforce
-
-      call rho_and_h            ! evaluate rho at half-timestep
 
       if(myrank.eq.nprocs-1) call cpu_time(time1)
       call uvdots                ! evaluate udot and accelerations at half-timestep
@@ -675,16 +688,17 @@
 !     compute density of particle i:
       include 'starsmasher.h'                                         
       real*8 r2,h3,h2,hpi, h4
-
       real*8 bonet1_rho, bonet1_omega, bonet1_0mega
       real*8 bonet1_psi, bonet1_wn
-
       integer itab,j,in,i
       real*8 ctaboverh2
       real*8 bonetdphidh
       real*8 hpitilde,h2tilde,ctaboverh2tilde
       integer itabtilde
 
+      hpi = hp(i)
+      h2=hpi**2
+      ctaboverh2=ctab/h2
       if(u(i).ne.0.d0) then
 
          bonet1_rho   = 0.d0
@@ -693,11 +707,8 @@
          bonet1_psi   = 0.d0
          bonet1_wn    = 0.d0
          
-         hpi=hp(i)
          hpitilde=hpi - hfloor
-         h2=hpi**2
          h2tilde=hpitilde**2
-         ctaboverh2=ctab/h2
          ctaboverh2tilde=ctab/h2tilde
          h3=hpi*h2
          h4=h2*h2
@@ -707,7 +718,8 @@
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
             itab=int(ctaboverh2*r2)+1
 
-! the u(j).eq.0 is necessary in the next line because we always do gravity with point particles
+            ! the u(j).eq.0 is necessary in the next line because we always do gravity
+            ! with point particles
             if(nselfgravity.eq.1 .or. u(j).eq.0.d0)&
                  bonet1_psi   = bonet1_psi   + am(j)*dphidhtab(itab)
             if(u(j).ne.0.d0) then
@@ -724,15 +736,11 @@
          bonet1_omega = bonet1_omega/h4
          bonet1_psi   = bonet1_psi/h2
          bonet1_0mega = bonet1_0mega/hpitilde
-         !      if(nn(i).eq.0) bonet1_rho = 0.d0
       else
          bonet1_rho   = 0.d0
          do in=1,nn(i)
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
-            hpi=hp(i)
-            h2=hpi**2
-            ctaboverh2=ctab/h2
             itab=int(ctaboverh2*r2)+1
             if(u(j).ne.0.d0) then
                bonet1_rho   = bonet1_rho   + am(j)*wtab(itab)

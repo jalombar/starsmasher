@@ -59,10 +59,13 @@ c     numbers for a summary table
       corepts1=corepts/2
       if(myrank.eq.0)write(69,*)'corepts=',corepts,' corepts1=',corepts1
       
-      db=.true.
-c     (if true, produce detailed output on convergence)
-      pp=.false.
-c     (if true, write pp files with component information)    
+      db=.true.                 ! if true, produce detailed output on convergence
+      pp=.false.                ! if true, write pp files with component information    
+
+c     Initializing ri1,ri2,ri3
+      ri1=1.d30
+      ri2=1.d30
+      ri3=1.d30
 
  123  continue
 

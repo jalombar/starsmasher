@@ -63,14 +63,14 @@ c     get profiles:
       endif
       ip=0               
       corepts=0
+      hc=(nnopt/(8.d0*n))**(1.d0/3.d0)*radius
+      redge=radius-2.d0*hc
+      if(myrank.eq.0)write(69,*)'keeping particles up to a distance',radius-redge,
+     $     'less than the full radius',radius
       if(equalmass.lt.1.d0)then
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 c     make an hcp lattice
 cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-         hc=(nnopt/(8.d0*n))**(1.d0/3.d0)*radius
-         redge=radius-2.d0*hc
-         if(myrank.eq.0)write(69,*)'keeping particles up to a distance',radius-redge,
-     $        'less than the full radius',radius
          
 c     the fraction of particles at a region of density rhoex that
 c     will be kept is (rhoex/rhomax)**equalmass.  so if the number

@@ -205,24 +205,24 @@ c     ajx=ajx/amtot
 c     ajy=ajy/amtot
 c     ajz=ajz/amtot
          ajtot=sqrt(ajx**2+ajy**2+ajz**2)
-         if(mod(nit,nitpot).eq.0)then
+!         if(mod(nit,nitpot).eq.0)then
             write (69,90) nit,t,
      $           xmin,xmax,ymin,ymax,zmin,zmax
-         else
-            write (69,91) nit,t,
-     $           xmin,xmax,ymin,ymax,zmin,zmax
-         endif
+!         else
+!            write (69,91) nit,t,
+!     $           xmin,xmax,ymin,ymax,zmin,zmax
+!         endif
          write(6,*)'end it.',nit,'t=',t
  90      format(/,
      $        ' output: end of iteration ',i8,'       time=',f12.5,/,
      $        '   system box= ',g10.3,'< x <',g10.3,/,
      $        '               ',g10.3,'< y <',g10.3,/,
      $        '               ',g10.3,'< z <',g10.3)      
- 91      format(/,
-     $        ' output: end of iteration ',i8,'       time=',f12.5,/,
-     $        '   system box= ',g10.3,'< x <',g10.3,/,
-     $        '               ',g10.3,'< y <',g10.3,/,
-     $        '               ',g10.3,'< z <',g10.3)
+! 91      format(/,
+!     $        ' output: end of iteration ',i8,'       time=',f12.5,/,
+!     $        '   system box= ',g10.3,'< x <',g10.3,/,
+!     $        '               ',g10.3,'< y <',g10.3,/,
+!     $        '               ',g10.3,'< z <',g10.3)
 
          epot=0.d0
          if(ngr.ne.0)then
@@ -388,17 +388,17 @@ c     so updating the entropy calculation is a low priority.
 
          etot=epot+ekin+eint
          
-         if(mod(nit,nitpot).eq.0)then
+!         if(mod(nit,nitpot).eq.0)then
             write (69,904) epot,ekin,eint,etot,stot,vcm,ajtot
  904        format('   energies: W=',g10.3,' T=',f10.4,' U=',f10.4,/,
      $           '     Etot=',f10.4,' Stot=',g10.3,' vcm=',g10.3,
      $           ' Jtot=',g10.3)
-         else
-            write (69,905) epot,ekin,eint,etot,stot,vcm,ajtot
- 905        format('   energies:W''=',g10.3,' T=',f10.4,' U=',f10.4,/,
-     $           '    Etot''=',f10.4,' Stot=',g10.3,' vcm=',g10.3,
-     $           ' Jtot=',g10.3)
-         endif
+!         else
+!            write (69,905) epot,ekin,eint,etot,stot,vcm,ajtot
+! 905        format('   energies:W''=',g10.3,' T=',f10.4,' U=',f10.4,/,
+!     $           '    Etot''=',f10.4,' Stot=',g10.3,' vcm=',g10.3,
+!     $           ' Jtot=',g10.3)
+!         endif
 
          nneavr=nneavr/n
          nnesig=sqrt(nnesig/n-nneavr**2)

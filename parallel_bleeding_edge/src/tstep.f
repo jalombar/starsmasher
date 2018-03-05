@@ -5,6 +5,7 @@ c***********************************************************************
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 dtiacc,dtivel,dtvelmin(2),dtaccmin(2),dtiacc4,dtacc4min(2)
+      real*8 dtvelcomin(2),dtacccomin(2)
       real*8 mydt
       integer i,j
       real*8 uijmax(nmax)
@@ -12,28 +13,30 @@ c***********************************************************************
       real*8 rij,vij,vdotij
       real*8 dtumin(2),dtiu
       real*8 mydtvel(2),mydtacc(2),mydtu(2),mydtacc4(2)
+      real*8 mydtvelco(2),mydtaccco(2)
       integer idtvel,idtacc,idtu,idtacc4, ierr
+      integer idtvelco,idtaccco
       
       if(nrelax.ne.1) then
          call vdotsm
       endif
-      mydtvel(1)=1.d30
-      mydtacc(1)=1.d30
-      mydtu(1)=1.d30
-      mydtacc4(1)=1.d30
-      mydtvel(2)=0
-      mydtacc(2)=0
-      mydtu(2)=0
-      mydtacc4(2)=0
-      mydt=1.d30
+      mydtvel(1)=1.d30          ! dt1 (on this myrank process)
+      mydtacc(1)=1.d30          ! dt2 (on this myrank process)
+      mydtu(1)=1.d30            ! dt3 (on this myrank process)
+      mydtacc4(1)=1.d30         ! dt4 (on this myrank process)
+      mydtvelco(1)=1.d30        ! dt5 (on this myrank process)
+      mydtaccco(1)=1.d30        ! dt6 (on this myrank process)
+      mydtvel(2)=0              ! particle index for dominate dt1 particle
+      mydtacc(2)=0              ! particle index for dominate dt2 particle
+      mydtu(2)=0                ! particle index for dominate dt3 particle
+      mydtacc4(2)=0             ! particle index for dominate dt4 particle
+      mydtvelco(2)=0            ! particle index for dominate dt5 particle
+      mydtaccco(2)=0            ! particle index for dominate dt6 particle
+      mydt=1.d30                ! overall minimum dt (on this myrank process)
 
-c      print '(99g13.5)',t,myrank,n_lower,hp(n_lower),uijmax(n_lower),
-c     $     x(n_lower),vx(n_lower),vxdot(n_lower),udot(n_lower),
-c     $     vxdotsm(n_lower)
       do i=n_lower,n_upper
          if(u(i).ne.0.d0) then
             dtivel=cn1*hp(i)/sqrt(uijmax(i))
-c                     if(myrank.eq.0) write(69,*)i,dtivel,cn1,hp(i),uijmax(i)
             dtiacc=cn2*hp(i)**0.5d0/((vxdot(i)-vxdotsm(i))**2
      $           +(vydot(i)-vydotsm(i))**2
      $           +(vzdot(i)-vzdotsm(i))**2)**0.25d0
@@ -47,9 +50,6 @@ c               dtiu=cn3*u(i)/dabs(udot(i) + (ueq(i)-u(i))*(1-exp(-dth/tthermal(
             dtiacc4=cn4*sqrt(uijmax(i))/((vxdot(i)-vxdotsm(i))**2
      $           +(vydot(i)-vydotsm(i))**2
      $           +(vzdot(i)-vzdotsm(i))**2)**0.5d0
-            
-c         if(myrank.eq.0) write(69,*) 'i= ', dtiu, hp(i), max_vsig(i)
-            
             if(dtivel.lt.mydtvel(1)) then
                mydtvel(1)=dtivel
                mydtvel(2)=i
@@ -71,7 +71,14 @@ c         if(myrank.eq.0) write(69,*) 'i= ', dtiu, hp(i), max_vsig(i)
          else
             do j=1,ntot
                if(j.ne.i)then
-                  rij=((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2+cn7*hp(i)**2)**0.5d0
+
+c     Could consider changing hp(i) to hp(j) in the next line, but if we
+c     do that then the smoothing lengths will need to be shared over all
+c     processes in advance.f90.  Currently, smoothing lengths are shared
+c     only to the gravity processes since they are the only processes
+c     that need them.
+                  rij=((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
+     $                 +cn7*hp(i)**2)**0.5d0
                   vij= ((vx(i)-vx(j))**2
      $                 +(vy(i)-vy(j))**2
      $                 +(vz(i)-vz(j))**2)**0.5d0
@@ -81,20 +88,13 @@ c         if(myrank.eq.0) write(69,*) 'i= ', dtiu, hp(i), max_vsig(i)
                   dtivel=cn5*rij/vij
                   dtiacc=cn6*(rij/vdotij)**0.5d0
                   
-                  if(dtivel.lt.mydtvel(1)) then
-                     mydtvel(1)=dtivel
-                     mydtvel(2)=-j
+                  if(dtivel.lt.mydtvelco(1)) then
+                     mydtvelco(1)=dtivel
+                     mydtvelco(2)=j
                   endif
-                  if(dtiacc.lt.mydtacc(1)) then
-                     mydtacc(1)=dtiacc
-                     mydtacc(2)=-j
-
-c                     if(j.eq.10661) then
-c                        write(41,'(99g17.9)')j,dtiacc,rij,vdotij,x(i),y(i),z(i),hp(i),
-c     $                       x(j),y(j),z(j),vxdot(i),vydot(i),vzdot(i),vxdot(j),vydot(j),vzdot(j),t
-c                        if(t.gt.350.4d0) stop
-c                     endif
-
+                  if(dtiacc.lt.mydtaccco(1)) then
+                     mydtaccco(1)=dtiacc
+                     mydtaccco(2)=j
                   endif
                   mydt=min(mydt,(1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
                endif
@@ -115,27 +115,23 @@ c     mpi sync here dt should be min for all processes
      $     mpi_minloc,0,mpi_comm_world,ierr)
       call mpi_reduce(mydtacc4,dtacc4min,1,mpi_2double_precision,
      $     mpi_minloc,0,mpi_comm_world,ierr)
-c      call mpi_reduce(mydtvel,dtvelmin,2,mpi_double_precision,
-c     $     mpi_minloc,0,mpi_comm_world,ierr)
-c      call mpi_reduce(mydtacc,dtaccmin,2,mpi_double_precision,
-c     $     mpi_minloc,0,mpi_comm_world,ierr)
-c      call mpi_reduce(mydtu,dtumin,2,mpi_double_precision,
-c     $     mpi_minloc,0,mpi_comm_world,ierr)
-c      call mpi_reduce(mydtacc4,dtacc4min,2,mpi_double_precision,
-c     $     mpi_minloc,0,mpi_comm_world,ierr)
-
-c      if(myrank.eq.0) write(69,'(a17,2g13.6)')
-c     $    'tstep: dt value=',dt
+      call mpi_reduce(mydtvelco,dtvelcomin,1,mpi_2double_precision,
+     $     mpi_minloc,0,mpi_comm_world,ierr)
+      call mpi_reduce(mydtaccco,dtacccomin,1,mpi_2double_precision,
+     $     mpi_minloc,0,mpi_comm_world,ierr)
 
       if(myrank.eq.0) then
          idtvel=nint(dtvelmin(2))
          idtacc=nint(dtaccmin(2))
          idtu=nint(dtumin(2))
          idtacc4=nint(dtacc4min(2))
-         write(69,'(a11,9g13.6)')
-     $    'tstep: dts=',dtvelmin(1),dtaccmin(1),dtumin(1),dtacc4min(1),dt
-         write(69,'(a11,9g13.6)')
-     $    'tstep: indx',idtvel,idtacc,idtu,idtacc4
+         idtvelco=nint(dtvelcomin(2))
+         idtaccco=nint(dtacccomin(2))
+         write(69,'(a4,9g10.3)')
+     $    'dts=',dtvelmin(1),dtaccmin(1),dtumin(1),dtacc4min(1),
+     $        dtvelcomin(1),dtacccomin(1),dt
+         write(69,'(a4,9g10.3)')
+     $    'indx',idtvel,idtacc,idtu,idtacc4,idtvelco,idtaccco
       endif
 
       return

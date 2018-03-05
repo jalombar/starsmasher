@@ -132,12 +132,12 @@ c     calculate gradwij's to all neighbors:
             r2 = dx*dx + dy*dy + dz*dz 
             itab=int(ctab*r2*invh2)+1
 
-            if(r2.lt.4d0*h2tilde) then                                                                                                   
+            if(r2.lt.4d0*h2tilde) then
                itabtilde=int(ctab*r2*invh2tilde)+1
                diwkin = dgtab(itabtilde) * invh2tilde
-            else                                                                                                                         
+            else
                diwkin = 0d0
-            endif                                                                                                                        
+            endif
 
             dwijin = dwtab(itab) * invh5
 
@@ -155,15 +155,16 @@ c                 fj=abs(divv(j))/(abs(divv(j))+
 c     $                    sqrt(curlvx(j)**2+curlvy(j)**2+curlvz(j)**2)+
 c     $                    0.00001d0*cj/hp(j))
 c     modified from very old version:
-                  if(nav.eq.3) then
-                     if(r2.gt.0) then
-                        udbij=hpi*divin/(ci*r2)*fi
+                  if(r2.gt.0) then
+                     if(nav.eq.3) then
+                        udbij=divin/(ci*r2**0.5d0)*fi
                      else
-                        udbij=0d0
+                        udbij=hpi*divin/(ci*r2)*fi
                      endif
                   else
-                     udbij=divin/(ci*r2**0.5d0)*fi
+                     udbij=0d0
                   endif
+
 c     old version:
 c     udbij=div(in)/((ci+cj)*r2**0.5d0)*(fi+fj)
 c     udbij=divin/(ci*r2**0.5d0)*fi

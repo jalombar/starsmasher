@@ -565,6 +565,15 @@ c     set some default values, so that they don't necessarily have to be set in 
       read(12,input)
       close(12)
 
+      if(nitpot.ne.1 .and. ngr.ne.0) then
+         if(myrank.eq.0) then
+            write(69,*)'Gravitational potential energy is calculated at'
+            write(69,*)'every iteration: the variable NITPOT is'
+            write(69,*)'deprecated, and the value you set for it will'
+            write(69,*)'no effect.'
+         endif
+      endif
+
       if(startfile2.ne.'sph.start2u') then
          inquire(file=startfile2,exist=fileexists)
          if(.not. fileexists) then

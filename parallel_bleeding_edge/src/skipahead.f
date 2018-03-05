@@ -51,6 +51,9 @@
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
 
+c     Initializing bhcomp
+      bhcomp = -1
+
       do i=1,n
          vx(i)=vx(i)-0.5d0*dt*vxdot(i)
          vy(i)=vy(i)-0.5d0*dt*vydot(i)
