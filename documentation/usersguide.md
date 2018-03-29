@@ -17,6 +17,7 @@ The installation instructions are layed out in [this file](./installation.md). I
 
 
 ## SPH: Smoothed Particle Hydrodynamics
+(This whole section is from the *StarCrash* manual)
 
 #### History & The Basics
 
@@ -46,10 +47,25 @@ also makes it easy to track the hydrodynamic ejection of matter to large distanc
 dense regions. Sophisticated nested-grid algorithms are necessary to accomplish the same with
 grid-based methods.
 
-#### SPH Density: Kernels, Sums, and all that Jazz
+#### SPH Density: Kernels, Sums, and all that Jazz FIX THIS
 
 A good description of the particular SPH algorithm implemented in our code can be found in
 Rasio & Shapiro (1992). We are going to summarize the most important features for you here.
 
-![Image of Equation](http://www.sciweavers.org/upload/Tex2Img_1522344274/render.png)
-
+![Image of Equation 3-1](http://www.sciweavers.org/upload/Tex2Img_1522344274/render.png)
+![Image of Equation 3-2](http://www.sciweavers.org/upload/Tex2Img_1522345721/render.png)
+![Image of Equation 3-3](http://www.sciweavers.org/upload/Tex2Img_1522347434/render.png)
+![Image of Equation 3-4.1](http://www.sciweavers.org/upload/Tex2Img_1522347481/render.png)
+![Image of Equation 3-4.2](http://www.sciweavers.org/upload/Tex2Img_1522347552/render.png)
+![Image of Equation 3-5](http://www.sciweavers.org/upload/Tex2Img_1522347760/render.png)
+![Image of Equation 3-6](http://www.sciweavers.org/upload/Tex2Img_1522348140/render.png)
+![Image of Equation 3-7](http://www.sciweavers.org/upload/Tex2Img_1522348363/render.png)
+![Image of Equation 3-8.1](http://www.sciweavers.org/upload/Tex2Img_1522350154/render.png)
+![Image of Equation 3-8.2](http://www.sciweavers.org/upload/Tex2Img_1522350181/render.png)
+![Image of Equation 3-8.3](http://www.sciweavers.org/upload/Tex2Img_1522350202/render.png)
+![Image of Equation 3-]()
+![Image of Equation 3-]()
+![Image of Equation 3-]()
+![Image of Equation 3-]()
+![Image of Equation 3-]()
+![Image of Equation 3-]()
