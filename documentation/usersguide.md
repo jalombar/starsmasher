@@ -53,3 +53,5 @@ Rasio & Shapiro (1992). We are going to summarize the most important features fo
 
 ![Image of Equation]
 (http://www.sciweavers.org/upload/Tex2Img_1522344274/render.png)
+
+![Image of Yaktocat](https://octodex.github.com/images/yaktocat.png)
