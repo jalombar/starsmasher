@@ -52,8 +52,5 @@ A good description of the particular SPH algorithm implemented in our code can b
 Rasio & Shapiro (1992). We are going to summarize the most important features for you here.
 
 
-\begin{equation}
-p_{i}(\overrightarrow{r})
-\end{equation}
-
+http://www.sciweavers.org/upload/Tex2Img_1522344274/render.png
 
