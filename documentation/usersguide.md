@@ -53,8 +53,7 @@ Rasio & Shapiro (1992). We are going to summarize the most important features fo
 
 
 \begin{equation}
-...
+p_{i}(\overrightarrow{r})
 \end{equation}
-or inline equations
 
-$ \sum_{\forall i}{x_i^{2}} $
+
