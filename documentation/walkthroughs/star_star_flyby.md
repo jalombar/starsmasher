@@ -96,7 +96,7 @@ qsub -q debug sph.pbs
 
 ### Step 2: Dynamical calculation
 
-If the model from the relaxation run at t=TRELOFF looks good, then you can use that to start a dynamical calculation.
+If the last model from the relaxation run looks good, then you can use the t=TRELOFF output file as an input to a dynamical calculation.
 Start by get the directories ready:
 ```
 cd ~/starsmasher   ### or cd to wherever your main installation is
