@@ -56,7 +56,7 @@ cd ..
 ```
 and get a good batch script if you don't have one
 ```
-cp ../sph.pbs.kfs sph.pbs
+cp ../misc/sph.pbs.kfs sph.pbs
 ```
 The default sph.pbs file asks for only 1 minute, so you'll need to
 change that for a real run.  To run the code,
