@@ -1,4 +1,4 @@
-# StarSmasher - a Smoothed-Particle Hydrodynamics code.
+# StarSmasher - a Smoothed Particle Hydrodynamics code.
 
 Please contact Jamie Lombardi (jamie.lombardi@allegheny.edu) with any questions.
 
