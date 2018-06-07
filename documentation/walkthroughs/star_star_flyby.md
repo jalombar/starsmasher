@@ -35,7 +35,7 @@ See the Starcrash documentation for an explanation of what some of the other var
 Now let's compile the source code:
 ```
 cd src
-cat sphu.h
+cat starsmasher.h
 ```
 Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
 ```
@@ -90,7 +90,7 @@ Run the code like before:
 cd src
 make
 cd ..
-cp ../sph.pbs.kfs ./sph.pbs
+cp ../misc/sph.pbs.kfs ./sph.pbs
 qsub -q debug sph.pbs
 ```
 
@@ -141,7 +141,7 @@ For example, on Keeneland KFS, there are 3 gpus and 12 cores per node.
 Let's get the star models:
 ```
 cp ../TWIN/*/out0200.sph ./sph.start1u
-cp ../GAM1.667_n1.5/*/out0100.sph ./sph.start2u
+cp ../GAM1.667_n1.5/*/out0200.sph ./sph.start2u
 ```
 where we assume the 8 solar mass ZAMS star was relaxed in the directory ../TWIN/.
 Now let's compile the code:
@@ -155,7 +155,7 @@ cd ..
 ```
 then
 ```
-cp ../sph.pbs.kfs ./sph.pbs
+cp ../misc/sph.pbs.kfs ./sph.pbs
 qsub -q debug sph.pbs
 ```
 
