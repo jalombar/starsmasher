@@ -28,7 +28,7 @@ You should look at sph.input:
 ```
 emacs -nw sph.input
 ```
-Change line 4 of sph.input to be N=2000 and save the file.
+Change line 4 of sph.input to be N=1000 and save the file.
 There are several other variables that could be changed, but the defaults should be fine for now.
 See the Starcrash documentation for an explanation of what some of the other variables are.
 
