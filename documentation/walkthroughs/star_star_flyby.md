@@ -77,7 +77,7 @@ cp ../example_input/relaxation_TWIN_model/* .
 ```
 
 To relax a TWIN model instead, the three letter code word in sph.init should be 'erg'.
-The SPH code will look for a model named 'eg.last1.muse_s2mm'.
+The SPH code will look for a model named 'eg.last1.muse_s2mm' by default.
 You can create a symbolic link from an appropriate output file of TWIN if you like (e.g., "cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm").
 The file m_8_t_5.7.last1.muse_s2mm is the default in example_input/relaxation_TWIN_model.
 It represents an 8M_sun MS star at t=5.7Myr.
@@ -143,7 +143,7 @@ Let's get the star models:
 cp ../TWIN/*/out0200.sph ./sph.start1u
 cp ../GAM1.667_n1.5/*/out0200.sph ./sph.start2u
 ```
-where we assume the 8 solar mass ZAMS star was relaxed in the directory ../TWIN/.
+where we assume the 8 solar mass zero age main sequence star was relaxed in the directory ../TWIN/.
 Now let's compile the code:
 ```
 cd src
