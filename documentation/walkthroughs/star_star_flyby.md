@@ -1,4 +1,4 @@
-## Walkthrough - fly-by of two stars
+## Walkthrough: fly-by of two stars
 
 There are two steps to modelling a collision or fly-by of two stars.
 First, you have to model the individual star: a relaxation run.
