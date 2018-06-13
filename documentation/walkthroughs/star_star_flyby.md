@@ -4,6 +4,13 @@ There are two steps to modelling a collision or fly-by of two stars.
 First, you have to model the individual star: a relaxation run.
 Second, you simulate the interaction: a dynamical calculation.
 
+#### A note about Running the code
+If you are running the code on a machine that uses a pbs scheduler, then I recommend that you do the following to prepare to run the code later on:
+```
+cd ~/starsmasher/parallel_bleeding_edge  ####  depending on where your starsmasher installation is located
+cp ../misc/sph.pbs .
+```
+
 ### Step 1: Relaxation runs
 
 ### Step 1(a): Relaxing a n=1.5 polytrope
@@ -54,15 +61,17 @@ compilation, the last line you should see is "mv GAM1.667_n1.5_sph
 ```
 cd ..
 ```
-and get a good batch script if you don't have one
+
+If you are using a pbs scheduler, run the code using the following:
 ```
-cp ../misc/sph.pbs.kfs sph.pbs
+qsub sph.pbs 
 ```
-The default sph.pbs file asks for only 1 minute, so you'll need to
-change that for a real run.  To run the code,
+Otherwise, use this command: 
 ```
-qsub -q debug sph.pbs ### or, for long jobs, "qsub sph.pbs"
+mpirun -np 8 ./*_sph 
 ```
+Where '8' can me changed to the number of parallel processes (often equal to the number of cores on your machine).
+
 This creates, among other things, a file log0.sph that collects
 ascii tex about the run.
 
@@ -85,14 +94,15 @@ It represents an 8M_sun MS star at t=5.7Myr.
 The sph.input file, also available within example_input/relaxation_TWIN_model/, should be similar to the sph.input file used above for the polytrope (probably just change N and nothing else unless necessary).
 The file on the svn site does have TRELOFF to 200 in this case, to make sure there was enough time for oscillations to die off, and TF is 300 so the star could be monitored for 100 time units after the relaxation was turned off.
 
-Run the code like before:
+As discussed before, if you are using a pbs scheduler, run the code using the following:
 ```
-cd src
-make
-cd ..
-cp ../misc/sph.pbs.kfs ./sph.pbs
-qsub -q debug sph.pbs
+qsub sph.pbs 
 ```
+Otherwise, use this command: 
+```
+mpirun -np 8 ./*_sph 
+```
+Where '8' can me changed to the number of parallel processes (often equal to the number of cores on your machine).
 
 ### Step 2: Dynamical calculation
 
@@ -153,11 +163,16 @@ To run the code, get to the same directory as the executable:
 ```
 cd ..
 ```
-then
+As discussed before, if you are using a pbs scheduler, run the code using the following:
 ```
-cp ../misc/sph.pbs.kfs ./sph.pbs
-qsub -q debug sph.pbs
+qsub sph.pbs 
 ```
+Otherwise, use this command: 
+```
+mpirun -np 8 ./*_sph 
+```
+Where '8' can me changed to the number of parallel processes (often equal to the number of cores on your machine).
+
 
 ## RESTARTING RUNS
 
