@@ -7,8 +7,6 @@
  alpha=1, ! av coefficient for term linear in mu
  beta=2, ! av coefficient for mu^2 term
  ngr=3, ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
- hmin=-.5, ! minimum smoothing length allowed.  leave it at 0 or a negative number to be safe.  no longer used.
- hmax=1.d30, ! maximum smoothing length allowed.  leave it very large to be safe.  no longer used.
  nrelax=0, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
  trelax=1d30, ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
  sep0=20000, ! initial separation of two stars in a binary or collision calculation

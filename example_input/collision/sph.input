@@ -5,7 +5,7 @@
  sep0=15, ! initial separation of two stars in a binary or collision calculation
  bimpact=3.9d0, ! the impact parameter for collisions; despite the name, this is actually the *periastron separation*
  semimajoraxis=20d0, ! the semimajor axis for the collision (in units of runit below)
- ngravprocs=-6, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+ ngravprocs=-2, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
  ppn=16, ! set this to the number of cpu cores per node
  &end

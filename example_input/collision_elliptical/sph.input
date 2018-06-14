@@ -7,8 +7,6 @@
  alpha=1, ! av coefficient for term linear in mu
  beta=2, ! av coefficient for mu^2 term
  ngr=3, ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
- hmin=-.5, ! minimum smoothing length allowed.  leave it at 0 or a negative number to be safe.  no longer used.
- hmax=1.d30, ! maximum smoothing length allowed.  leave it very large to be safe.  no longer used.
  nrelax=0, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
  trelax=1d30, ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
  sep0=150, ! initial separation of two stars in a binary or collision calculation
@@ -21,7 +19,7 @@
  tscanon=0, ! time that the scan of a binary starts
  sepfinal=1.d30, ! final separation for the scan of a binary
  nintvar=2, ! 1=integrate entropic variable a, 2=integrate internal energy u
- ngravprocs=-6, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+ ngravprocs=-2, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
  qthreads=0 ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
  gflag=1 ! set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes
  mbh=5.0 !mass of black hole
