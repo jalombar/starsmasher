@@ -490,6 +490,15 @@ c      end
       real*8 displacex,displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
+      namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hco,hfloor,
+     $     nrelax,trelax,sep0,bimpact,e0,semimajoraxis,vinf2,
+     $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
+     $     nintvar, ngravprocs,qthreads,gflag,mbh,runit,munit,
+     $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
+     $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
+     $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
+     $     opacityfile,profilefile,nkernel,throwaway,
+     $     stellarevolutioncodetype
 
       ndisplace=0
       displacex=0d0

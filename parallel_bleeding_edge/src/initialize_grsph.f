@@ -49,10 +49,10 @@ c      parameter(nx=80,ny=80,nz=40)
       t=0.d0
       nselfgravity=0
 
-c get parameters from input file:
-      open(12,file='sph.input',err=100)
-      read(12,input)
-      close(12)
+cc get parameters from input file:
+c      open(12,file='sph.input',err=100)
+c      read(12,input)
+c      close(12)
 
       if(n.gt.nmax) then
          if(myrank.eq.0)write(69,*)'error: n>nmax'

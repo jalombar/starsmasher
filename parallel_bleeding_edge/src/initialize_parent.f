@@ -623,10 +623,10 @@ c     get profiles:
          enddo
       else if(stellarevolutioncodetype.eq.1) then
 c     profilefile comes from MESA
-         read(io,*) one         ! list of integers                   
+         read(io,*,err=22) one  ! It's safe to ignore a compiler warning here
 
          if (one.ne.1)then
-            if(myrank.eq.0)then
+ 22         if(myrank.eq.0)then ! It's safe to ignore a compiler warning here 
                write(69,*)'Uuuh.. This doesn''t seem like a MESA file..'
                write(69,*)'We will reset the stellarevolutioncodetype=0'
             endif
