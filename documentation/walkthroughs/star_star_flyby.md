@@ -36,32 +36,23 @@ You should look at sph.input:
 emacs -nw sph.input
 ```
 Change line 4 of sph.input to be N=1000 and save the file.
-There are several other variables that could be changed, but the defaults should be fine for now.
+The radius and mass of the polytrope can be set within the sph.input file using the variable names starradius and starmass, respectively.
+These values are in physical units of runit and munit, which by default are the radius and mass of the sun in cgs units.
+There are several other variables that could be changed or set, but the defaults should be fine for now.
 See the Starcrash documentation for an explanation of what some of the other variables are.
 
 Now let's compile the source code:
 ```
 cd src
-cat starsmasher.h
-```
-Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
-```
-emacs -nw initialize_polyes.f
-```
-Confirm that the lines right after the declaration section will set the polytropic constant npoly to be 1.5.
-The radius and mass are set on near here.
-These values are in physical units of runit and munit, which are set at the end of sph.input and are typically the radius and mass of the sun in cgs units.
-Save initialize_polyes.f when done and then try to compile:
-```
 make
 ```
+Should you want to try a slow cpu-only version for test purposes, use "make cpu" instead.
 Once everything goes well with the
 compilation, the last line you should see is "mv GAM1.667_n1.5_sph
 ..".  Get positioned to run the code:
 ```
 cd ..
 ```
-
 If you are using a pbs scheduler, run the code using the following:
 ```
 qsub sph.pbs 
