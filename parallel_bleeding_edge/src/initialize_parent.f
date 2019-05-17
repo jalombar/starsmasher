@@ -5,7 +5,7 @@ c     creates a star from the data file yrec output
       integer numlines,i
       integer idumb,ip,ix,iy,iz
       real*8 anumden,rhotry,rhoex,rtry,rhomax,hc,xcm,ycm,zcm,amtot,
-     $     ammin,ammax,xtry,ytry,ztry,ri,rhoi,ran1
+     $     ammin,ammax,xtry,ytry,ztry,ri,rhoi
       integer irtry
       real*8 amass,masscgs,radius
       real*8 tem(kdm),pres(kdm),
@@ -40,6 +40,7 @@ c     derived constants:
       common/gravworkers/comm_worker
       integer status(mpi_status_size)
       real*8 hmin
+      real*8 nplaced
 
       call splinesetup
 
@@ -116,7 +117,7 @@ c      enddo
 c     the fraction of particles at a region of density rhoex that
 c     will be kept is (rhoex/rhomax)**equalmass.  so if the number
 c     density of lattice points that will be tried is n, then we expect
-c     the number of particles to be n=n*integrate[4*pi*r**2*
+c     the number of particles to be N=n*integrate[4*pi*r**2*
 c     (rhoex(r)/rhomax)**equalmass,{r,0,redge}].  we can solve this for
 c     n, and then use that the cell volume is 2/n (as there are two
 c     particles per cell)
@@ -148,9 +149,10 @@ c     (a3 vector)=(8/3)^0.5*a1*(z hat)
       ixmax=int(redge/a1)+2
       iymax=int(redge/(3.d0**0.5d0/2.d0*a1))+2
       izmax=int(redge/(0.5d0*(8.d0/3.d0)**0.5d0*a1))+2
+      nplaced=-0.5d0
       do ix=-ixmax,ixmax
          do iy=-iymax,iymax
-            do iz=-izmax,izmax
+            do iz=1,izmax
                xtry=(ix-0.5d0)*a1+mod(abs(iy),2)*0.5d0*a1
                ytry=iy*3.d0**0.5d0/2.d0*a1
      $              -(mod(abs(iz),2)-0.5d0)*1.d0/3.d0**0.5d0*a1
@@ -159,8 +161,13 @@ c     (a3 vector)=(8/3)^0.5*a1*(z hat)
                if(rtry.lt.redge) then
                   call sph_splint(rarray,rhoarray,rhoarray2,numlines,
      $                 rtry,rhoex)
-                  rhotry=rhomax**equalmass*ran1(idumb)      
-                  if (rhotry.le.rhoex**equalmass) then
+
+c                  rhotry=rhomax**equalmass*ran1(idumb)      
+c                  if (rhotry.le.rhoex**equalmass) then
+
+                  nplaced=nplaced+(rhoex/rhomax)**equalmass
+                  if (nplaced.ge.0) then
+                     nplaced=nplaced-1d0
 c     (particle is accepted)    
                      ip=ip+1                 
                      if(rtry.le.a1 .and. myrank.eq.0) then
@@ -170,6 +177,16 @@ c     (particle is accepted)
                      x(ip)=xtry        
                      y(ip)=ytry            
                      z(ip)=ztry
+                     ip=ip+1                 
+                     if(rtry.le.a1 .and. myrank.eq.0) then
+                        write(69,'(4i6,4e12.4)')ip,-ix+1-mod(abs(iy),2),
+     $                       -iy,-iz+1,
+     $                       -xtry,-ytry,-ztry,rtry
+                     endif
+                     x(ip)=-xtry        
+                     y(ip)=-ytry            
+                     z(ip)=-ztry
+
                   endif
                endif
             enddo
@@ -196,7 +213,8 @@ c     start following loop at the first sph particle (with index 2, not 1, if th
          if(rhoi.le.0.d0) then
             if(myrank.eq.0)write(69,*)'warning: rho(',i,')<=0 at r=',ri,'???'
          endif
-         am(i)=amass/n*(integral*rhoi/amass)**(1.d0-equalmass)
+c         am(i)=amass/n*(integral*rhoi/amass)**(1.d0-equalmass)
+         am(i)=integral/n*rhoi**(1.d0-equalmass)*rhomax**equalmass
          xcm=xcm+am(i)*x(i)
          ycm=ycm+am(i)*y(i)
          zcm=zcm+am(i)*z(i)
@@ -254,7 +272,11 @@ c     below here, n=total number of particles
          vz(1)=0.d0
          am(1)=amass-amtot
          if(myrank.eq.0)write(69,*) 'mass of core = ',am(1),'msun'
-         hp(1)=hmin
+         if(hco.gt.0.d0) then
+            hp(1)=hco
+         else
+            hp(1)=hmin
+         endif
          if(myrank.eq.0)write(69,*)'hp(core mass)',hp(1)
          cc(1)=int(2.d0*log(1.35d0*a1*
      $        (integral/(4.d0/3.d0*pi*redge**3))**(1.d0/3.d0))

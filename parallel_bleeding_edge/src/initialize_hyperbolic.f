@@ -16,8 +16,9 @@
       integer idumb
       real*8 costh1,sinth1,costh2,sinth2,ps1,ps2
       real*8 xold,yold,zold,vxold,vyold,vzold,ran1
-      real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
-      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
+      real*8 am1,am2,am1tot,am2tot
+c      real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2,am1tot,am2tot
+c      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       real*8 amass1,amass2
       common/forcompbest/ amass1,amass2
       real*8 eorb0,xx
@@ -29,11 +30,31 @@
      $     amtwo,x2,y2,z2,vx2,vy2,vz2,
      $     amthree,x3,y3,z3,vx3,vy3,vz3,am4,
      $     icomp
-      real*8 divv(nmax)
+      real*8 divv(nmax),ra
       common/commdivv/divv
       common/orbitalelements/e0,semimajoraxis
 
       call cpu_time(time1)
+
+c     If enough information is available to determine that sep0 has an invalid value,
+c     then reset sep0 to the apoapsis distance ra:
+      if(vinf2.ge.1d30 .and. semimajoraxis.eq.0.d0)then
+c     presumably e0 and bimpact have been set in sph.input:
+         rp=bimpact
+         ra=rp*(1.d0+e0)/(1-e0)
+         if(sep0.gt.ra .or. sep0.lt.rp) sep0=ra
+      else if(vinf2.ge.1d30 .and. e0.lt.0.d0)then
+c     presumably semimajoraxis and bimpact have been set in sph.input:
+         rp=bimpact
+         ra=2*semimajoraxis-rp
+         if(sep0.gt.ra .or. sep0.lt.rp) sep0=ra
+      else if(bimpact.lt.0.d0 .and. vinf2.ge.1.d30)then
+c     presumably semimajoraxis and e0 have been set in sph.input:
+         rp=semimajoraxis*(1.d0-e0)
+         ra=semimajoraxis*(1.d0+e0)
+         if(sep0.gt.ra .or. sep0.lt.rp) sep0=ra
+      endif
+
 
       corepts=0
       if(myrank.eq.0) write (69,*)
@@ -48,6 +69,7 @@ c     used in subroutine dump)
      $     navold,alphaold,betaold,tjumpahead,
      $     ngrold,
      $     nrelaxold,trelaxold,dtold,omega2
+      am1tot=0.d0
       am1=0.d0
       if(myrank.eq.0) write(69,*)'n1=',n1
       amass1=n1
@@ -92,7 +114,10 @@ c     place velocities at same time as everything else:
          vyold=vyold-vydot(i)*0.5d0*dtold
          vzold=vzold-vzdot(i)*0.5d0*dtold
 
-         am1=am1+am(i)
+         am1tot=am1tot+am(i)
+         if(xold**2+yold**2+zold**2.le.sep0**2) then
+            am1=am1+am(i)
+         endif
          x(i)=cos(ps1)*xold+costh1*sin(ps1)*yold+
      &        sin(ps1)*sinth1*zold
          y(i)=-sin(ps1)*xold+costh1*cos(ps1)*yold+
@@ -134,6 +159,7 @@ c     used in subroutine dump)
      $        alphaold,betaold,tjumpahead,ngrold,
      $        nrelaxold,trelaxold,dtold,omega2
          amass2=n2
+         am2tot=0.d0
          am2=0.d0
          ntot=n1+n2
          if (ntot.gt.nmax) then
@@ -154,7 +180,10 @@ c     place velocities at same time as everything else:
             vyold=vyold-vydot(i)*0.5d0*dtold
             vzold=vzold-vzdot(i)*0.5d0*dtold
             
-            am2=am2+am(i)
+            am2tot=am2tot+am(i)
+            if(xold**2+yold**2+zold**2.le.sep0**2) then
+               am2=am2+am(i)
+            endif
             x(i)=cos(ps2)*xold+costh2*sin(ps2)*yold+
      &           sin(ps2)*sinth2*zold
             y(i)=-sin(ps2)*xold+costh2*cos(ps2)*yold+
@@ -183,6 +212,7 @@ c     place velocities at same time as everything else:
          n2=1
          ntot=n1+n2
          i=ntot
+         am2tot=mbh
          am2=mbh
          am(i)=am2
          x(i)=0.d0
@@ -264,8 +294,12 @@ c     presumably bimpact and vinf2 have been set in sph.input:
       if(myrank.eq.0) then
          write(69,*) 'hyperbolic: bimpact=',
      $        bimpact,'v_inf2=',vinf2,'semimajoraxis=',semimajoraxis
-         write(69,*)'hyperbolic: e_orb=',eorb0
-         write (69,*)'hyperbolic: n=',n,'ntot=',ntot,'rp=',rp
+         write(69,*) 'hyperbolic: e_orb=',eorb0
+         write(69,*) 'hyperbolic: n=',n,'ntot=',ntot,'rp=',rp
+         write(69,*) 'hyperbolic: sep0 = ',sep0
+         write(69,*) 'hyperbolic: masses = ',am1tot,am2tot
+         write(69,*) 'hyperbolic: masses used for orbital parameters= ',
+     $        am1,am2
          open(30,file='m1m2rp.sph')
 c     make file m1m2rp.sph with masses and radius in solar units
          write(30,*) n1,n2,rp
@@ -281,8 +315,6 @@ c      if(myrank.eq.0) write(69,*)k,mu,semimajoraxis,e0
 c     equation (8.41) of marion and thornton
       costheta = (semilatusrectum/sep0-1.d0)/e0
       if(abs(costheta).gt.1.d0 .or. e0.eq.0) then
-         sep0=semilatusrectum/(1-e0)
-         costheta = -1d0
          if(myrank.eq.0) then
             if(abs(costheta).gt.1.d0) then
                write(69,*)'bad initial conditions in sph.input:'
@@ -290,7 +322,11 @@ c     equation (8.41) of marion and thornton
                write(69,*)'sep0 cannot be larger than',
      $              semilatusrectum/(1-e0)
             endif
-            write(69,*)'reset sep0=',sep0
+         endif
+         costheta = -1d0
+         if(sep0.gt.semilatusrectum/(1-e0)) then
+            sep0=semilatusrectum/(1-e0)
+            if(myrank.eq.0) write(69,*)'reset sep0=',sep0
          endif
       endif
 

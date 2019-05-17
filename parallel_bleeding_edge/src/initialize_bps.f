@@ -354,7 +354,7 @@ c      amass1=nbinary
       do i=1,nbinary
          read (12) xold,yold,zold,am(i),hp(i),rho(i),vxold,vyold,
      $        vzold,vxdot(i),vydot(i),vzdot(i),u(i),udot(i),
-     $        gx(i),gy(i),gz(i),grpot(i),meanmolecular(i),
+     $        grpot(i),meanmolecular(i),
      $        cc(i)
 
 c     place velocities at same time as everything else:
@@ -518,7 +518,7 @@ c      amass2=n3
       do i=nbinary+1,ntot
          read (12) xold,yold,zold,am(i),hp(i),rho(i),vxold,vyold,
      $        vzold,vxdot(i),vydot(i),vzdot(i),u(i),udot(i),
-     $        gx(i),gy(i),gz(i),grpot(i),meanmolecular(i),
+     $        grpot(i),meanmolecular(i),
      $        cc(i)
 
 c     place velocities at same time as everything else:

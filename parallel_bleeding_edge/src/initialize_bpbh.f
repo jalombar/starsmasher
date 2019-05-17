@@ -70,7 +70,7 @@ c     determine coefficients of rotation matrix for the binary
       do i=1,n1
          read (12) xold,yold,zold,am(i),hp(i),rho(i),vxold,vyold,
      $        vzold,vxdot(i),vydot(i),vzdot(i),u(i),udot(i),
-     $        gx(i),gy(i),gz(i),grpot(i),meanmolecular(i),
+     $        grpot(i),meanmolecular(i),
      $        cc(i)
 
 c     place velocities at same time as everything else:
