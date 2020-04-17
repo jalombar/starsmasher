@@ -1,3 +1,6 @@
+How to create a star in Starsmasher and use it to make a collision?
+
+
 To create a Star in Starsmasher and use it, at the moment the only way to do that is using MESA stellar evolution code.
 Mesa is a 1d code that is able to create stars having mainly the mass and the metallicty of the Stars.
 
@@ -17,13 +20,14 @@ Be sure that the nrelax=1. In this way Starsmasher will convert your mesa stars 
 
 To make the star, after that in your folder there are all the files needed (like in this example folder) type in your terminal:
 
-mpirun -np 4 test_gpu_sph
+mpirun -np N test_gpu_sph
+Where N are the numbers of cores of your machine.
 
 Obviously be sure that everything (number of cpus, graphic cards and so on) is setted for your machine, or mpirun will go in error.
 
 At the end of the simulation, you will have many files called out0000.sph and so on. The last file should be a "out0300.sph".
 
-To use it in a simulation, create a new folder copying the "collision" that is in "example_imput" folder. In that folder you have to delete the files called "sph.start1u and sph.start2u" and then paste the last file of your relaxation run.
+To use your star in a simulation, create a new folder copying the "collision" that is in "example_imput" folder. In that folder you have to delete the files called "sph.start1u and sph.start2u" and then paste the last file of your relaxation run. That file contains you star.
 
 If you want that your star is the target of the collision, rename it "sph.start1u". If you want that is the impactor, call it "sph.start2u.
 
@@ -31,7 +35,8 @@ At this point set the collision parameters in the sph.input for the that collisi
 
 then start the simulation:
 
-mpirun -np 4 test_gpu_sph
+mpirun -np N test_gpu_sph
+Where N is the number of cores of your machine.
 
 
 The simulation will create many out*.sph files. you can see them following the tutorial inside the "visualizing data" folder of the Starsmasher repository!
