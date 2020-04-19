@@ -2,6 +2,8 @@
  tf=200, ! desired final time to stop simulation
  dtout=1, ! how often an out*.sph files should be dumped
  n=100000, ! desired number of particles.  if n<0 then |n|=number of particles *per solar mass*.  used only if making a new star.
+ starmass=0.2, ! The desired mass of your preMS star!
+ starradius=0.2, ! The desired radius of your preMS star!
  nrelax=1, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
  treloff=0, ! time to end a relaxation and switch to a dynamical calculation
  ngravprocs=-2, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
