@@ -1,1 +1,5 @@
-Relaxation of an n=1.5 polytrope.  The mass and radius of the star are hardcoded in the first few lines of polyes.f.
+Relaxation of an n=1.5 polytrope.  The mass and radius of the star are setted in sph.input. In this way, if you want to create, for example, a pre MS Star of "X" mass and "Y" radius just edit the sph.input and add:
+starmass=0.2
+starradius=0.2
+
+Obviously according to what you want to create!
