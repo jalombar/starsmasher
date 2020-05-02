@@ -1,0 +1,26 @@
+sph.input can be edited to add features for you stars, for example:
+
+HOW TO MAKE A ROTATING STAR
+
+
+You can make your star rotate. To do that, add inside your sph.input file the line:
+omega_spin=N
+
+Where N is the angular velocity of your star. To decide the correct number to put, we have to done a little calculation.
+If you want, for example, that you star do exactly ONE rotation (2π) in ONE day of simulation (54 times of unit in Starsmasher,
+that equals to 1 day)
+N will be:
+
+2π/54 =0.116             then  
+
+omega_spin=0.116
+
+
+If you want 2 rotations in 1 day, then the equation is 4π/54=0.29 ;     then omega_spin=0.29
+
+If you want 1 rotations in 2 days the the equation is π/54=0.058;      then omega_spin=0.058
+
+
+THIS TUTORIAL WILL BE UPDATED DURING TIME
+
+For any questions contact Francesco Radica at:  francyrad97@gmail.com
