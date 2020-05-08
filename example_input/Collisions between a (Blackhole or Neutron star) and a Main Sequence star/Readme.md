@@ -1,4 +1,4 @@
-
+# How to olmake collide a Black Hole / Neutron star with a MainSequence Star
 
 To make collide a black hole / neutron star to a Main sequence star or "viceversa", you first need to relax your star (transforming it from a 1D text file to a 3D SPH Star). To do that, please, follow the tutorial "Creating a Mesa's star".
 
