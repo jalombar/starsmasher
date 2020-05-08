@@ -2,15 +2,7 @@ How to create a star in Starsmasher and use it to make a collision?
 
 
 To create a Star in Starsmasher and use it, at the moment the only way to do that is using MESA stellar evolution code.
-Mesa is a me.md 	Update Readme.md 	5 minutes ago
-	sph.init 	Add files via upload 	8 minutes ago
-	sph.input 	Add files via upload 	8 minutes ago
-	splash.defaults 	Add files via upload 	8 minutes ago
-	splash.me.md 	Update Readme.md 	5 minutes ago
-	sph.init 	Add files via upload 	8 minutes ago
-	sph.input 	Add files via upload 	8 minutes ago
-	splash.defaults 	Add files via upload 	8 minutes ago
-	splash.1d code that is able to create stars having mainly the mass and the metallicty of the Stars.
+Mesa is a code that is able to create stars having mainly the mass and the metallicty of the Stars.
 
 To get Mesa go to the following link              http://mesa.sourceforge.net/
 
@@ -20,11 +12,7 @@ At the end of the Mesa's simulation we have to look at the folder called LOGS an
 
 Once you have your file, you have to edit your sph.input file. Be sure that, if your profile file is called, for example, "start1". Inside the sph.input file there is written 
 
-profilefile='start1'me.md 	Update Readme.md 	5 minutes ago
-	sph.init 	Add files via upload 	8 minutes ago
-	sph.input 	Add files via upload 	8 minutes ago
-	splash.defaults 	Add files via upload 	8 minutes ago
-	splash.
+profilefile='start1'
 
 You can change the name inside '*' as you want. Be just sure that the name of your file and the name written inside sph.input are the same!
 
@@ -46,18 +34,10 @@ To use your star in a simulation, create a new folder copying the "collision" fo
 If you want that your star is the target of the collision, rename it "sph.start1u". If you want that is the impactor, call it "sph.start2u.
 
 At this point set the collision parameters in the sph.input for the that collision that you want.
-me.md 	Update Readme.md 	5 minutes ago
-	sph.init 	Add files via upload 	8 minutes ago
-	sph.input 	Add files via upload 	8 minutes ago
-	splash.defaults 	Add files via upload 	8 minutes ago
-	splash.
+
 then start the simulation:
 
-mpirun -np N test_gpu_sphme.md 	Update Readme.md 	5 minutes ago
-	sph.init 	Add files via upload 	8 minutes ago
-	sph.input 	Add files via upload 	8 minutes ago
-	splash.defaults 	Add files via upload 	8 minutes ago
-	splash.
+mpirun -np N test_gpu_sph
 Where N is the number of cores of your machine.
 
 
@@ -68,8 +48,4 @@ In this folder there are also 2 already done MESA stars!    Start1 is a SUN (1 s
 There is also another file in this folder called "tips and tricks". In this one there is a list of tricks that you can add inside your sph.imput before relaxinfìg the star, for example to make it rotate!
 
 For any problems please contact Francesco Radica at "francyrad97@gmail.com".
-me.md 	Update Readme.md 	5 minutes ago
-	sph.init 	Add files via upload 	8 minutes ago
-	sph.input 	Add files via upload 	8 minutes ago
-	splash.defaults 	Add files via upload 	8 minutes ago
-	splash.
+
