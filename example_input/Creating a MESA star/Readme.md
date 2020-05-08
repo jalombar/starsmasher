@@ -22,7 +22,9 @@ Be sure that the nrelax=1. In this way Starsmasher will convert your mesa stars 
 
 To make the star, after that in your folder there are all the files needed (like in this example folder) type in your terminal:
 
+```
 mpirun -np N test_gpu_sph
+```
 Where N are the numbers of cores of your machine.
 
 Obviously be sure that everything (number of cpus, graphic cards and so on) is setted for your machine, or mpirun will go in error.
@@ -37,7 +39,10 @@ At this point set the collision parameters in the sph.input for the that collisi
 
 then start the simulation:
 
+```
 mpirun -np N test_gpu_sph
+```
+
 Where N is the number of cores of your machine.
 
 
