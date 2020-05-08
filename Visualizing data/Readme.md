@@ -1,3 +1,5 @@
+# How to see the snapshots of your simulation
+
 Every simulation will create many files called "out0000.sph; out0001.sph; out00002.sph" and so on.
 Each one of these files is a snapshot of your simulation. To visualize them we suggest you to use the program "SPLASH" of Daniel Price: 
 
