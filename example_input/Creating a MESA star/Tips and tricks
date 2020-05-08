@@ -1,6 +1,6 @@
 sph.input can be edited to add features for you stars, for example:
 
-HOW TO MAKE A ROTATING STAR
+# How to make a rotating star 
 
 
 You can make your star rotate. To do that, add inside your sph.input file the line:
@@ -20,7 +20,9 @@ If you want 2 rotations in 1 day, then the equation is 4π/54=0.29 ;     then om
 
 If you want 1 rotations in 2 days the the equation is π/54=0.058;      then omega_spin=0.058
 
+At the end just relaxe your star, after 200 time units it's ready to use it in a collision! If you notice, your star during the relaxation
+is rotating!
 
-THIS TUTORIAL WILL BE UPDATED DURING TIME
+## THIS TUTORIAL WILL BE UPDATED DURING TIME
 
 For any questions contact Francesco Radica at:  francyrad97@gmail.com
