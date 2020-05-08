@@ -10,7 +10,9 @@ When starsmahser notice that in your folder you don't have two stars (sph.start1
 
 When you have your star, as explained in the tutorial "Creating a Mesa's star", you can start your simulation, then type in your terminal (that must be opened inside your folder):
 
+```
 mpirun -np N test_gpu_sph
+```
 
 Where N are the numbers of cores (for section) of your machine.
 
