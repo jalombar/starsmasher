@@ -1,4 +1,4 @@
-How to create a star in Starsmasher and use it to make a collision?
+# How to create a star in Starsmasher and use it to make a collision
 
 
 To create a Star in Starsmasher and use it, at the moment the only way to do that is using MESA stellar evolution code.
