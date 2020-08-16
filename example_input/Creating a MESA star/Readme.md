@@ -50,7 +50,7 @@ The simulation will create many out*.sph files. you can see them following the t
 
 In this folder there are also 2 already done MESA stars!    Start1 is a SUN (1 solar mass and 1 solar radius), Start2 is a red dwarf (0.5 solar mass and 0.5 solar radius). You can use them to practice with Starsmasher! 
 
-There is also another file in this folder called "tips and tricks". In this one there is a list of tricks that you can add inside your sph.imput before relaxing the star, for example, to make it rotate!
+There is also another file in previous folder called "tips and tricks to improve your simulation". In this one there is a list of tricks that you can add inside your sph.imput before relaxing the star, for example, to make it rotate!
 
 For any problems please contact Francesco Radica at "francyrad.info@gmail.com".
 
