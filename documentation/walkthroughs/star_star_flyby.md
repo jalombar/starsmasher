@@ -1,3 +1,5 @@
+Before reading this guide, we reccomend you to read the installation tutorial first and then "Creating a MESA star" tutorial to get confidence with the code and the commands.
+
 ## Walkthrough: fly-by of two stars
 
 There are two steps to modelling a collision or fly-by of two stars.
@@ -37,9 +39,10 @@ emacs -nw sph.input
 ```
 Change line 4 of sph.input to be N=1000 and save the file.
 The radius and mass of the polytrope can be set within the sph.input file using the variable names starradius and starmass, respectively.
+For example "starmass=0.2" and "starradius=0.2"
 These values are in physical units of runit and munit, which by default are the radius and mass of the sun in cgs units.
 There are several other variables that could be changed or set, but the defaults should be fine for now.
-See the Starcrash documentation for an explanation of what some of the other variables are.
+See the Starcrash documentation for an explanation of what some of the other variables are or visualize the file "tips and tricks to improve your simulation" This file is going to be updated during time.
 
 Now let's compile the source code:
 ```
@@ -125,7 +128,7 @@ semimajoraxis=118.57d0,
 ```
 
 and e0 and vinf2 could be unspecified.
-Or you could specify BIMPACT and e0, and the same code works, etc.
+Or you could specify BIMPACT and e0, and the same code works, etc. (actually e0 is bugged, we are going to solve the problem soon!)
 The code in initialize_hyperbolic.f figures out what it needs to solve for.
 
 Whether the encounter is hyperbolic, parabolic, or elliptical is controlled by the velocity at infinity squared, vinf2, or the semimajoraxis a.
