@@ -79,43 +79,77 @@ As you can see the NVIDIA Titan RTX is newer than the NVIDIA RTX 2080 Ti, Howeve
 Once your installation is complete, you now have a nvcc file in your Ubuntu OS. Search it and keep in mind its location.
 
 
-### Compile the gravity library (CUDA)
+### Compile the gravity library (CUDA) and StarSmasher
+
+If you want to use the CPU version of StarSmasher, avoid this part of the tutorial and just go to the next paragraph.
+
 The SPHgrav_lib subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs.
-If you are running on something other than keeneland, you will need to customize the Makefile for your system: any path that contains "cuda" or "CUDA" probably needs to be changed.
-To make the library, simply issue the command
+Now you must do some important changes in this. All depends on your OS. In the SPHgrav_lib there are few files including some makefiles. Every makefile is written of an OS. The Standard “makefile” is written for Keeneland. If you are using Ubuntu, you will use the makefile.ubuntu makefile, if you are using Quest, you will the makefile.quest and so on. You will find every makefile in the “misc” folder if there isn’t in the SPHgrav_lib. If there isn’t even there, you must substitute in the standard makefile the path to nvcc. Once you have chosen your makefile, just change the name in “makefile” and delete the others, you don’t need them.	
+In the makefile (Ubuntu case) there is written this string:
 
 ```
-make
+CUDAPATH       := /usr/lib/nvidia-cuda-toolkit/
 ```
 
-(The final thing that make does is "./makelib.sh" which is what will make the library.)
-If it doesn't work, and you want to have a fresh start, first use "make clean".
-If all goes well the library libGPUsph_gatherscatter.a will be generated.
-
-### Compile starsmasher
-The SPH source code is in the .. directory.
-This is a parallel code.
-Once the GPU library has been compiled, we will move to the source code directory, copy the appropriate makefile (assuming keeneland makefile for this) to 'makefile', and compile with make.
+In Ubuntu this is the path where there is the nvcc file. Be sure that there is! If not, edit this path!
+In the same file there is also this string to edit:
 
 ```
+NVCCFLAGS := -arch=sm_61
+```
+
+As there is written, this string is for the NVIDIA GTX 1070. The number 61 indicate the computability version of the NVIDIA Graphic card. If you check there:
+
+https://en.wikipedia.org/wiki/CUDA
+
+the NVIDIA GTX 1070 has a computability version of 6.1. then in the string there is written “NVCCFLAGS := -arch=sm_61”. If you have a different graphic card, this number must be change according to the computability version as the Wikipedia page says, or the gravity won’t be calculated and your stars will explode. Then, if you have a GeForce GTX 950m, like me, write:
+
+```
+NVCCFLAGS := -arch=sm_50
+```
+
+Because my graphic card is a 5.0, if you have a NVIDIA TITAN RTX, write:
+
+```
+NVCCFLAGS := -arch=sm_75
+```
+
+because it has a computability version of 7.5, and so on. This is why all of your graphic cards must be of the same computability version, or Gravity won’t be calculated well and your stars will eventually explode.
+
+
+Now that the Makefile of the SPHgrav_lib folder is ready, we can return to the "src" folder.
+
+### Go there if you want to install the CPU version of the code
+
+Now that you SPHgrav_lib is complete (only if you are installing the GPU version of StarSmasher), go to the src folder . In this folder there are a ton of makefiles. As before, choose the correct one for you. For Ubuntu users that want to install StarSmasher with OpenMPI  (this is the easiest way, you can also install it with IFort) there is an already written file called "MakefileGPUubuntu", if you want to use the GPU version (recommended), and "MakefileCPUubuntu" if you want to use the CPU version (unrecommended as explained earlier).  
+Then, if you have Ubuntu, just choose one of these two files and rename it as “Makefile”. Be also sure that there are not other files called only “Makefile”. Delete the others makefiles that you don’t need if you want. If you are not an Ubuntu user, be sure to edit your makefile in way that it contains the installation path only for CPU/GPU and OpenMPI/IFort. I suggest you to follow the structure of "MakefileGPUubuntu" or "MakefileCPUubuntu" to do a clean EDIT.	
+Once your Makefile is done, everything is ready. Open your terminal in your src folder and type:
+
+```
+Make
+```
+
+The make command is going to follow all the instructions of the makefile. If make goes in error that's because you are missing one or more libraries. Then, as explained before, you need to install them and Ubuntu is the easiest way to do that.
+
+If the GPU version of StarSmasher is been installed correctly, in your terminal will appear this phrase:
+
+```
+***MADE VERSION THAT USES GPUS***
+```
+
+If the CPU version of StarSmasher is been installed correctly, in your terminal will appear this phrase:
+
+```
+***MADE VERSION THAT DOES NOT NEED GPUS***
+```
+
+Now StarSmasher is ready to use! When you complete the installation, it will be created a .exe file called “test_gpu_sph if you installed the GPU version of the program, or “test_cpu_sph” if you installed the CPU version of the code. This .exe is situated in the upper folder of src. To run StarSmasher, you will have to move on that folder. Then just open your terminal where the .exe file is present or, after the installation, just type
 cd ..
-cp makefile.keeneland makefile
-make
-```
+Now, to run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
 
-You will likely need to customize the makefile for your computer.  
-For example, you may need to change the compiler or update paths to point to the appropriate locations.
-The executable name will end with _sph and will depend on the name of the directory that src appears within.
-The executable will automatically be moved up a level in the directory structure (that is, to the ".."  directory).  
-You probably want to remove the executable for now so that you don't later copy it to other places where you don't want it:
-
-```
-cd ..
-rm *_sph
-```
 
 # Importants suggestions if you are running StarSmasher on your Hard Disk
-The last important advice. When your simulation is finished and you want to transfer your files in another Hard Disk or similar, never cut and paste your files. StarSmasher’s files and snapshots are very sensible, and there is the risk that during the cut and paste process you may lose or damage your files. To avoid this, just copy and paste them, be sure that every files is there and that is not been damaged (like visioning the texts or try to visualize them with SPLASH, as you will see next) and then, eventually, delete the original files once the transfer is been completed. 	
+A last important advice. When your simulation is finished and you want to transfer your files in another Hard Disk or similar, never cut and paste your files. StarSmasher’s files and snapshots are very sensible, and there is the risk that during the cut and paste process you may lose or damage your files. To avoid this, just copy and paste them, be sure that every files is there and that is not been damaged (like visioning the texts or try to visualize them with SPLASH, as you will see next) and then, eventually, delete the original files once the transfer is been completed. 	
 If you want instead to continue your simulation in another Hard Disk, be sure to recompile the code, or there is the risk that, after entering the command to start the simulation, mpirun will say you that’s not been possible to find the executable “test_gpu_sph” (or “test_cpu_sph”, depending on what version of the code are you using). To solve this, just open the terminal on the src folder and type
 
 ```
