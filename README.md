@@ -33,8 +33,9 @@ The AV scheme is described in Ponce et al. (2011).
 ## Installation
 [Installing StarSmasher](https://github.com/jalombar/starsmasher/blob/master/documentation/installation.md)
 
-## Example calculation
+## Tutorials
 [Star-star fly-by calculation](https://github.com/jalombar/starsmasher/blob/master/documentation/walkthroughs/star_star_flyby.md)
+You will also find some tutorials in the [example_imput](https://github.com/jalombar/starsmasher/tree/master/example_input) folder, for example how to create stars and use it to make collisions.
 
 ## Publications using StarSmasher
 The first iteration of StarSmasher appeared in 1991, used to study the collisions of giant stars with compact objects.
