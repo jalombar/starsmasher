@@ -2,7 +2,7 @@
 
 Please contact Jamie Lombardi (jamie.lombardi@allegheny.edu) with any questions. 
 
-You can also contact Francesco Radica (Francyrad.info@gmail.com) for installations and visualizing data problems 
+You can also contact Francesco Radica (Francyrad.info@gmail.com) for installations and visualizing data problems. 
 
 ## Overview
 StarSmasher (originally StarCrash) is a hydrodynamics code developed originally by Rasio (1991), updated and maintained as described in Lombardi et al. (1999), Faber & Rasio (2000), and Lombardi et al. (2006). 
