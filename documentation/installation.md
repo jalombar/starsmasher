@@ -3,7 +3,11 @@ Before installing StarSmasher, you need few things to make a clean installation 
 The 1st thing is that you must have one or more NVIDIA Graphic Cards. Why? 
 There are 2 version of the code. The GPU version and the CPU version. The GPU version of the code uses Nvidia graphic card to calculate gravity and let to the CPU the rest (and less) of the work. The CPU version of the code make the CPU handle all the calculations.	
 Depending on your machine, in most cases (unless you have a very high number of CPU per node) the GPU version of the code is much faster than the CPU version of the code. To have a comparison, my laptop has an NVIDIA GeForce GTX 950M, and I can handle 150000 Particles with the GPU version of the code. Instead, with the CPU version (and 2 quad-core intel i7), I can only get 15000 particles at the same amount of time respect to the GPU version.	
-Then you must need an NVIDIA Graphic Card to run StarSmaser, not others. If you don't have get a computer or a machine with NVIDIA Graphic card.
+Then you must need an NVIDIA Graphic Card to run StarSmaser, not others. If you don't have get a computer or a machine with NVIDIA Graphic card.  
+You must also be sure that if you have more than one NVIDIA Graphic Card they MUST BE of the same version. What i mean?
+In this wikipedia page
+https://en.wikipedia.org/wiki/CUDA
+there is written the “compute capability version” of each NVIDIA’s Graphic Card. You must be sure that if you have differents NVIDIA Graphic cards in your machine, they must be of the same compute capability version. For example, in your machine you can have a Nvidia TITAN Xp, a Titan X and a GeForce GTX 1080 Ti, because they are all 6.1 compute capability version and then they will calculate gravity correctly. You can’t have, however, a Titan X and a NVIDIA TITAN V, because one is a 6.1, the other is a 7.0. This means that they will calculate gravity both in a different way and StarSmasher will give you a very bad simulation where eventually the stars will explode. Then, please, be sure that all of your graphic cards are of the same compute capability version if not the same.
 
 The 2nd thing is that the CPU version is actually bugged and you won’t be able to create a star. During the relaxation of it from a MESA profile (as you will see in the tutorial “How to create a Star using MESA”), the Star will just explode if you use more than 6000 particles. Unless the bug will be solved, we suggest you to use the GPU code of the program, because it’s much faster and safe.
 The 3rd thing that we suggest is to use Linux as an OS to run StarSmasher, especially Ubuntu due to the ease of installation of any libraries. This doesn’t mean that you won’t be able to install StarSmasher in others Linux OS, MacOS or Windows, just know that you can met difficulties and waste a lot of time if you are not skilled and experienced on installing libraries.	
@@ -52,6 +56,28 @@ cd parallel_bleeding_edge/src/SPHgrav_lib
 ```
 
 ## Compiling the GPU-enabled code
+
+### Prepare your machine to compile the StarSmasher's GPU version
+Before installing the GPU version of StarSmasher, you must prepare your machine/PC. If you are running on Linux (Ubuntu especially), the first thing that you have to do is to install the correct driver for your Graphic card (even more than one if you have different graphic cards). To do that, I recommend you to follow this guide (Automatic Install using standard Ubuntu Repository, if you have Ubuntu):
+
+https://linuxconfig.org/how-to-install-the-nvidia-drivers-on-ubuntu-18-04-bionic-beaver-linux
+
+There is an error, however. The guide says that the system detected a NVIDIA GeForce GTX 680 and that the recommended driver to install is the nvidia-384. This is not correct. The system detected a GeForce GTX 1060 6GB and then the correct driver to install was the nvidia-390. Then, please, keep attention!
+Now you have to install the NVIDIA nvcc toolkit. There are numerous ways to install it, you can check the NVIDIA official guide:
+
+https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
+
+Or another NVIDIA official’s guide if you are not installing StarSmasher in Ubuntu. However, the easiest way to install nvcc in Ubuntu is just this. Open your terminal and run this command: 
+```
+Sudo apt get install cuda-toolkit
+```
+But keep attention. This command is going to install you the latest nvcc version that NVIDIA developers installed in the Ubuntu libraries. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated nvcc to the latest version for your graphic card. This means that you have to install nvcc with a specified version, as there is written in the NVIDIA official guide. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
+
+https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027
+
+As you can see the NVIDIA Titan RTX is newer than the NVIDIA RTX 2080 Ti, However, about gravity calculation, is just a 10% more performant, there is like no difference then. In this case the NVIDIA RTX 2080 Ti is a better choice because it’s older and there surely is the nvcc version ready for that graphic card.
+Once your installation is complete, you now have a nvcc file in your Ubuntu OS. Search it and keep in mind its location.
+
 
 ### Compile the gravity library (CUDA)
 The SPHgrav_lib subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs.
