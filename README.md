@@ -42,7 +42,7 @@ Since then, StarSmasher has been used to perform a variety of hydrodynamical cal
 
 ## DATA VISUALIZATION
 I recommend Price's SPLASH software (Price 2007).
-It will need to be customized to read in our output file type.
+The tutorial to visualize SPLASH is present in the StarSmasher repository in a folder called "Visualazing data"
 
 ## Citations
 Balsara, D. S. 1995, Journal of Computational Physics, 121, 357
