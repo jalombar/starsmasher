@@ -1,6 +1,6 @@
 # StarSmasher - a Smoothed Particle Hydrodynamics code.
 
-Please contact Jamie Lombardi (jamie.lombardi@allegheny.edu) with any questions.
+Please contact Jamie Lombardi (jamie.lombardi@allegheny.edu) with any questions. 
 You can also contact Francesco Radica (Francyrad.info@gmail.com) for installations and visualizing data problems 
 
 ## Overview
