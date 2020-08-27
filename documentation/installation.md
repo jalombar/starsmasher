@@ -161,5 +161,5 @@ Then
 ```
 Make
 ```
-Now the code is been recompiled and the mpirun command should run perfectly. If this doesn’t happen and you still get the error, you ran into a bug. To solve it just transfer back your files to the original Hard Disk. Just know that this last bug doesn’t make any sense, but just happened to me.
+Now the code is been recompiled and the mpirun command should run perfectly. If this doesn’t happen and you still get the error, you ran into a bug. To solve it just transfer back your files to the original Hard Disk. Just know that this last bug doesn’t make any sense, but just happened to me and at the moment is not been solved yet.
 
