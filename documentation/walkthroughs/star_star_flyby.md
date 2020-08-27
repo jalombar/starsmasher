@@ -128,7 +128,7 @@ semimajoraxis=118.57d0,
 ```
 
 and e0 and vinf2 could be unspecified.
-Or you could specify BIMPACT and e0, and the same code works, etc. (actually e0 is bugged, we are going to solve the problem soon!)
+Or you could specify BIMPACT and e0, and the same code works, etc.
 The code in initialize_hyperbolic.f figures out what it needs to solve for.
 
 Whether the encounter is hyperbolic, parabolic, or elliptical is controlled by the velocity at infinity squared, vinf2, or the semimajoraxis a.
