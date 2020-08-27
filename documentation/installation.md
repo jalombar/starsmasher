@@ -144,7 +144,8 @@ If the CPU version of StarSmasher is been installed correctly, in your terminal 
 ```
 
 Now StarSmasher is ready to use! When you complete the installation, it will be created a .exe file called “test_gpu_sph if you installed the GPU version of the program, or “test_cpu_sph” if you installed the CPU version of the code. This .exe is situated in the upper folder of src. To run StarSmasher, you will have to move on that folder. Then just open your terminal where the .exe file is present or, after the installation, just type
-cd ..
+"cd .."
+
 Now, to run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
 
 
