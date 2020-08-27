@@ -71,7 +71,7 @@ Or another NVIDIA official’s guide if you are not installing StarSmasher in Ub
 ```
 Sudo apt get install cuda-toolkit
 ```
-But keep attention. This command is going to install you the latest nvcc version that NVIDIA developers installed in the Ubuntu libraries. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated nvcc to the latest version for your graphic card. This means that you have to install nvcc with a specified version, as there is written in the NVIDIA official guide. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
+But keep attention. This command is going to install you the latest nvcc version that NVIDIA developers installed in the Ubuntu's libraries. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated nvcc to the latest version for your graphic card. This means that you have to install nvcc with a specified version, as there is written in the NVIDIA official guide. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
 
 https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027
 
@@ -84,14 +84,14 @@ Once your installation is complete, you now have a nvcc file in your Ubuntu OS. 
 If you want to use the CPU version of StarSmasher, avoid this part of the tutorial and just go to the next paragraph.
 
 The SPHgrav_lib subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs.
-Now you must do some important changes in this. All depends on your OS. In the SPHgrav_lib there are few files including some makefiles. Every makefile is written of an OS. The Standard “makefile” is written for Keeneland. If you are using Ubuntu, you will use the makefile.ubuntu makefile, if you are using Quest, you will the makefile.quest and so on. You will find every makefile in the “misc” folder if there isn’t in the SPHgrav_lib. If there isn’t even there, you must substitute in the standard makefile the path to nvcc. Once you have chosen your makefile, just change the name in “makefile” and delete the others, you don’t need them.	
+Now you must do some important changes in this. All depends on your OS. In the SPHgrav_lib there are few files including some makefiles. Every makefile is written of an OS. The Standard “makefile” is written for Keeneland. If you are using Ubuntu, you will use the makefile.ubuntu makefile, if you are using Quest, you will the makefile.quest and so on. You will find every makefile in the “misc” folder if there isn’t in the SPHgrav_lib. If there isn’t even there, you must substitute in the standard makefile the path to nvcc. Once you have chosen your makefile (i did a makefile called "MakefileUbuntuCUDAToolkit" if you are following this guide spet by step), just change the name in “makefile” and delete the others, you don’t need them.	
 In the makefile (Ubuntu case) there is written this string:
 
 ```
 CUDAPATH       := /usr/lib/nvidia-cuda-toolkit/
 ```
 
-In Ubuntu this is the path where there is the nvcc file. Be sure that there is! If not, edit this path!
+In Ubuntu this is the path where there is the nvcc file if you installed it withe the sudo apt-get command. Be sure that there is! If not because you isntalled the CUDA toolkit in anoher way, edit this path!
 In the same file there is also this string to edit:
 
 ```
