@@ -42,7 +42,7 @@ c     then reset sep0 to the apoapsis distance ra:
 c     presumably e0 and bimpact have been set in sph.input:
          rp=bimpact
          ra=rp*(1.d0+e0)/(1-e0)
-         if(sep0.gt.ra .or. sep0.lt.rp) sep0=ra
+         if(ra.gt.0 .and. (sep0.gt.ra .or. sep0.lt.rp)) sep0=ra
       else if(vinf2.ge.1d30 .and. e0.lt.0.d0)then
 c     presumably semimajoraxis and bimpact have been set in sph.input:
          rp=bimpact
