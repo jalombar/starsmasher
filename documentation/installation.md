@@ -151,7 +151,7 @@ Now, to run your first simulations, follow the tutorial “How to create a MESA 
 
 # Importants suggestions if you are running StarSmasher on your Hard Disk
 A last important advice. When your simulation is finished and you want to transfer your files in another Hard Disk or similar, never cut and paste your files. StarSmasher’s files and snapshots are very sensible, and there is the risk that during the cut and paste process you may lose or damage your files. To avoid this, just copy and paste them, be sure that every files is there and that is not been damaged (like visioning the texts or try to visualize them with SPLASH, as you will see next) and then, eventually, delete the original files once the transfer is been completed. 	
-If you want instead to continue your simulation in another Hard Disk, be sure to recompile the code, or there is the risk that, after entering the command to start the simulation, mpirun will say you that’s not been possible to find the executable “test_gpu_sph” (or “test_cpu_sph”, depending on what version of the code are you using). To solve this, just open the terminal on the src folder and type
+If you want instead to continue your simulation in another Hard Disk, be sure to recompile the code.
 
 ```
 Make clean
@@ -161,5 +161,12 @@ Then
 ```
 Make
 ```
-Now the code is been recompiled and the mpirun command should run perfectly. If this doesn’t happen and you still get the error, you ran into a bug. To solve it just transfer back your files to the original Hard Disk. Just know that this last bug doesn’t make any sense, but just happened to me and at the moment is not been solved yet.
+Now the code is been recompiled and the mpirun command should run perfectly. 
+
+We suggest to the user to run StarSmasher into an Hard Disk. If you are going to use a lot of particles (100000 or more) each snapshot of your simulation is going to be around 40 mb. Then, if you have thousands of them, there is the possibility that all your space is going to be occupied. To avoid this, we suggest a NEW Hard Disk of 1 TeraByte or more. Why a New? There is not any known risk (actually) that StarSmasher is going to delete your personal files on your Hard Disk, but there is a problem with Linux and the file systems of the Hard Disk itself. If you are going to run StarSmasher in Ubuntu and try to install StarSmasher in an Hard Disk that has FAT32 file system, when you'll try "mpirun -np N test_gpu_sph", OpenMPI is going to say you that it is not possible to find the executable test_gpu_sph. This is because Linux won't give the permission to run the executable in a space that has not the same file system of linux. However, everything will run perfectly if your Hard Disk is going to be have NTFS's file system. Then, why a new Hard Disk? Because so you can format it with the correct file system of your linux OS and you won't lose any of your personal data into the Hard Disk if you can't do a backuo or for some other reason.
+
+The solution of having a NTFS's Hard Disk is not universal and it may change in base of your OS or other factors.
+
+
+We wish to the user a good use of StarSmasher, actually best star collider in the planet!
 
