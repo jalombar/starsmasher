@@ -6,7 +6,7 @@ sph.input can be edited to add features for you stars, for example:
 You can make your star rotate. To do that, add inside your sph.input file the line:
 omega_spin=N
 
-Where N is the angular velocity of your star. To decide the correct number to put, we have to done a little calculation.
+Where N is the angular velocity of your star. To decide the correct number to put, we have to do a little calculation.
 If you want, for example, that you star do exactly ONE rotation (2π) in ONE day of simulation (54 times of unit in Starsmasher,
 that equals to 1 day)
 N will be:
