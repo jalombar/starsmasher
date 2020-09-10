@@ -3,7 +3,7 @@ Before installing StarSmasher, you need few things to make a clean installation 
 The 1st thing is that you must have one or more NVIDIA Graphic Cards. Why? 
 There are 2 version of the code. The GPU version and the CPU version. The GPU version of the code uses Nvidia graphic card to calculate gravity and let to the CPU the rest (and less) of the work. The CPU version of the code make the CPU handle all the calculations.	
 Depending on your machine, in most cases (unless you have a very high number of CPU per node) the GPU version of the code is much faster than the CPU version of the code. To have a comparison, my laptop has an NVIDIA GeForce GTX 950M, and I can handle 150000 Particles with the GPU version of the code. Instead, with the CPU version (and 2 quad-core intel i7), I can only get 15000 particles at the same amount of time respect to the GPU version.	
-Then you must need an NVIDIA Graphic Card to run StarSmaser, not others. If you don't have get a computer or a machine with NVIDIA Graphic card.  
+Then you must need an NVIDIA Graphic Card to run StarSmasher, not others. If you don't have get a computer or a machine with NVIDIA Graphic card.  
 You must also be sure that if you have more than one NVIDIA Graphic Card they MUST BE of the same version. What i mean?
 In this wikipedia page
 https://en.wikipedia.org/wiki/CUDA
