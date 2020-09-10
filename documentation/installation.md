@@ -69,7 +69,7 @@ https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
 
 Or another NVIDIA official’s guide if you are not installing StarSmasher in Ubuntu. However, the easiest way to install nvcc in Ubuntu is just this. Open your terminal and run this command: 
 ```
-Sudo apt get install cuda-toolkit
+sudo apt-get install cuda-toolkit
 ```
 But keep attention. This command is going to install you the latest nvcc version that NVIDIA developers installed in the Ubuntu's libraries. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated nvcc to the latest version for your graphic card. This means that you have to install nvcc with a specified version, as there is written in the NVIDIA official guide. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
 
