@@ -1,9 +1,13 @@
-SPLOT ROUTINES
+# How to install splot routines
+
 What are splot routines? And what is their utility in StarSmasher?
 Splot routines are tiny programs useful to calculate data that are not available with StarSmasher alone. For example, the simulation alone cannot say you how much mass it’s been loss by both star during a collision, or it cannot say you how the eccentricity of the orbit changed during time… and so on. However, splot routines can! Splot routines are able to calculate these kinds of data writing all you need in a file that you can use to make plots with SPLASH. They are essentials to make research and write a paper! 
-
 How do they work? How do you install it? The procedure is very simple! In the folder where this “Readme” is located there are other folders where splot routines are present. Each folder contains a splot routine (files and a Makefile). To install the splot routine and make the program, just open your terminal in the folder and type:
+
+```
 make
+```
+
 Be sure that ALL the folders of the path where the splot routine is located doesn’t have spaces between the name. For example, your folder called “splotroutine”, where the files are present, cannot have this path:
 Pc: Desktop/StarSmasher/splot routines test/splotroutine
 Because the compilation will fail. To solve, the folders must not have spaces in the name. Then you can adjust your folder path, according to the preceding example, in this way:
@@ -22,16 +26,32 @@ To plot your data, type in the terminal:
 splash MassAndMore.out     
 SPLASH will then show you a list of numbers, each number correspond to a number related to the column of your file (for example “1” is time, “2” is the mass lost form the first star and so on; according to the standard splot routine) and will ask you what do you want to plot in the y axis and in the x axis. Type your desired numbers and then check the graph typing	
 
+```
 /xw
-SPLASH will show you the graph. Adjust it as you want (you will find all the instructions on how to use SPLASH in the SPLASH’s user manual), when you like it press 
+```
+
+SPLASH will show you the graph. Adjust it as you want (you will find all the instructions on how to use SPLASH in the SPLASH’s user manual), when you like it press:
+
+```
 s
-Then
+```
+
+Then:
+
+```
 q
-To exit
+```
+
+To exit.
+
  Then again. Plot the y axis as before, the x axis as before and then write:
+ 
+ ```
 NameYouWant.png
-SPLASH will create your picture, ready to use for your paper!
+```
 
-Last suggestion: To have a better resolution data, we suggest to make the first snapshot of the simulations with an output rate of 0.1 t. Then stop the simulation when all the major events are done and then change it to 1.
+SPLASH will create your picture ready to use for your paper!
 
-This splot routines tutorial is in continuous updating. We are collecting all the splot routines around to make them available! 
+a last suggestion: To have a better resolution data, we suggest to make the first snapshot of the simulations with an output rate of 0.1 t. Then stop the simulation when all the major events are done and then change it to 1.
+
+# This  tutorial is in continuous updating. We are collecting all the splot routines around to make all them available! 
