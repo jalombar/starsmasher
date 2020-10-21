@@ -18,7 +18,7 @@ To use the program, just open the terminal where the program is, and type (accor
 The terminal will open it and it will ask you to type 2 numbers in this case: 0 or 71. Where 0 is to exit, 71 is to execute the program.
 To read your snapshots files of your simulation, you must have all your out*.sph file in the folder where the splot routine is. So just cut and paste all your file in the folder of the splot routine or, better, just install it where your snapshots files have been created during the simulation. I suggest this last one because it’s safer, easier and quicker.
 Then, once your out*.sph files are present, type in the terminal “71”; it will ask you:
-1The number of the first output to read, (2) the last number of the output file to read, (3) the step to read the output files.
+(1) The number of the first output to read, (2) the last number of the output file to read, (3) the step to read the output files.
 For example, if your simulation is composed of 501 snapshot files, where the first is out0000.sph and the last is out0500.sph and you want to read each of them, you have to type:
 0000 0500 1
 Then press enter. The program will start to compile a file called “MassAndMore.out”.     The file will contain the data that you need, calculated time by time.
