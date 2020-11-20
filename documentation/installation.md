@@ -126,7 +126,7 @@ Then, if you have Ubuntu, just choose one of these two files and rename it as â€
 Once your Makefile is done, everything is ready. Open your terminal in your src folder and type:
 
 ```
-Make
+make
 ```
 
 The make command is going to follow all the instructions of the makefile. If make goes in error that's because you are missing one or more libraries. Then, as explained before, you need to install them and Ubuntu is the easiest way to do that.
@@ -154,12 +154,12 @@ A last important advice. When your simulation is finished and you want to transf
 If you want instead to continue your simulation in another Hard Disk, be sure to recompile the code.
 
 ```
-Make clean
+make clean
 ```
 Then
 
 ```
-Make
+make
 ```
 Now the code is been recompiled and the mpirun command should run perfectly. 
 
