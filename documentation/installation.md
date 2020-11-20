@@ -102,7 +102,7 @@ As there is written, this string is for the NVIDIA GTX 1070. The number 61 indic
 
 https://en.wikipedia.org/wiki/CUDA
 
-the NVIDIA GTX 1070 has a computability version of 6.1. then in the string there is written “NVCCFLAGS := -arch=sm_61”. If you have a different graphic card, this number must be change according to the computability version as the Wikipedia page says, or the gravity won’t be calculated and your stars will explode. Then, if you have a GeForce GTX 950m, like me, write:
+the NVIDIA GTX 1070 has a computability version of 6.1. Then in the string there is written “NVCCFLAGS := -arch=sm_61”. If you have a different graphic card, this number must be change according to the computability version as the Wikipedia page says, or the gravity won’t be calculated and your stars will explode. Then, if you have a GeForce GTX 950m, like me, write:
 
 ```
 NVCCFLAGS := -arch=sm_50
