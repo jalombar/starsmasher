@@ -95,8 +95,17 @@ Then i will install the driver that is good for ME (460). Then i'll install:
 ```
 sudo apt install nvidia-driver-460
 ```
+Obviously you have to install the driver that you need and that it's good for your NVIDIA Graphic card. It's reccomended to install the driver that Ubuntu suggest to you, the 460 in my case.
 
-Now you have to install the NVIDIA nvcc toolkit. There are numerous ways to install it, you can check the NVIDIA official guide:
+now reboot
+
+
+```
+sudo reboot
+
+```
+
+After rebooting, you have to install the NVIDIA nvcc toolkit. There are numerous ways to install it, you can check the NVIDIA official guide:
 
 https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
 
