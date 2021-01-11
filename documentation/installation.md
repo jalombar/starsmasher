@@ -74,7 +74,7 @@ Before installing the GPU version of StarSmasher, you must prepare your machine/
 
 https://linuxconfig.org/how-to-install-the-nvidia-drivers-on-ubuntu-18-04-bionic-beaver-linux
 
-There is an error, however. The guide says that the system detected a NVIDIA GeForce GTX 680 and that the recommended driver to install is the nvidia-384. This is not correct. The system detected a GeForce GTX 1060 6GB and then the correct driver to install was the nvidia-390. Then, please, keep attention!
+
 Now you have to install the NVIDIA nvcc toolkit. There are numerous ways to install it, you can check the NVIDIA official guide:
 
 https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
