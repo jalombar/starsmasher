@@ -6,7 +6,7 @@ There are 2 version of the code. The GPU version and the CPU version. The GPU ve
 
 Depending on your machine, in most cases (unless you have a very high number of CPU per node) the GPU version of the code is much faster than the CPU version of the code. To have a comparison, an NVIDIA GeForce GTX 950M can handle 150000 Particles with the GPU version of the code. Instead, with the CPU version (a 2 quad-core intel i7) can only get 15000 particles at the same amount of time respect to the GPU version.	
 
-Then you must need an NVIDIA Graphic Card to run StarSmasher, not others. If you don't have get a computer or a machine with NVIDIA Graphic card.  
+Then you must need an NVIDIA Graphic Card to run StarSmasher, not others. If you don't have, get a computer or a machine with NVIDIA Graphic card.  
 You must also be sure that if you have more than one NVIDIA Graphic Card they MUST BE of the same version. What i mean?
 In this wikipedia page
 
@@ -16,14 +16,14 @@ there is written the “compute capability version” of each NVIDIA’s Graphic
 
 The 2nd thing is that the CPU version is actually bugged and you won’t be able to create a star. During the relaxation of it from a MESA profile (as you will see in the tutorial “How to create a Star using MESA”), the Star will just explode if you use more than 6000 particles. Unless the bug will be solved, we suggest you to use the GPU code of the program, because it’s much faster and safe.
 
-The 3rd thing that we suggest is to use Linux as an OS to run StarSmasher, especially Ubuntu due to the ease of installation of any libraries. This doesn’t mean that you won’t be able to install StarSmasher in others Linux OS, MacOS or Windows, just know that you can met difficulties and waste a lot of time if you are not skilled and experienced on installing libraries.	
+The 3rd thing that we suggest is to use Linux as an OS to run StarSmasher, especially Ubuntu (the latest version as possible to avoid problems) due to the ease of installation of any libraries. This doesn’t mean that you won’t be able to install StarSmasher in others Linux OS, MacOS or Windows, just know that you can met difficulties and waste a lot of time if you are not skilled and experienced on installing libraries.	
 
-For example, I tried (for 2 months) to install StarSmasher in Windows via Cygwin with a very bad result. It’s been impossible to install the GPU version of the code (only the CPU after lot of difficulties via the incompatibilities of the Cygwin’s libraries) and it’s not been possible to run StarSmasher cause of some weirds errors of OpenMPI library that’s been impossible to solve. Instead, with Ubuntu the installation went perfectly fine in minutes. The advantage to use Ubuntu to run StarSmasher is that, if you miss some library during installation and get error, the terminal will advice you that the “XY (generic command) command is not been found”. Then if you are going to type "XY" in the terminal you are going to know that the specific XY command is present in the Z package (a generic package) and you will be able to install it with the command 
+For example, it's been tried (for 2 months) to install StarSmasher in Windows via Cygwin with a very bad result. It’s been impossible to install the GPU version of the code (only the CPU after lot of difficulties via the incompatibilities of the Cygwin’s libraries) and it’s not been possible to run StarSmasher cause of some weirds errors of OpenMPI library that’s been impossible to solve. Instead, with Ubuntu the installation went perfectly fine in minutes. The advantage to use Ubuntu to run StarSmasher is that, if you miss some library during installation and get an error, the terminal will advice you that the “XY (generic command) command is not been found”. Then if you are going to type "XY" in the terminal you are going to know that the specific XY command is present in the Z package (a generic package) and you will be able to install it with the command 
 
 ```
 sudo apt-get install Z
 ```
-Then after the installation of the Z (generic package) package you will be able to continue the StarSmasher installation in a very clean way and without any problems. Instead, if you have windows or other OS, you can find problems, then you have to understand where the problem is, search where to get the specific command and other troubles that will only make you waste time unless you are not skilled to do that kind of things. This is why we suggest you to use Linux Ubuntu. If you don’t have it, just do a bipartition to your PC or Machine. You just need 30-40 GBs free and then we suggest you to use an external Hard Disk with few Tera-Bytes of space.	
+Then, after the installation of the Z (generic package) package you will be able to continue the StarSmasher installation in a very clean way and without any problems. Instead, if you have windows or other OS, you can find problems, then you have to understand where the problem is, search where to get the specific command and other troubles that will only make you waste time unless you are not skilled to do that kind of things. This is why we suggest you to use Linux Ubuntu. If you don’t have it, just do a bipartition to your PC or Machine. You just need 30-40 GBs free and then we suggest you to use an external Hard Disk with few Tera-Bytes of space to make your simulations.	
 
 If you are going to use a lot of particles (100k or more) each snapshot of your simulation is going to weight more than 30 mb. Then if you will make it run for thousands and thousands of Snapshots, well, you will need space. If you miss it StarSmasher is going to go in a weird error during the run. This is why we suggest you to make some runs on your Ubuntu Space (that part of your computer HDD where Ubuntu is installed) to make practice and then install it directly on the Hard Disk.	
 Be also sure, if you have a dipartition with Windows, to do a backup of your LINUX OS before installing Windows Updates. Why? Because it can happen that Windows Update will delete your LINUX dipartition, losing everything you installed. So we suggest you or to a backup or Install LINUX in a totally different Hard Disk of your Pc. In this way you won't have any problem. We also suggest you an Hard Disk of some TBs of memory and make all your simulations there. THat's because StarSmasher's snapshot need space and you won't lose any data if something goes bad (in general).
@@ -90,7 +90,7 @@ driver   : nvidia-driver-450-server - distro non-free
 driver   : nvidia-driver-460 - distro non-free recommended
 driver   : xserver-xorg-video-nouveau - distro free builtin
 ```
-Then i will install the driver that is good for ME (460). Then i'll install:
+Then i will install the driver that is good for ME (460). So:
 
 ```
 sudo apt install nvidia-driver-460
@@ -109,10 +109,18 @@ After rebooting, you have to install the NVIDIA nvcc toolkit. There are numerous
 
 https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
 
-It's reccomended to follow the guide that is in constant update. Then, choose your Linux OS and followe step by step what the guide says to do. When you will choose your NVIDIA toolkit package, it's reccomended to follow the installation via deb(network) because it's the easier and it avoid many problems that could occur with other installation methods.
+It's reccomended to follow the guide that is in constant update. Then, choose your Linux OS and follow step by step what the guide says to do. When you will choose your NVIDIA toolkit package, it's reccomended to follow the installation via deb(network) because it's the easier and it avoid many problems that could occur with other installation methods.
+
+Or you could just type this command in Ubuntu:
 
 
-But keep attention. This command is going to install you the latest nvcc version that NVIDIA developers installed in the Ubuntu's libraries. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated nvcc to the latest version for your graphic card. This means that you have to install nvcc with a specified version, as there is written in the NVIDIA official guide. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
+```
+sudo apt install nvidia-cuda-toolkit
+
+```
+This last command is reccomended to install nvcc because we already done a Makefile (MakefileGPUubuntu) that has the path already written for this command (as you will see later).
+
+But keep attention. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated "nvidia-cuda-toolkit" to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to install it with the NVIDIA official guide. to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
 
 https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027
 
