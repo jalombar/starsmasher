@@ -24,8 +24,9 @@ For example, I tried (for 2 months) to install StarSmasher in Windows via Cygwin
 sudo apt-get install Z
 ```
 Then after the installation of the Z (generic package) package you will be able to continue the StarSmasher installation in a very clean way and without any problems. Instead, if you have windows or other OS, you can find problems, then you have to understand where the problem is, search where to get the specific command and other troubles that will only make you waste time unless you are not skilled to do that kind of things. This is why we suggest you to use Linux Ubuntu. If you don’t have it, just do a bipartition to your PC or Machine. You just need 30-40 GBs free and then we suggest you to use an external Hard Disk with few Tera-Bytes of space.	
+
 If you are going to use a lot of particles (100k or more) each snapshot of your simulation is going to weight more than 30 mb. Then if you will make it run for thousands and thousands of Snapshots, well, you will need space. If you miss it StarSmasher is going to go in a weird error during the run. This is why we suggest you to make some runs on your Ubuntu Space (that part of your computer HDD where Ubuntu is installed) to make practice and then install it directly on the Hard Disk.	
-Be also sure, if you have a dipartition with Windows, to do a backup of your LINUX OS before installing Windows Updates. Why? Because it can happen that Windows Update will delete your LINUX dipartition, losing everything you installed. So we suggest you or to a backup or Install LINUX in a totally different Hard Disk of your Pc. In this way you won't have any problem
+Be also sure, if you have a dipartition with Windows, to do a backup of your LINUX OS before installing Windows Updates. Why? Because it can happen that Windows Update will delete your LINUX dipartition, losing everything you installed. So we suggest you or to a backup or Install LINUX in a totally different Hard Disk of your Pc. In this way you won't have any problem. We also suggest you an Hard Disk of some TBs of memory and make all your simulations there. THat's because StarSmasher's snapshot need space and you won't lose any data if something goes bad (in general).
 
 It’s impossible to run StarSmasher on VirtualBox. This is because StarSmasher need real CPU and GPU to run, not a virtual one. You will be able to install it on VB (only the CPU version) but if you’ll try to run it, mpirun will go in error. Then, please, do a bipartition!
 We don't know if it's possible to run StarSmasher on a GPU cloud or to another Server with 8 GPU that you can rent. We will write there when we will try that. We hope of yes so you can run simulations with millions of particle without spending thousands of dollars/euros to build a very powerfull computer for only some definitives runs.
@@ -140,6 +141,32 @@ make
 
 The make command is going to follow all the instructions of the makefile. If make goes in error that's because you are missing one or more libraries. Then, as explained before, you need to install them and Ubuntu is the easiest way to do that.
 
+For example, a problem that you can encounter is that your machine could find the command "mpif90" during the compilation. To solve this problem, just type in your Ubuntu's terminal:
+
+
+```
+mpif90
+```
+It will say you that:
+
+```
+Command «mpif90» not found, but it can be installed with:
+
+sudo apt install mpich        # version 3.3.2-2build1, or
+sudo apt install openmpi-bin  # version 4.0.3-0ubuntu1
+```
+Then, to solve this problem, just type:
+
+```sudo apt install openmpi-bin
+```
+And Ubuntu will install the libraries you need in minutes. Then, if you had this little trouble, to install StarSmasher correctly type again:
+
+```
+make
+```
+Now the terminall will compile StarSmasher in tens of seconds.
+
+
 If the GPU version of StarSmasher is been installed correctly, in your terminal will appear this phrase:
 
 ```
@@ -152,9 +179,11 @@ If the CPU version of StarSmasher is been installed correctly, in your terminal 
 ***MADE VERSION THAT DOES NOT NEED GPUS***
 ```
 
-Now StarSmasher is ready to use! When you complete the installation, it will be created a .exe file called “test_gpu_sph if you installed the GPU version of the program, or “test_cpu_sph” if you installed the CPU version of the code. This .exe is situated in the upper folder of src. To run StarSmasher, you will have to move on that folder. Then just open your terminal where the .exe file is present or, after the installation, just type
+Now StarSmasher is ready to use! When you complete the installation, it will be created a .exe file called “test_gpu_sph if you installed the GPU version of the program, or “test_cpu_sph” if you installed the CPU version of the code. This .exe is situated in the upper folder of src. To run StarSmasher, you will have to move on that folder. Then just open your terminal where the .exe file is present or, after the installation, just type:
 
-"cd .."
+```
+cd ..
+```
 
 Now, to run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
 
