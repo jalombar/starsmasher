@@ -118,7 +118,7 @@ Or you could just type this command in Ubuntu:
 sudo apt install nvidia-cuda-toolkit
 
 ```
-This last command is reccomended to install nvcc because we already done a Makefile (MakefileGPUubuntu) that has the path already written for this command (as you will see later).
+This last command is reccomended to install nvcc because we already done a Makefile (MakefileGPUubuntu) that has the path already written for this installation (as you will see later).
 
 But keep attention. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated "nvidia-cuda-toolkit" to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to install it with the NVIDIA official guide. to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
 
@@ -131,14 +131,14 @@ Once your installation is complete, you now have a nvcc file in your Ubuntu OS. 
 ### Compile the gravity library (CUDA) and StarSmasher
 
 The SPHgrav_lib subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs.
-Now you must do some important changes in this. All depends on your OS. In the SPHgrav_lib there are few files including some makefiles. Every makefile is written of an OS. The Standard “makefile” is written for Keeneland. If you are using Ubuntu, you will use the makefile.ubuntu makefile, if you are using Quest, you will the makefile.quest and so on. You will find every makefile in the “misc” folder if there isn’t in the SPHgrav_lib. If there isn’t even there, you must substitute in the standard makefile the path to nvcc. Once you have chosen your makefile (i did a makefile called "MakefileUbuntuCUDAToolkit" if you are following this guide spet by step), just change the name in “makefile” and delete the others, you don’t need them.	
+Now you must do some important changes in this. All depends on your OS. In the SPHgrav_lib there are few files including some makefiles. Every makefile is written for an OS. The Standard “makefile” is written for Keeneland. If you are using Ubuntu, you will use the makefile.ubuntu makefile, if you are using Quest, you will the makefile.quest and so on. You will find every makefile in the “misc” folder if there isn’t in the SPHgrav_lib. If there isn’t even there, you must substitute in the standard makefile the path to nvcc. Once you have chosen your makefile (i did a makefile called "MakefileUbuntuCUDAToolkit" if you are following this guide spet by step), just change the name in “makefile” and delete the others, you don’t need them.	
 In the makefile (Ubuntu case) there is written this string:
 
 ```
 CUDAPATH       := /usr/lib/nvidia-cuda-toolkit/
 ```
 
-In Ubuntu this is the path where there is the nvcc file if you installed it withe the sudo apt-get command. Be sure that there is! If not because you isntalled the CUDA toolkit in anoher way, edit this path!
+In Ubuntu this is the path where there is the nvcc file if you installed it with the sudo apt-get command. Be sure that there is! If you installed the NVIDIA toolkit in another way, just go to the computer, find a file called "nvcc" and edit this path up to the folder "bin" where nvcc is located.
 In the same file there is also this string to edit:
 
 ```
@@ -168,8 +168,9 @@ Now that the Makefile of the SPHgrav_lib folder is ready, we can return to the "
 
 ### Setup your src's Makefile. - Go there if you want to install the CPU version of the code
 
-Now that you SPHgrav_lib is complete (only if you are installing the GPU version of StarSmasher), go to the src folder. In this folder there are a ton of makefiles. As before, choose the correct one for you. For Ubuntu users that want to install StarSmasher with OpenMPI (this is the easiest way, you can also install it with IFort) there is an already written file called "MakefileGPUubuntu", if you want to use the GPU version (recommended), and "MakefileCPUubuntu" if you want to use the CPU version (unrecommended as explained earlier).  
-Then, if you have Ubuntu, just choose one of these two files and rename it as “Makefile”. Be also sure that there are not other files called only “Makefile”. Delete the others makefiles that you don’t need if you want. If you are not an Ubuntu user, be sure to edit your makefile in way that it contains the installation path only for CPU/GPU and OpenMPI/IFort. I suggest you to follow the structure of "MakefileGPUubuntu" or "MakefileCPUubuntu" to do a clean EDIT.	
+Now that you SPHgrav_lib is complete (only if you are installing the GPU version of StarSmasher), go to the src folder. In this folder there are a tons of makefiles. As before, choose the correct one for you. For Ubuntu users that want to install StarSmasher with OpenMPI (this is the easiest way, you can also install it with IFort) there is an already written file called "MakefileGPUubuntu", if you want to use the GPU version (recommended), and "MakefileCPUubuntu" if you want to use the CPU version (unrecommended as explained earlier).  
+But keep attention! For users that are using a version of Ubuntu 19.04 or older, they have to use the makefile called "MakefileGPUubuntu". If you are using Ubuntu 20.04 or newest, you have to use the makefile called "MakefileGPUubuntu20.04", or your compilation will fail with another makefile.
+Then, if you have Ubuntu, just choose one of these three files and rename it as “Makefile”. Be also sure that there are not other files called only “Makefile”. Delete the others makefiles that you don’t need if you want. If you are not an Ubuntu user, be sure to edit your makefile in way that it contains the installation path only for CPU/GPU and OpenMPI/IFort. I suggest you to follow the structure of "MakefileGPUubuntu" or "MakefileCPUubuntu" to do a clean EDIT.	
 Once your Makefile is done, everything is ready. Open your terminal in your src folder and type:
 
 ```
@@ -178,7 +179,7 @@ make
 
 The make command is going to follow all the instructions of the makefile. If make goes in error that's because you are missing one or more libraries. Then, as explained before, you need to install them and Ubuntu is the easiest way to do that.
 
-For example, a problem that you can encounter is that your machine could find the command "mpif90" during the compilation. To solve this problem, just type in your Ubuntu's terminal:
+For example, a problem that you can encounter is that your machine could not find the command "mpif90" during the compilation. To solve this problem, just type in your Ubuntu's terminal:
 
 
 ```
