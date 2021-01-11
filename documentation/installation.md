@@ -157,7 +157,8 @@ sudo apt install openmpi-bin  # version 4.0.3-0ubuntu1
 ```
 Then, to solve this problem, just type:
 
-```sudo apt install openmpi-bin
+```
+sudo apt install openmpi-bin
 ```
 And Ubuntu will install the libraries you need in minutes. Then, if you had this little trouble, to install StarSmasher correctly type again:
 
