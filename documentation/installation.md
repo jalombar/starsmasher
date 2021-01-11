@@ -70,10 +70,31 @@ cd parallel_bleeding_edge/src/SPHgrav_lib
 PS: If you want to install the CPU version of the code, go to the paragraph "Setup your src's Makefile".
 
 ### Prepare your machine to compile the StarSmasher's GPU version
-Before installing the GPU version of StarSmasher, you must prepare your machine/PC. If you are running on Linux (Ubuntu especially), the first thing that you have to do is to install the correct driver for your Graphic card (even more than one if you have different graphic cards). To do that, I recommend you to follow this guide (Automatic Install using standard Ubuntu Repository, if you have Ubuntu):
+Before installing the GPU version of StarSmasher, you must prepare your machine/PC. If you are running on Linux (Ubuntu especially), the first thing that you have to do is to install the correct driver for your Graphic card (even more than one if you have different graphic cards). To do that, type in your Ubuntu's terminal:
 
-https://linuxconfig.org/how-to-install-the-nvidia-drivers-on-ubuntu-18-04-bionic-beaver-linux
+```
+ubuntu-drivers devices
+```
+Your Ubuntu terminal will write (for my case):
 
+```
+== /sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0 ==
+modalias : pci:v000010DEd0000139Asv00001043sd00001C9Dbc03sc02i00
+vendor   : NVIDIA Corporation
+model    : GM107M [GeForce GTX 950M]
+driver   : nvidia-driver-390 - distro non-free
+driver   : nvidia-driver-418-server - distro non-free
+driver   : nvidia-driver-450 - distro non-free
+driver   : nvidia-driver-440-server - distro non-free
+driver   : nvidia-driver-450-server - distro non-free
+driver   : nvidia-driver-460 - distro non-free recommended
+driver   : xserver-xorg-video-nouveau - distro free builtin
+```
+Then i will install the driver that is good for ME (460). Then i'll install:
+
+```
+sudo apt install nvidia-driver-460
+```
 
 Now you have to install the NVIDIA nvcc toolkit. There are numerous ways to install it, you can check the NVIDIA official guide:
 
