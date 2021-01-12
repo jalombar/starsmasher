@@ -4,9 +4,53 @@
 To create a Star in Starsmasher and use it, at the moment the only way to do that is using MESA stellar evolution code.
 Mesa is a code that is able to create stars having mainly the mass and the metallicty of the Stars.
 
-To get Mesa go to the following link              http://mesa.sourceforge.net/
 
-and be sure to follow all the tutorials to use it!
+## Installing MESA
+
+If you are interested, there is a Youtube video(https://www.youtube.com/watch?v=NmaLHFxpALg) that explain you how to install MESA. YOu can follow it if you want, however we suggest you to follow our guide that is done for StarSmasher.
+
+First of all we have to install MESASDK, it contains the libraries needed to install MESA
+Let's download(http://www.astro.wisc.edu/~townsend/static.php?ref=mesasdk) it for your own OS.
+
+Now, extract the folder in your HOME. It will create a directory called mesasdk-somenumbers, delete the upperfolder if there is and rename the direcory "mesasdk".
+
+Now you can download MESA from the website(http://mesa.sourceforge.net/)
+
+Once you have your MESA zip, extract it also in your HOME. It will create a folder called mesa-somenumbers. Just rename it as Mesa.
+Now open the terminal in your HOME and type
+```
+ls -a
+```
+It will do a list of files, even the hidden files. We have to look at one file called .bashrc. We have to open it with:
+```
+gedit .bashrc
+```
+It will open a file with tons of line. Just go to the last lines and write these lines:
+
+
+```
+LINE TO WRITE                    COMMENTS
+
+export MESA_DIR=/Mesa           Here we have to write the path where the mesa folder is. In my case we are in the Home.
+export OMP_NUM_THREADS=N        "N" is the number of CPUs of your machine per node. I've a quad-core, so i'll write 4.
+export MESASDK_ROOT=~/mesasdk
+source $MESASDK_ROOT/bin/mesasdk_init.sh
+```
+
+Now save the file and exit. CLOSE your terminal and open it again. In this way enviromentals paths will be applicated. Now, let's go to our Mesa directory:
+```
+cd Mesa
+```
+now digit
+
+```
+./install
+```
+Now it will appears tons of lines of installations. The whole process can take up to several minutes. Just take a coffe and come back when all is finished.
+
+
+IN PREPARATION
+
 
 At the end of the Mesa's simulation we have to look at the folder called LOGS and then at the files called "ProfileN.data". There will be many, each number "1, 2, 3" and so on" is a "snapshot" of your star. You have to look obviously at the profile you are interested in (that differ in radius, age, helium concentration and so on!).
 
