@@ -1,1 +1,1 @@
-Dynamical run of a perturbed n=1.5 polytrope.  The mass and radius of the star can be set in sph.input with starmass and starradius, respectively.  If they aren't set, then they take on their default values of 1, as set in init.f
+Dynamical run of a perturbed n=1.5 polytrope.  The mass and radius of the star can be set in sph.input with starmass and starradius, respectively.  If they aren't set in sph.input, then they take on their default values of 1, as set in init.f
