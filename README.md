@@ -24,11 +24,12 @@ The algorithms of Starsmasher are mostly described in [Evghenii et al. (2010)](h
 The AV scheme is described in Ponce et al. (2011).
 
 ## Roadmap
-- [ ] Integrate equations of state to handle planet-planet collisions
+
 - [ ] Link to data analysis libraries
 - [ ] Improve documentation
 - [ ] Update README
-  - [ ] Add in references to papers and algorithms
+- [ ] Add in references to papers and algorithms
+- [ ] Integrate equations of state to handle planet-planet collisions (This development is actually in stand-by; if you are interested to continue it, please contact us.
 
 ## Installation
 [Installing StarSmasher](https://github.com/jalombar/starsmasher/blob/master/documentation/installation.md)
