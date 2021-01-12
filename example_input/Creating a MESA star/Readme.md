@@ -110,7 +110,7 @@ Now the simulation will start an your star profiles will be created.
 
 We remember you that you can run this folder where you want. If you want to make another different star. You can copy the folder from the original one situated in Mesa and produce another one.
 
-## Suggestion: Near the original Work direcotry in Mesa, there is a directory called "test_suite". Here there are a lot of differents simulations that you can run and that produce very differents stars. Have fun to use create and use them on StarSmasher
+## Suggestion: Near the original Work direcotry in Mesa, there is a directory called "test_suite". Here there are a lot of differents simulations that you can run and produce very differents stars. Have fun to use create and use them on StarSmasher!
 
 # Transorm your MESA's star in an SPH star
 
@@ -134,6 +134,8 @@ mpirun -np N test_gpu_sph
 Where N are the numbers of cores (cpu) of your machine.
 
 At the end of the simulation, you will have many files called out0000.sph, out0001.sph and so on. The last file should be a "out0300.sph"; it obviously depend when you decide to finish your simulation (specified in tf=N inside sph.input).
+
+# Use the star in a collision
 
 To use your star in a simulation, create a new folder copying the "collision" folder that is in "example_imput" folder. In that folder you have to delete the files called "sph.start1u and sph.start2u" and then paste the last file of your relaxation run. That file contains you star!
 
