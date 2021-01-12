@@ -4,8 +4,6 @@ Before making these simulations, we suggest you to make practice with StarSmashe
 
 First of all, you need a different code from the one present in the folder parallel_bleeding_edge. This modified code in src's folder is optimized for this kinds of simulation and is much faster than the classical one when we are talking about BH/NS collision with a MS star. The classical code will go very slow when the encounter happen, this will go faster instead.
 
-It's also been reported that compiling this code is not easier. This one is been tested in Keeneland and Ubuntu 20.04. We are sure that the compilation will fail in Ubuntu 19 or lower version.
-
 But now lets pass to the simulations. To make collide a black hole / neutron star to a Main sequence star or "viceversa", you first need to relax your star (transforming it from a 1D text file to a 3D SPH Star). To do that, please, follow the tutorial "Creating a Mesa's star", BUT using this version of the code with the files "sph-init" & "sph-input" related in the folders "relaxation_files" & "collision_files". If you won't use these files, the simulation won't start. Once that the relaxation ended, it will be generated a file called "sph.passivelyAdvected". This file keeps track of information needed for updating particle smoothing lengths. You'll need to copy that file to the directory where you run the collision. If you won't do, the collision won't start.
 
 Once you have your star, now you have to decide if it gets hit by the black hole/the neutron star (1) or if it will collide with the black hole/ neutron star (2).
