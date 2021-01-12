@@ -57,6 +57,7 @@ This main directory contains at least four subdirectories:
 * misc: miscellaneous files such as assorted makefiles and the StarCrash manual
 * parallel_bleeding_edge: latest version of code (this is probably what you want)
 * splot_directories: post-simulation code used for data extraction and analysis
+* Blackollider: a modified StarSmasher's code optimized to make collisions Between Black Holes / Neutron Stars and Stars (Both Main Sequence, pre Main Sequence, Giants...)
 
 For runs on a gpu-enabled cluster, the directory you care about is parallel_bleeding_edge.
 Let's try to compile the code in there.
