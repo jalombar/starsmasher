@@ -45,15 +45,14 @@ On your workstation, clone the repo.
 git clone https://github.com/jalombar/starsmasher.git
 ```
 
-## Installing on Allegheny
-To get the code, first get an account on carrv109.allegheny.edu and ask Jamie to open up connections to carrv109 from your preferred IP address.
-Then install with git and go to the install folder (with a default name of 'starsmasher').
+Now that you have the code, let's go in the StarSmasher folder!
+
 ```
 cd starsmasher
 ```
 
 This main directory contains at least four subdirectories:
-
+* visualazing_data: this directory contains the tutorial to read the simulation's snapshots of StarSmasher
 * example_input: contains example input files for various cases
 * misc: miscellaneous files such as assorted makefiles and the StarCrash manual
 * parallel_bleeding_edge: latest version of code (this is probably what you want)
@@ -113,14 +112,15 @@ It's reccomended to follow the guide that is in constant update. Then, choose yo
 
 Or you could just type this command in Ubuntu:
 
-
 ```
 sudo apt install nvidia-cuda-toolkit
 
 ```
-This last command is reccomended to install nvcc because we already done a Makefile (MakefileGPUubuntu) that has the path already written for this installation (as you will see later).
+This last command is reccomended to install nvcc because we have already done a Makefile (MakefileGPUubuntu and MakefileUbuntuCudaToolkit) that contain the path already written for this installation (as you will see later).
 
-But keep attention. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated "nvidia-cuda-toolkit" to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to install it with the NVIDIA official guide. to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
+But keep attention. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated "nvidia-cuda-toolkit" to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to install it with the NVIDIA official guide.
+
+We also reccomend you to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
 
 https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027
 
@@ -131,14 +131,14 @@ Once your installation is complete, you now have a nvcc file in your Ubuntu OS. 
 ### Compile the gravity library (CUDA) and StarSmasher
 
 The SPHgrav_lib subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs.
-Now you must do some important changes in this. All depends on your OS. In the SPHgrav_lib there are few files including some makefiles. Every makefile is written for an OS. The Standard “makefile” is written for Keeneland. If you are using Ubuntu, you will use the makefile.ubuntu makefile, if you are using Quest, you will the makefile.quest and so on. You will find every makefile in the “misc” folder if there isn’t in the SPHgrav_lib. If there isn’t even there, you must substitute in the standard makefile the path to nvcc. Once you have chosen your makefile (i did a makefile called "MakefileUbuntuCUDAToolkit" if you are following this guide spet by step), just change the name in “makefile” and delete the others, you don’t need them.	
+Now you must do some important changes in this. All depends on your OS. In the SPHgrav_lib there are few files including some makefiles. Every makefile is written for an OS. The Standard “makefile” is written for Keeneland. If you are using Ubuntu, you will use the makefile.ubuntu makefile, if you are using Quest, you will the makefile.quest and so on. You will find every makefile in the “misc” folder if there isn’t in the SPHgrav_lib. If there isn’t even there, you must substitute in the standard makefile the path to nvcc (as we told you some lines ago...). Once you have chosen your makefile (i did a makefile called "MakefileUbuntuCUDAToolkit" if you are following this guide spet by step), just change the name in “makefile” and delete the others, you don’t need them.	
 In the makefile (Ubuntu case) there is written this string:
 
 ```
 CUDAPATH       := /usr/lib/nvidia-cuda-toolkit/
 ```
 
-In Ubuntu this is the path where there is the nvcc file if you installed it with the sudo apt-get command. Be sure that there is! If you installed the NVIDIA toolkit in another way, just go to the computer, find a file called "nvcc" and edit this path up to the folder "bin" where nvcc is located.
+In Ubuntu this is the path where the nvcc file is located if you installed it with the sudo apt-get command. Be sure that there is! If you installed the NVIDIA toolkit in another way, just go to the computer, find a file called "nvcc" and edit this path up to the folder "bin" where nvcc is located.
 In the same file there is also this string to edit:
 
 ```
@@ -149,7 +149,7 @@ As there is written, this string is for the NVIDIA GTX 1070. The number 61 indic
 
 https://en.wikipedia.org/wiki/CUDA
 
-the NVIDIA GTX 1070 has a computability version of 6.1. Then in the string there is written “NVCCFLAGS := -arch=sm_61”. If you have a different graphic card, this number must be change according to the computability version as the Wikipedia page says, or the gravity won’t be calculated and your stars will explode. Then, if you have a GeForce GTX 950m, like me, write:
+the NVIDIA GTX 1070 has a computability version of 6.1. Then in the string there is written “NVCCFLAGS := -arch=sm_61”. If you have a different graphic card, this number must be change according to the computability version as the Wikipedia page says, or the gravity won’t be calculated and your stars will explode. Then, if you have a GeForce GTX 950M, like me, write:
 
 ```
 NVCCFLAGS := -arch=sm_50
@@ -228,7 +228,7 @@ Now, to run your first simulations, follow the tutorial “How to create a MESA 
 
 
 # Importants suggestions if you are running StarSmasher on your Hard Disk
-A last important advice. When your simulation is finished and you want to transfer your files in another Hard Disk or similar, never cut and paste your files. StarSmasher’s files and snapshots are very sensible, and there is the risk that during the cut and paste process you may lose or damage your files. To avoid this, just copy and paste them, be sure that every files is there and that is not been damaged (like visioning the texts or try to visualize them with SPLASH, as you will see next) and then, eventually, delete the original files once the transfer is been completed. 	
+A last important advice. When your simulation is finished and you want to transfer your files in another Hard Disk or similar, never cut and paste your files. StarSmasher’s files and snapshots are very sensible, and there is the risk that during the cut and paste process you may lose or damage your files. To avoid this, just copy and paste them, be sure that every files is there and that they aren't damaged (like visioning the texts or try to visualize them with SPLASH, as you will see next) and then, eventually, delete the original files once the transfer is been completed. 	
 If you want instead to continue your simulation in another Hard Disk, be sure to recompile the code in your Hard Disk:
 
 ```
@@ -241,10 +241,9 @@ make
 ```
 Now the code is been recompiled and the mpirun command should run perfectly. 
 
-We suggest to the user to run StarSmasher into an Hard Disk. If you are going to use a lot of particles (100000 or more) each snapshot of your simulation is going to be around 40 mb. Then, if you have thousands of them, there is the possibility that all your OS's space is going to be occupied. To avoid this, we suggest a NEW Hard Disk of 1 TeraByte or more. Why a New? There is not any known risk (actually) that StarSmasher is going to delete your personal files on your Hard Disk, but there is a problem with Linux and the file systems of the Hard Disk itself. If you are going to run StarSmasher in Ubuntu and try to install StarSmasher in an Hard Disk that has FAT32 file system, when you'll try "mpirun -np N test_gpu_sph", OpenMPI is going to say you that it is not possible to find the executable test_gpu_sph. This is because Linux won't give the permission to run the executable in a space that has not the same file system of linux. However, everything will run perfectly if your Hard Disk is going to have NTFS's file system. Then, why a new Hard Disk? Because so you can format it with the correct file system of your linux OS and you won't lose any of your personal data into the Hard Disk if you can't do a backup or for some other reason.
+We suggest to the user to run StarSmasher into an Hard Disk. If you are going to use a lot of particles (100000 or more) each snapshot of your simulation is going to be around 40 mb. Then, if you have thousands of them, there is the possibility that all your OS's space is going to be occupied. To avoid this, we suggest a NEW Hard Disk of 1 TeraByte or more. Why a New? There is not any known risk (actually) that StarSmasher is going to delete your personal files on your Hard Disk, but there is a problem with Linux and the file systems of the Hard Disk itself. If you are going to run StarSmasher in Ubuntu and try to install StarSmasher in an Hard Disk that has FAT32 file system, when you'll try "mpirun -np N test_gpu_sph", OpenMPI is going to say you that it is not possible to find the executable test_gpu_sph. This is because Linux won't give the permission to run the executable in a space that has not the same file system of Linux. However, everything will run perfectly if your Hard Disk is going to have NTFS's file system. Then, why a new Hard Disk? Because so you can format it with the correct file system of your linux OS and you won't lose any of your personal data into the Hard Disk, if you can't do a backup or for some other reason.
 
-The solution of having a NTFS's Hard Disk is not universal and it may change in base of your OS or other factors.
+The solution of having a NTFS's Hard Disk is not universal and it may change in base of your OS or other factors. If your Linux OS is a FAT or FAT32, you'll need an Hard Disk with FAT or FAT32 file system and so on.
 
 
 We wish to the user a good use of StarSmasher, actually best star collider simulator in the planet!
-
