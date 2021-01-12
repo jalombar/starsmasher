@@ -99,7 +99,7 @@ This will list many files including the hidden file. We have to look to a file c
 gedit .bashrc
 ```
 
-This will open thE hidden file. Inside the file, you will see many lines. Go to the end of the file, add some spaces to separate the last lines from what we are going to write and copy and past these 3:
+This will open the hidden file. Inside the file, you will see many lines. Go to the end of the file, add some spaces to separate the last lines from what we are going to write and copy and past these three:
 
 ```
 export SPLASH_DIR=$HOME/splash
