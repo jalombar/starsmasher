@@ -6,7 +6,7 @@ Each one of these files is a snapshot of your simulation. To visualize them we s
 https://github.com/danieljprice/splash
 
 
-# Install SPLASH (new way)
+# Install SPLASH
 The upper web page has a full documentation about the installation of SPLASH, however we want to do there a little guide that is setted up just for StarSmasher.
 
 First of all, download Splash 3.0 from the github repository and extract it to your HOME directory. It must be there, not elsewhere, as you will see later.
@@ -165,14 +165,6 @@ Save .bashrc now. Close your terminal and open it again. now type:
 jsplash
 ```
 If everything went well, it should now appear the splash's home and you'll be able to use the easier command "jsplash" to read the data of StarSmasher.
-
-
-# Install SPLASH (old way)
-You shouldn't need this nowday, but we keep the files there to prevent any inconvenience
-With the old way, you have to install the version 2.5.0 of the 1st february 2020, but with some changes. When you are going to install SPLASH (as described in the last paragraph), you must substitute the "Makefile" of the SPLASH folder called "build" with the Makefile of this folder. You have also to add the file "read_data_jamiesph.f90" in the folder of SPLASH repository called "src".
-
-If everything went fine, it should be added a command called "jsplash" to your terminal.
-
 
 # How to use SPLASH to read Starsmasher's files.
 
