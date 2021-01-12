@@ -1,4 +1,4 @@
-# How to make collide a Black Hole / Neutron star with a MainSequence Star
+# How to make collide a Black Hole (BH) / Neutron star (NS) with a Main Sequence Star
 
 Before making these simulations, we suggest you to make practice with StarSmasher following the other tutorials. If you want to make collide a Black Hole/Neutron Star with a Main Sequence star or viceversa, you are welcome!
 
@@ -23,3 +23,34 @@ mpirun -np N test_gpu_sph
 Where N are the numbers of cores (for section) of your machine.
 
 You will likely need a supercomputer to simulate this kind of collisions, even if your star has 5k particles and you builded the gpu version of the program. That's because simulating the interaction between a star and a pointmass black hole / neutron star will require a very high computing capability. If you are simulating in a laptop, you will see that, when your star will touch the black hole, the simulation will instantly become slower (unless you have a supercomputer or a GPU cloud).
+
+
+
+# Visualizing data
+
+In StarSmasher, your black hole or Neutron star is treated like a point mass. In SPLASH, the software used to visualize StarSmasher's snapshots, as default, you cannot see your point mass BH/NS. To do that, first, let's visualize all your snapshots as we explained in the "visualizing_data's tutorial":
+
+```
+jsplash out*.sph
+```
+
+Now, before visualizing the grid as in the classical way, type:
+
+```
+o
+yes
+yes
+yes
+```
+
+Now the BH/NS is visible. check with:
+
+```
+2
+1
+8
+0
+/xw
+```
+
+The point mass is now evidenced with a white circumference.
