@@ -1,0 +1,22 @@
+ &input
+ tf=50, ! desired final time to stop simulation; use negative values if want to have code potentially change tf and/or skipahead
+ dtout=1, ! how often an out*.sph files should be dumped
+ nrelax=0, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
+ sep0=5, ! initial separation of two stars in a binary or collision calculation
+ bimpact=0d0, ! the impact parameter for collisions; despite the name, this is actually the *periastron separation*
+ vinf2=1d0,
+ ngravprocs=1, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+ computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
+ ppn=4, ! set this to the number of cpu cores per node
+ mbh=1,
+! The Courant numbers cn1, cn2, cn3, and cn4 are for SPH particles:
+ cn1=0.1d0,   ! dt1=cn1*h/v_signal
+ cn2=1.d30, ! dt2=cn2*(h/|a-a_smoothed|)^0.5
+ cn3=0.01d0, ! dt3=cn3*u/|du/dt|
+ cn4=1.d30,  ! dt4=cn4*v_signal/|a-a_smoothed|
+! The Courant numbers cn5, cn6, and cn7 are for a particle i that is a compact object (co):
+!     dt_co=1/(1/dt5 + 1/dt6)
+ cn5=0.01d0,! dt5=cn5*r_ij/v_ij (minimized over all other particles j)
+ cn6=0.01d0, ! dt6=cn6*(r_ij/a_ij)^.5 (minimized over all other particles j)
+ cn7=1.d0,   ! r_ij=(x_ij^2+y_ij^2+z_ij^2+cn7*h_i^2)^.5
+ &end
