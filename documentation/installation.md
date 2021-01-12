@@ -1,4 +1,4 @@
-# Before installing StarSmasher
+# [0] Before installing StarSmasher
 Before installing StarSmasher, you need few things to make a clean installation and run the program.  
 The 1st thing is that you must have one or more NVIDIA Graphic Cards. Why? 
 
@@ -32,19 +32,20 @@ It’s impossible to run StarSmasher on VirtualBox. This is because StarSmasher 
 We don't know if it's possible to run StarSmasher on a GPU cloud or to another Server with 8 GPU that you can rent. We will write there when we will try that. We hope of yes so you can run simulations with millions of particle without spending thousands of dollars/euros to build a very powerfull computer for only some definitives runs.
 
 
-# OBTAINING AND COMPILING
+# [1] OBTAINING
 
-## With GitHub
+## [1.1] With GitHub
 Just go to the StarSmasher’s GitHub page and download the .zip file. Put it in the desired folder and extract it. You will get all the files. To travel between folders, you can simply open your terminal (Linux) in the specified folder. Once you have your files, you are ready for the installation.
 
 
-## With git
+## [1.2] With git
 
 On your workstation, clone the repo.
 ```
 git clone https://github.com/jalombar/starsmasher.git
 ```
 
+# [2] COMPILING
 Now that you have the code, let's go in the StarSmasher folder!
 
 ```
@@ -66,10 +67,11 @@ Let's try to compile the code in there.
 cd parallel_bleeding_edge/src/SPHgrav_lib
 ```
 
-## Compiling the GPU-enabled code
-PS: If you want to install the CPU version of the code, go to the paragraph "Setup your src's Makefile".
+## [2.1] Prepare your machine to install the GPU's version of StarSmasher
 
-### Prepare your machine to compile the StarSmasher's GPU version
+--------------------------------------------------------
+PS: If you want to install the CPU version of the code, go to the paragraph [2.3].
+--------------------------------------------------------
 Before installing the GPU version of StarSmasher, you must prepare your machine/PC. If you are running on Linux (Ubuntu especially), the first thing that you have to do is to install the correct driver for your Graphic card (even more than one if you have different graphic cards). To do that, type in your Ubuntu's terminal:
 
 ```
@@ -129,7 +131,7 @@ As you can see the NVIDIA Titan RTX is newer than the NVIDIA RTX 2080 Ti, Howeve
 Once your installation is complete, you now have a nvcc file in your Ubuntu OS. Search it and keep in mind its location.
 
 
-### Compile the gravity library (CUDA) and StarSmasher
+### [2.2] Compile the gravity library (CUDA) and StarSmasher
 
 The SPHgrav_lib subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs.
 Now you must do some important changes in this. All depends on your OS. In the SPHgrav_lib there are few files including some makefiles. Every makefile is written for an OS. The Standard “makefile” is written for Keeneland. If you are using Ubuntu, you will use the makefile.ubuntu makefile, if you are using Quest, you will the makefile.quest and so on. You will find every makefile in the “misc” folder if there isn’t in the SPHgrav_lib. If there isn’t even there, you must substitute in the standard makefile the path to nvcc (as we told you some lines ago...). Once you have chosen your makefile (i did a makefile called "MakefileUbuntuCUDAToolkit" if you are following this guide spet by step), just change the name in “makefile” and delete the others, you don’t need them.	
@@ -167,7 +169,7 @@ because it has a computability version of 7.5, and so on. This is why all of you
 
 Now that the Makefile of the SPHgrav_lib folder is ready, we can return to the "src" folder.
 
-### Setup your src's Makefile. - Go there if you want to install the CPU version of the code
+### [2.3] Setup your src's Makefile. - Go there if you want to install the CPU version of the code
 
 Now that you SPHgrav_lib is complete (only if you are installing the GPU version of StarSmasher), go to the src folder. In this folder there are a tons of makefiles. As before, choose the correct one for you. For Ubuntu users that want to install StarSmasher with OpenMPI (this is the easiest way, you can also install it with IFort) there is an already written file called "MakefileGPUubuntu", if you want to use the GPU version (recommended), and "MakefileCPUubuntu" if you want to use the CPU version (unrecommended as explained earlier).  
 But keep attention! For users that are using a version of Ubuntu 19.04 or older, they have to use the makefile called "MakefileGPUubuntu". If you are using Ubuntu 20.04 or newest, you have to use the makefile called "MakefileGPUubuntu20.04", or your compilation will fail with another makefile.
@@ -228,7 +230,7 @@ cd ..
 Now, to run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
 
 
-# Importants suggestions if you are running StarSmasher on your Hard Disk
+# [3] Importants suggestions if you are running StarSmasher on your Hard Disk
 A last important advice. When your simulation is finished and you want to transfer your files in another Hard Disk or similar, never cut and paste your files. StarSmasher’s files and snapshots are very sensible, and there is the risk that during the cut and paste process you may lose or damage your files. To avoid this, just copy and paste them, be sure that every files is there and that they aren't damaged (like visioning the texts or try to visualize them with SPLASH, as you will see next) and then, eventually, delete the original files once the transfer is been completed. 	
 If you want instead to continue your simulation in another Hard Disk, be sure to recompile the code in your Hard Disk:
 
