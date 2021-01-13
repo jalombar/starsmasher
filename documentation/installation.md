@@ -8,9 +8,7 @@ Depending on your machine, in most cases (unless you have a very high number of 
 
 Then you must need an NVIDIA Graphic Card to run StarSmasher, not others. If you don't have, get a computer or a machine with NVIDIA Graphic card.  
 You must also be sure that if you have more than one NVIDIA Graphic Card they MUST BE of the same version. What i mean?
-In this wikipedia page
-
-https://en.wikipedia.org/wiki/CUDA
+In this wikipedia [page](https://en.wikipedia.org/wiki/CUDA)
 
 there is written the “compute capability version” of each NVIDIA’s Graphic Card. You must be sure that if you have differents NVIDIA Graphic cards in your machine, they must be of the same compute capability version. For example, in your machine you can have a Nvidia TITAN Xp, a Titan X and a GeForce GTX 1080 Ti, because they are all 6.1 compute capability version and then they will calculate gravity correctly. You can’t have, however, a Titan X and a NVIDIA TITAN V, because one is a 6.1, the other is a 7.0. This means that they will calculate gravity both in a different way and StarSmasher will give you a very bad simulation where eventually the stars will explode. Then, please, be sure that all of your graphic cards are of the same compute capability version if not the same.
 
@@ -107,9 +105,7 @@ sudo reboot
 
 ```
 
-After rebooting, you have to install the NVIDIA nvcc toolkit. There are numerous ways to install it, you can check the NVIDIA official guide:
-
-https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
+After rebooting, you have to install the NVIDIA nvcc toolkit. There are numerous ways to install it, you can check the NVIDIA official [guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html)
 
 It's reccomended to follow the guide that is in constant update. Then, choose your Linux OS and follow step by step what the guide says to do. When you will choose your NVIDIA toolkit package, it's reccomended to follow the installation via deb(network) because it's the easier and it avoid many problems that could occur with other installation methods.
 
@@ -123,9 +119,7 @@ This last command is reccomended to install nvcc because we have already done a 
 
 But keep attention. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated "nvidia-cuda-toolkit" to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to install it with the NVIDIA official guide.
 
-We also reccomend you to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it there:
-
-https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027
+We also reccomend you to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it [there](https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027)
 
 As you can see the NVIDIA Titan RTX is newer than the NVIDIA RTX 2080 Ti, However, about gravity calculation, is just a 10% more performant, there is like no difference then. In this case the NVIDIA RTX 2080 Ti is a better choice because it’s older and there surely is the nvcc version ready for that graphic card.
 Once your installation is complete, you now have a nvcc file in your Ubuntu OS. Search it and keep in mind its location.
