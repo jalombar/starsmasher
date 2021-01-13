@@ -199,6 +199,34 @@ This command will read you all the files. When you will type "/xw", just press t
 
 https://splash-viz.readthedocs.io/en/latest/
 
+# How to create video from your Snapshot
+The Splash's userguide contain many suggestions to make videos from your snapshots. We suggest another method that is equally fast.
+
+First of all, install ffmpeg. If you use Ubuntu, you should have it installed. If not, dowload it with:
+
+```
+sudo apt install ffmpeg
+```
+
+Or you can dowload it from the ffmpeg website[https://ffmpeg.org/download.html]
+
+Now, how do you create a video with all your snapshot? With ffmpeg installed, open yor terminal in the folders where the snapshots are and type this command:
+
+```
+ffmpeg -r:v 30 -i "NAMEYOUWANT_%04d.png" -codec:v libx264 -preset veryslow "NAMEYOUWANT.mp4"
+```
+
+Let's analazie it:
+
+-r:v 30= rappresents the frame per seconds. So, if you have 300 snapshots, your video will be 10 seconds.
+
+NAMEYOUWANT_%04d.png"= NAMEYOUWANT must be equal to the name of your snapshots that you choosed before. 04d rappresent the number of cifers that a pic have. StarSmasher pics have only for. They start with 0 and ends at 9999. After this there will be also the 10000, but you should repeat this command, instead, changing 04 to 05.
+
+NAMEYOUWANT.mp4= It rappresent the name of the video that you are going to create. unlike before, you are free to give this name. You are even free to change the format of you video. It can be mp4, or it can be mov or other.
+
+
+This process can take some minutes and it will create a video. We reccomand to use VLC Media player, or load them on YouTube (send to us!) or Google Drive to see them. You may meet difficulties to see the video with classical players like Windows media player or the Ubuntu's standard player. The visualization can go in error, but don't worry, the video is there. You have only to choose the correct player even if it is in mp4 or mov.
+
 
 For any problems or question during the installation, visualization and other basic functions, contact Francesco Radica at the email "francyrad.info@gmail.com"
 
