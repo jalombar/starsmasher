@@ -7,14 +7,14 @@ Mesa is a code that is able to create stars having mainly the mass and the metal
 
 ## Installing MESA
 
-If you are interested, there is a Youtube video(https://www.youtube.com/watch?v=NmaLHFxpALg) that explain you how to install MESA. YOu can follow it if you want, however we suggest you to follow our guide that is done for StarSmasher.
+If you are interested, there is a Youtube [video](https://www.youtube.com/watch?v=NmaLHFxpALg) that explain you how to install MESA. YOu can follow it if you want, however we suggest you to follow our guide that is done for StarSmasher.
 
 First of all we have to install MESASDK, it contains the libraries needed to install MESA
-Let's download(http://www.astro.wisc.edu/~townsend/static.php?ref=mesasdk) it for your own OS.
+Let's [download](http://www.astro.wisc.edu/~townsend/static.php?ref=mesasdk) it for your own OS.
 
 Now, extract the folder in your HOME. It will create a directory called mesasdk-somenumbers, delete the upperfolder if there is and rename the direcory "mesasdk".
 
-Now you can download MESA from the website(http://mesa.sourceforge.net/)
+Now you can download MESA from the [website](http://mesa.sourceforge.net/)
 
 Once you have your MESA zip, extract it also in your HOME. It will create a folder called mesa-somenumbers. Just rename it as Mesa.
 Now open the terminal in your HOME and type
@@ -125,6 +125,18 @@ Be sure then that the name of the profile and the name inside sph.input are the 
 Be also sure that there is written  "stellarevolutioncodetype=1". In this way Starsmasher will recognize that this is a MESA file.
 
 Be sure that the nrelax=1. In this way Starsmasher will convert your mesa stars in SPH particles. The number of SPH particles is setted in the 4th line of sph.input file. James Lombardi suggest a number of 50000 particles for solar mass. In this way the simulation will be realistic.
+
+___________________________________________________________________________________
+# WARNING
+At the moment, with the most recent version of MESA, there is a bug that do not permit you to compile StarSmasher; typing make will just go in error after few lines. This is because MesaSDK goes in conflict with previvious libraries that you installed.
+Solve this problem, However, is simple.
+
+1st: Download an old version of MESA (tested with the version of March 2019)
+2nd: Try to install MESA withoud SDK
+3rd: deactivate the path to SDK. To do that, go to your .bashrc as explained before and search for the previously inserted line called "source $MESASDK_ROOT/bin/mesasdk_init.sh" Now, before this line, just put a "#". The path will look in this way.
+"# source $MESASDK_ROOT/bin/mesasdk_init.sh"
+This will solve the problem, but you won't be able to use MESA. Just remove the "#" to use MESA and put it again when you have to compile StarSmasher many times.
+___________________________________________________________________________________
 
 To make the star, after that in you have compiled the code, after that in your folder there are all the files needed (like in this example folder) and everything is been setted in sph.input (like number of cores and GPUs of your machine [per node]), type in your terminal:
 
