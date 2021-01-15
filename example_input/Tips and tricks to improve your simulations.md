@@ -29,15 +29,15 @@ Every simulation will release a snapshot. If your simulation looks laggy, that�
 To solve this problem, just open your sph.input file. There is a string called “dtout=1”. This means that every 1 t of simulation, StarSmasher will release an out*.sph,
 however this means a laggy visualization. To solve, do that. Change this number with 0.1 and also change the tf=N to tf=200. This means that StarSmasher will release
 a Snapshot every 0.1 t, then 10 snapshot every t. Now your simulation will have a high frame rate during visualization with SPLASH, however you will likely have 2000
-snapshots files after 200 t. Now that your stars smashed and you want to continue to visualize how the collision evolve, you don’t need any more a high frame rate. 
-Then, once your simulation is finished, for example at a t=200, or whatever you want, just change “tf=N” (until you want to continue, obviously a number higher than 
-200) and dtout=1 or more. Now your simulation will release 1 snapshot every 1 t, and the snapshot numeration is going to continue (then if it stopped to 2000, it will
-continue with 2001, 2002 and so on).
+snapshots files after 200 t. And you don0t want that because they are too much and you don't need to see every particular once your stars smashed and once that the best part of the simulation finished. Then, do so. After that the most important part of your simulation finished, close your terminal and go to sph.input. and change dtout=0.1 TO dtout=1 or more. Now your simulation will release 1 snapshot every 1 t.
+TO continue again your simulation, digit:
 
+mpirun -np N test_gpu_sph
 
+Where N is the nomber of cores per node of your machine
 
-
-
+StarSmasher will start your simulation from "restartrad.sph", and the snapshot numeration is going to continue. Then, if it stopped to 200, it will
+continue with 201, 202 and so on. So there still will be continuity despit the different frame rate.
 
 ----------------------------
 
