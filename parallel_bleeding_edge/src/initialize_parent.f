@@ -548,7 +548,7 @@ c     derived constants:
       character*41 headers(maxnumcol)
       integer imass,ilogR,ilogT,
      $     ilogRho,ilogP,ix_mass_fraction_H,iy_mass_fraction_He,
-     $     iz_mass_fraction_metals      
+     $     iz_mass_fraction_metals,ih1,ihe3,ihe4
       real*8 mesadata(2:maxnumcol)
 
       if(myrank.eq.0) then
@@ -704,6 +704,17 @@ c     profilefile comes from MESA
 
          read(io,'(99a)')(headers(i), i=1,numcol)
 
+         imass=0
+         ilogR=0
+         ilogT=0
+         ilogRho=0
+         ilogP=0
+         ix_mass_fraction_H=0
+         iy_mass_fraction_He=0
+         iz_mass_fraction_metals=0
+         ih1=0
+         ihe3=0
+         ihe4=0
          do i=1,numcol
             headers(i)=adjustl(headers(i))
             if(myrank.eq.0) write(69,*) i,headers(i)
@@ -726,6 +737,12 @@ c     profilefile comes from MESA
             elseif(trim(headers(i)).eq.'z_mass_fraction_metals' .or.
      $             trim(headers(i)).eq.'z') then
                iz_mass_fraction_metals=i
+            elseif(trim(headers(i)).eq.'h1') then
+               ih1=i
+            elseif(trim(headers(i)).eq.'he3') then
+               ihe3=i
+            elseif(trim(headers(i)).eq.'he4') then
+               ihe4=i
             endif
          enddo
          
@@ -739,6 +756,9 @@ c     profilefile comes from MESA
             write(69,*) ix_mass_fraction_H,' : X'
             write(69,*) iy_mass_fraction_He,' : Y'
             write(69,*) iz_mass_fraction_metals,' : Z'
+            write(69,*) ih1,' : X_H1'
+            write(69,*) ihe3,' : X_He3'
+            write(69,*) ihe4,' : X_He4'
          endif
 
 
@@ -765,9 +785,21 @@ c     $           z_mass_fraction_metals, (dummy, ii=1,26),xm(i)
             logT=mesadata(ilogT)
             logRho=mesadata(ilogRho)
             logP=mesadata(ilogP)
-            x_mass_fraction_H=mesadata(ix_mass_fraction_H)
-            y_mass_fraction_He=mesadata(iy_mass_fraction_He)
-            z_mass_fraction_metals=mesadata(iz_mass_fraction_metals)
+            if(ix_mass_fraction_H.gt.0) then
+               x_mass_fraction_H=mesadata(ix_mass_fraction_H)
+            else
+               x_mass_fraction_H=mesadata(ih1)
+            endif
+            if(iy_mass_fraction_He.gt.0) then
+               y_mass_fraction_He=mesadata(iy_mass_fraction_He)
+            else
+               y_mass_fraction_He=mesadata(ihe3)+mesadata(ihe4)
+            endif
+            if(iz_mass_fraction_metals.gt.0) then
+               z_mass_fraction_metals=mesadata(iz_mass_fraction_metals)
+            else
+               z_mass_fraction_metals=1d0-x_mass_fraction_H-y_mass_fraction_He
+            endif
 
             if(  abs(x_mass_fraction_H  + y_mass_fraction_He +
      $           z_mass_fraction_metals - 1d0) .gt. 1.d-8) then
