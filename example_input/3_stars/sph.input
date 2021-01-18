@@ -1,0 +1,11 @@
+ &input
+ tf=100, ! desired final time to stop simulation; use negative values if want to have code potentially change tf and/or skipahead
+ dtout=1, ! how often an out*.sph files should be dumped
+ nrelax=0, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
+ sep0=5, ! initial separation of two stars in a binary or collision calculation
+ bimpact=2d0, ! the impact parameter for collisions; despite the name, this is actually the *periastron separation*
+ e0=0.8d0, ! the semimajor axis for the collision (in units of runit below)
+ ngravprocs=-1, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+ computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
+ ppn=4, ! set this to the number of cpu cores per node
+ &end
