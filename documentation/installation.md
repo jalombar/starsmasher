@@ -105,19 +105,18 @@ sudo reboot
 
 ```
 
-After rebooting, you have to install the NVIDIA nvcc toolkit. There are numerous ways to install it, you can check the NVIDIA official [guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html)
-
-It's reccomended to follow the guide that is in constant update. Then, choose your Linux OS and follow step by step what the guide says to do. When you will choose your NVIDIA toolkit package, it's reccomended to follow the installation via deb(network) because it's the easier and it avoid many problems that could occur with other installation methods.
-
-Or you could just type this command in Ubuntu:
+After rebooting, you have to install the NVIDIA nvcc toolkit, then just type this command in your Ubuntu terminal:
 
 ```
 sudo apt install nvidia-cuda-toolkit
 
 ```
-This last command is reccomended to install nvcc because we have already done a Makefile (MakefileGPUubuntu and MakefileUbuntuCudaToolkit) that contain the path already written for this installation (as you will see later).
+This last command is reccomended to install nvcc because we have already done a Makefile (MakefileGPUubuntu, MakefileGPUUbuntu10.04 and MakefileUbuntuCudaToolkit) that contain the path already written for this installation (as you will see later).
 
-But keep attention. If you have, for example, the latest NVIDIA graphic card, there is the possibility that NVIDIA developers didn’t updated "nvidia-cuda-toolkit" to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to install it with the NVIDIA official guide.
+But keep attention. If you have, for example, the latest NVIDIA graphic card or another OS, there is the possibility that NVIDIA developers didn’t updated "nvidia-cuda-toolkit" to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to install it with the NVIDIA official [guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html)
+
+It's reccomended to follow the guide that is in constant update. Then, choose your Linux OS and follow step by step what the guide says to do. When you will choose your NVIDIA toolkit package, it's reccomended to follow the installation via deb(network) because it's the easier and it avoid many problems that could occur with other installation methods.
+
 
 We also reccomend you to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it [there](https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027)
 
@@ -136,6 +135,7 @@ CUDAPATH       := /usr/lib/nvidia-cuda-toolkit/
 ```
 
 In Ubuntu this is the path where the nvcc file is located if you installed it with the sudo apt-get command. Be sure that there is! If you installed the NVIDIA toolkit in another way, just go to the computer, find a file called "nvcc" and edit this path up to the folder "bin" where nvcc is located.
+
 In the same file there is also this string to edit:
 
 ```
