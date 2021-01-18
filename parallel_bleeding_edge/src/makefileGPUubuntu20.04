@@ -1,4 +1,4 @@
-# makefile is set for a system76 laptop with Ubuntu 20.04 with Nvidia GTX 1070, cuda 11.1, grortran 9.3 and openMPI 4.03
+# makefile is set for a laptop with Ubuntu 20.04 with a general NVIDIA graphic card, the standard cuda-toolkit, grortran 9.3 and openMPI 4.03
 # make sure mpifort uses gfortran
 # run 'mpif90 -v'
 # to check compiler flags, run " mpif90 --showme:compile
