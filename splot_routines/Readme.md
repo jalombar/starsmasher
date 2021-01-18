@@ -52,6 +52,8 @@ NameYouWant.png
 
 SPLASH will create your picture ready to use for your paper!
 
-a last suggestion: To have a better resolution data, we suggest to make the first snapshot of the simulations with an output rate of 0.1 t. Then stop the simulation when all the major events are done and then change it to 1.
+
+
+You can also edit the numbers as you want with further post processing with Excel or another editor, just remeber to insert columns between the numbers!
 
 # This  tutorial is in continuous updating. We are collecting all the splot routines around to make all them available! 
