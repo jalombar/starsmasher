@@ -40,8 +40,12 @@ StarSmasher will start your simulation from "restartrad.sph", and the snapshot n
 continue with 201, 202 and so on. So there still will be continuity despit the different frame rate.
 
 ----------------------------
+# SPHgrav_lib and SPHgravlib_2 what is the difference between these two?
 
-#Computeexclusivemode; what is it and what does it do?
+SPHgrav_lib is the library used to calculate gravity with CUDA, and then is used to have a faster simulation. This is the standard gravity library. However there is a second that is been optimized for StarSmasher, and that one is SPHgrav_lib2. This is more accurate and equally faster, so it's reccomendend to use this instead of the first. To do so, just delete SPHgravlib from your folder and rename SPHgrav_lib2 in SPHgravlib. The code will recompile equally, and don't forget to use the correct Makefile for you!
+The standard lib is not been deleted because many users still use it, so it's your choice to choose between the 2.
+
+# Computeexclusivemode; what is it and what does it do?
 
 The safest thing to do is not to set computeexclusivemode in sph.input so that it's assigned its default value of 0.  (computeexclusivemode=0).
 If a user is going to set it, they should set it to 0 unless (a) they want more than one job is to be run on the same compute node and 
