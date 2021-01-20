@@ -37,7 +37,7 @@ It will appear many lines of installations
 Then type:
 
 ```
-make
+make install
 ```
 
 still lines; then
