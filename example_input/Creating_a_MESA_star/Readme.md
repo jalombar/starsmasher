@@ -7,7 +7,7 @@ Mesa is a code that is able to create stars having mainly the mass and the metal
 
 ## Installing MESA
 
-If you are interested, there is a Youtube video(https://www.youtube.com/watch?v=NmaLHFxpALg) that explain you how to install MESA. YOu can follow it if you want, however we suggest you to follow our guide that is done for StarSmasher.
+If you are interested, there is a Youtube video(https://www.youtube.com/watch?v=NmaLHFxpALg) that explain you how to install MESA. You can follow it if you want, however we suggest you to follow our guide that is done for StarSmasher.
 
 First of all we have to install MESASDK, it contains the libraries needed to install MESA
 Let's download(http://www.astro.wisc.edu/~townsend/static.php?ref=mesasdk) it for your own OS.
