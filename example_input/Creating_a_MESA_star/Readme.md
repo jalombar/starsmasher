@@ -71,7 +71,7 @@ MESA installation was successful
 ************************************************
 ```
 
-#Create your star profile
+# Create your star profile
 
 Now that MESA is installed, we have to look at a folder called "work". You can find it in /Mesa/star/. The folder work is where we are going to create our star. Then copy this folder and put it where you want to do your simulation. As suggested in the tutorial isntallation, i suggest to put it in your Hard Disk.
 
@@ -112,7 +112,7 @@ We remember you that you can run this folder where you want. If you want to make
 
 ## Suggestion: Near the original Work direcotry in Mesa, there is a directory called "test_suite". Here there are a lot of differents simulations that you can run and produce very differents stars. Have fun to use create and use them on StarSmasher!
 
-# Transorm your MESA's star in an SPH star
+# Transorm your MESA's star in a SPH star
 
 At the end of the Mesa's simulation we have to look at the folder called LOGS and then at the files called "ProfileN.data". There will be many, each number "1, 2, 3" and so on" is a "snapshot" of your star. You have to look obviously at the profile you are interested in (that differ in radius, age, helium concentration and so on!). It is likely that the file that you want is the one with the biggest number, and the last.
 
