@@ -1,4 +1,4 @@
-# How to make collide a compact object with a star
+# How to collide a compact object with a star
 
 Before trying these simulations, you may want to practice with StarSmasher following the other tutorials. If you want to collide a compact object (a black hole, neutron star, or white dwarf modelled by a point mass) with a star, look here!
 
