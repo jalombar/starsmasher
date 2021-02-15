@@ -25,7 +25,7 @@ When your star touches the black hole, the simulation will instantly become slow
 
 # Visualizing data
 
-In StarSmasher, your black hole or Neutron star is treated like a point mass. In SPLASH, the software used to visualize StarSmasher's snapshots, as default, you cannot see your point mass BH/NS. To do that, first, let's visualize all your snapshots as we explained in the "visualizing_data's tutorial":
+In StarSmasher, your compact object is treated like a point mass with gravitational softening. In SPLASH, the software used to visualize StarSmasher's snapshots, as default, you cannot see your point mass BH/NS. To do that, first, let's visualize all your snapshots as we explained in the "visualizing_data's tutorial":
 
 ```
 splash -f starsmasher out*.sph
