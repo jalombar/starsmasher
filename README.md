@@ -23,14 +23,6 @@ Remember, however, that this Starsmasher SPH code is different in many ways.
 The algorithms of Starsmasher are mostly described in [Evghenii et al. (2010)](http://adsabs.harvard.edu/abs/2010MNRAS.402..105G).
 The AV scheme is described in Ponce et al. (2011).
 
-## Roadmap
-
-- [ ] Link to data analysis libraries
-- [ ] Improve documentation
-- [ ] Update README
-- [ ] Add in references to papers and algorithms
-- [ ] Integrate equations of state to handle planet-planet collisions (This development is actually in stand-by; if you are interested to continue it, please contact us).
-
 ## Installation
 [Installing StarSmasher](https://github.com/jalombar/starsmasher/blob/master/documentation/installation.md)
 
@@ -66,4 +58,12 @@ Monaghan, J. J., & Lattanzio, J. C. 1985, A&A, 149, 135
 Price, D. J. 2007, PASA, 24, 159
 
 Rasio, F. A. 1991, Ph.D. Thesis
+
+## Roadmap
+
+- [ ] Link to data analysis libraries
+- [ ] Improve documentation
+- [ ] Update README
+- [ ] Add in references to papers and algorithms
+- [ ] Integrate equations of state to handle planet-planet collisions (This development is actually in stand-by; if you are interested to continue it, please contact us).
 
