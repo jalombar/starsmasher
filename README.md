@@ -15,7 +15,7 @@ Using a direct summation instead of a tree-based algorithm for gravity increases
 The code uses a cubic spline (Monaghan & Lattanzio 1985) for the smoothing kernel and an artificial viscosity prescription coupled with a Balsara Switch (Balsara 1995) to prevent unphysical interparticle penetration. 
 The code also implements an artificial relaxation force to the equations of motion to add a drag term to the calculated accelerations during relaxation integrations.
 
-Although this Starsmasher code is not well documented, we are working hard to make tutorials and further documentation to make the code more user-friendly as possible. There is documentation for Starcrash, which is a previous version of this [code](http://ciera.northwestern.edu/StarCrash/).
+We are working hard to make tutorials and further documentation to make the code more user-friendly as possible. There is also documentation for Starcrash, which is a previous version of this [code](https://legacy.ciera.northwestern.edu/StarCrash/).
 Although Starcrash is not the same as Starsmasher, the variable names, input files, output files, and parallelization strategy is very similar.
 The Starcrash documentation is available as the file usersmanual.pdf in the misc subdirectory and may be somewhat helpful to peruse.
 You will be most interested in pages 31 - 36, which talks about input and output.
