@@ -130,6 +130,14 @@ Splash became very useful if we want to plot something inside our binary file. T
           ( * select "xy limits relative to particle" in l)imits menu",
             or "t" in interactive mode and save, or list ids in 'splash.tracks' )
 ```
+Some columns visualized with splash may not be clear, for example:
+```
+10) mean_mu                          
+11) h                                
+12) du/dt 
+```
+These are the mean molecular weight (in grams), the smoothing length (in code units), and the time rate of change of the specific internal energy (also in code units).
+
 # Unit of measure
 Those quantities  are in code units: G=M=R=1, where the default M and R are the mass and radius of the Sun.   You can change the mass and radius unit by setting values of munit and ruint in sph.input.  The usual thing to do is not set these values and then the default values, set in init.f, will be used:
 
