@@ -59,7 +59,7 @@ You can also edit the numbers as you want with further post processing with Exce
 # Other post processing files
 StarSmasher is able to produce some files that contains useful data. 
 
-## Energyx.sph
+## Energy*.sph
 This file is described in details in the documentation.
 The file energy.sph lists:
 ```
@@ -104,7 +104,32 @@ Column 14 is the gravitational potential
 Column 15 is the specific internal energy
 Column 16 is the velocity squared
 ```
-
+# SPLASH
+Splash became very useful if we want to plot something inside our binary file. The program posses an option called "splash calc". Analysis mode ("splash calc X dumpfiles") "jsplash calc MODEYOUWANT out*.sph" on a sequence of dump files:
+```
+  splash calc energies     : calculate KE,PE,total energy vs time
+                             output to file called 'energy.out'
+         calc massaboverho : mass above a series of density thresholds vs time
+                             output to file called 'massaboverho.out'
+         calc max          : maximum of each column vs. time
+                             output to file called 'maxvals.out'
+         calc min          : minimum of each column vs. time
+                             output to file called 'minvals.out'
+         calc diff         : (max - min) of each column vs. time
+                             output to file called 'diffvals.out'
+         calc amp          : 0.5*(max - min) of each column vs. time
+                             output to file called 'ampvals.out'
+         calc delta        : 0.5*(max - min)/mean of each column vs. time
+                             output to file called 'deltavals.out'
+         calc mean         : mean of each column vs. time
+                             output to file called 'meanvals.out'
+         calc rms          : (mass weighted) root mean square of each column vs. time
+                             output to file called 'rmsvals.out'
+         calc tracks       : track particle data vs time for selected* particle,
+                             output to file called 'tracks-123.out'
+          ( * select "xy limits relative to particle" in l)imits menu",
+            or "t" in interactive mode and save, or list ids in 'splash.tracks' )
+```
 # Unit of measure
 Those quantities  are in code units: G=M=R=1, where the default M and R are the mass and radius of the Sun.   You can change the mass and radius unit by setting values of munit and ruint in sph.input.  The usual thing to do is not set these values and then the default values, set in init.f, will be used:
 
