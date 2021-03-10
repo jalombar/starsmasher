@@ -2,7 +2,7 @@
 
 What are splot routines? And what is their utility in StarSmasher?
 Splot routines are tiny programs useful to calculate data that are not available with StarSmasher alone. For example, the simulation alone cannot say you how much mass it’s been loss by both star during a collision, or it cannot say you how the eccentricity of the orbit changed during time… and so on. However, splot routines can and they are able to calculate these kind of data writing all you need in a file that you can use to make plots with SPLASH. They are essentials to make research and write a paper! 
-The installation procedure is very simple. In the folder where this “Readme” is located there are other folders where splot routines are present. Each folder contains a splot routine (files and a Makefile). To install the splot routine and make the program, just open your terminal in the folder and type:
+The installation procedure is very simple. In the folder where this “Readme” is located there is a folder with the splot routine (files and a Makefile). To install the splot routine and make the program, just open your terminal in the folder and type:
 
 ```
 make
