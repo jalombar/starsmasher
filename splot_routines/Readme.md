@@ -63,12 +63,12 @@ StarSmasher is able to produce some files that contains useful data:
 This file is described in details in the documentation.
 The file energy.sph lists:
 column 1: the current time
-column 2:the total system potential energy, 
-column 3:kinetic energy, 
-column 4:internal energy, 
-column 5:total energy, 
-column 6:total entropy, 
-column 7:total angular momentum, 
+column 2: the total system potential energy, 
+column 3: kinetic energy, 
+column 4: internal energy, 
+column 5: total energy, 
+column 6: total entropy, 
+column 7: total angular momentum, 
 column 8:the maximum SPH density for any particle.
 
 ## parent.sph
