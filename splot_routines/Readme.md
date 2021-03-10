@@ -57,11 +57,12 @@ SPLASH will create your picture ready to use for your paper!
 You can also edit the numbers as you want with further post processing with Excel or another editor, just remeber to insert columns between the numbers!
 
 # Other post processing files
-StarSmasher is able to produce some files that contains useful data:
+StarSmasher is able to produce some files that contains useful data. 
 
 ## Energyx.sph
 This file is described in details in the documentation.
 The file energy.sph lists:
+```
 column 1: the current time,
 column 2: the total system potential energy, 
 column 3: kinetic energy, 
@@ -70,14 +71,48 @@ column 5: total energy,
 column 6: total entropy, 
 column 7: total angular momentum, 
 column 8:the maximum SPH density for any particle.
+```
 
 ## parent.sph
+That file is generated during the initialization of a relaxation run by initialize_parent.f.  The file isn't used for the operation of the code but rather is provided in case the user wants to check the splined profiles.  Unless otherwise stated, quantities are in code units.
 This file contains:
+```
 Column 1: radius of shell in solar radius,
 Column 2: pressure at that shell,
 Column 3: density at that shell,
 Column 4: temperature of that shell in Kelvin,
 Column 5: mean molecular weight of that shell in grams,
 Column 6: specific internal energy of that shell.
+```
+## Cool****.sph
+These files are created in output.f and have much of the same data as in the out*.sph files but are in ascii format.  They are not really need but can be convenient for someone who wants to check if the relaxation is going well.  The particle data within them could be compared against the profiles in the parent.sph file to make sure the SPH model is close to the desired model.  Each line in the col*.sph files corresponds to data about one particle.  The quantities are in code units unless otherwise stated:
+```
+Column 1 is radius
+Column 2 is pressure
+Column 3 is density
+Column 4 is temperature in Kelvin
+Column 5 is mean molecular mass in grams
+Column 6 is particle mass
+Column 7 is smoothing length
+Column 8 is neighbor number
+Column 9 is the radial component of the gravitational acceleration
+Column 10 is the radial component of the hydrodynamic acceleration
+Column 11 is the x coordinate
+Column 12 is the y coordinate
+Column 13 is the z coordinate
+Column 14 is the gravitational potential
+Column 15 is the specific internal energy
+Column 16 is the velocity squared
+```
+
+# Unit of measure
+Those quantities  are in code units: G=M=R=1, where the default M and R are the mass and radius of the Sun.   You can change the mass and radius unit by setting values of munit and ruint in sph.input.  The usual thing to do is not set these values and then the default values, set in init.f, will be used:
+
+```
+runit=6.9599d10          ! number of cm in the unit of length.  use 6.9599d10 if want solar radius.
+munit=1.9891d33          ! number of g in unit of mass.  use 1.9891d33 if want solar mass.
+```
+
+So, anyway, let's say we're using the default values where M=Msun and R=Rsun.  So all masses are in units of Msun and all distances are in units of Rsun.  Then The unit of density is Msun/Rsun^3=5.8999 g/cm^3.  The unit of time is sqrt(Rsun^3/(GMsun))=0.018445 days. The unit of pressure is G*Msun^2/Rsun^4.  The unit of energy is G*Msun^2/Rsun.  The unit of specific energy (like the specific internal energy in parent.sph for example) is GMsun/Rsun.  Etc.  Basically you take whatever combination of G, Msun, and Rsun that gives the dimensions of the quantity in question
 
 # This  tutorial is in continuous updating. We are collecting all the splot routines around to make all them available! 
