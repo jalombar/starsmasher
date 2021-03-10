@@ -104,7 +104,7 @@ Column 14 is the gravitational potential
 Column 15 is the specific internal energy
 Column 16 is the velocity squared
 ```
-# fort.69
+## fort.69
 fort.69 is not created in normal operation, so you won't probably meet it.  If the shock heating is unreasonably extreme somewhere in the code, then some debugging information will be put in it.  The print statement is in balAV3.f:
 
                      write(69,*)'c warning large udbij...',i,j, udbij,divin,ci,
@@ -117,7 +117,7 @@ ci (column 5) is an estimate of the sound speed at particle i
 am(i) and am(j) (column 6 and 7) are the masses of particles i and j
 u(i) and u(j) (column 8 and 9) are the specific internal energies of particles i and j
 ```
-# SPLASH
+## SPLASH
 Splash became very useful if we want to plot something inside our binary file. The program posses an option called "splash calc". Analysis mode ("splash calc X dumpfiles") "jsplash calc MODEYOUWANT out*.sph" on a sequence of dump files:
 ```
   splash calc energies     : calculate KE,PE,total energy vs time
