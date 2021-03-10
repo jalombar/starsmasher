@@ -62,7 +62,7 @@ StarSmasher is able to produce some files that contains useful data:
 ## Energyx.sph
 This file is described in details in the documentation.
 The file energy.sph lists:
-column 1: the current time
+column 1: the current time,
 column 2: the total system potential energy, 
 column 3: kinetic energy, 
 column 4: internal energy, 
@@ -73,11 +73,11 @@ column 8:the maximum SPH density for any particle.
 
 ## parent.sph
 This file contains:
-Column 1: radius of shell in solar radius
-Column 2: pressure at that shell
-Column 3: density at that shell
-Column 4: temperature of that shell in Kelvin
-Column 5: mean molecular weight of that shell in grams
-Column 6: specific internal energy of that shell
+Column 1: radius of shell in solar radius,
+Column 2: pressure at that shell,
+Column 3: density at that shell,
+Column 4: temperature of that shell in Kelvin,
+Column 5: mean molecular weight of that shell in grams,
+Column 6: specific internal energy of that shell.
 
 # This  tutorial is in continuous updating. We are collecting all the splot routines around to make all them available! 
