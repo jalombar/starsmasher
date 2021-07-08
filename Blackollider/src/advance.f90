@@ -170,7 +170,7 @@
       enddo
 
       if(myrank.eq.0 .and. ncooling.ne.0)&
-           write(69,*),'mass not in thermal equilibrium=',amnotte
+           write(69,*)'mass not in thermal equilibrium=',amnotte
 
       t=t+dthnew
 

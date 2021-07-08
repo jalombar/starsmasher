@@ -5,7 +5,9 @@
       real*8 range(ntot)
       real*8 amasstot,fcmx,fcmy,fcmz
       integer mylength, mygravlength
-      integer irank      
+      integer irank
+      integer maxGPUtemperature
+      logical ex
 
       if(nusegpus.eq.0)return
 
@@ -23,9 +25,29 @@ c     each processor will compute gravity for its chunk of particles
             if(u(i).eq.0.d0) range(i)=-range(i)
          enddo
          
-         if(myrank.eq.ngravprocs-1) call cpu_time(time1) 
-ccc   ********* build the tree **********
-         
+         if(myrank.eq.ngravprocs-1) then
+            call cpu_time(time1) 
+            
+
+            inquire(exist=ex, file='maxGPUtemperature')
+            if (.not. ex) then
+               call system ("mkfifo maxGPUtemperature")
+            end if
+            call system (
+     $           "nvidia-smi -q -d TEMPERATURE|grep -A2 'GPU 0'
+     $|grep ' C'|awk '{print $(NF-1)}'|sort -n
+     $|tail -n1>maxGPUtemperature&") ! Find temperatures in second to last column, sort them, and take the largest
+            open(68, file='maxGPUtemperature', action='read')
+            read(68, *) maxGPUtemperature
+            write(6, *) 'max GPU temp=', maxGPUtemperature
+            close(68)
+            if(maxGPUtemperature.gt.91) then
+               call system ("rm maxGPUtemperature")
+               call flush(6)
+               stop
+            endif
+         endif
+
          mygravlength=ngrav_upper-ngrav_lower+1
 
          call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength, x, y, z, 

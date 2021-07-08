@@ -64,11 +64,6 @@
       logical throwaway,usegravitycorrections
       integer stellarevolutioncodetype	
       real*8 npoly
-      namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hco,hfloor,AACONST,BBCONST,nrelax,trelax,sep0,bimpact,e0,semimajoraxis,   &
-     &vinf2,equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,nintvar,ngravprocs,qthreads,gflag,mbh,runit,munit,             &
-     &cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,               &
-     &ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,opacityfile,profilefile,nkernel,throwaway,stellarevolutioncodetype,     &
-     &npoly,usegravitycorrections,hceiling,meanmolecularweight 
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
       common/courantnumbers/ cn1,cn2,cn3,cn4,cn5,cn6,cn7
       common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling,nkernel,usegravitycorrections

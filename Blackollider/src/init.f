@@ -27,7 +27,7 @@ c     initialization of run (new or restart)
       real*8 displacex,displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
-      real*8 pcgs,rhocgs,temperature,ucgs
+      real*8 pcgs,rhocgs,temperature,ucgs,sep0old
 
       erad=0d0
 
@@ -76,7 +76,7 @@ c     if dump file exists, read it and restart from it:
          open(12,file='restartrad.sph',form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-         read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0,tfold,
+         read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0old,tfold,
      $        dtoutold,nout,nit,t,navold,alphaold,betaold,tjumpaheadold,
      $        ngrold,nrelaxold,trelaxold,dt,omega2,ncoolingold,erad,
      $        ndisplace,displacex,displacey,displacez
@@ -90,7 +90,7 @@ c     used in subroutine dump)
      $           trelaxold
             close(12)
             open(12,file='restartrad.sph',form='unformatted')
-            read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0,tfold,
+            read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0old,tfold,
      $           dtoutold,nout,nit,t,navold,alphaold,betaold,tjumpaheadold,
      $           ngrold,nrelaxold,trelaxold,dt,omega2,ncoolingold,erad
          endif
@@ -101,7 +101,7 @@ c     used in subroutine dump)
      $           trelaxold
             close(12)
             open(12,file='restartrad.sph',form='unformatted')
-            read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0,tfold,
+            read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0old,tfold,
      $           dtoutold,nout,nit,t,navold,alphaold,betaold,tjumpaheadold,
      $           ngrold,nrelaxold,trelaxold,dt,omega2
          endif
@@ -270,6 +270,7 @@ c               stop
             endif
             call getcoms
             if(.not.gonedynamic) then
+               sep0=sep0old
                if(myrank.eq.0) write(69,*) 'sep0=',sep0
                sepfinal=sep0
                if(myrank.eq.0) write(69,*) 'sepfinal=',sepfinal
@@ -297,7 +298,7 @@ c         write(69,*) "setting t=0", myrank
          t=0.d0
 c     initialize output parameters:
 c     get 3-letter code for type of initial condition from init file
-         open(12,file='sph.init',err=100)
+         open(12,file='sph.init',err=100,STATUS='OLD')
          read(12,initt)
          close(12)
          if(myrank.eq.0) write(69,*)'init: new run, iname=',iname
@@ -375,13 +376,13 @@ c     write run parameters:
 c here !!!!!
       if(myrank.eq.0) then
          write(69,*)'init: t=',t,' nit=',nit
-         write(69,101) n,nnopt,hco,hfloor,hceiling,dtout,nout,tf,sep0,
+         write(69,101) n,nnopt,hco,hfloor,hceiling,dtout,nout,tf,sep0old,
      $        nav,alpha,beta,ngr,nrelax,trelax,dt,ntot-n
  101     format (' init: parameters for this ideal + radiation run:',/,
      $        ' n=',i7,' nnopt=',i4,' hco=',g12.4,' hfloor=',g12.4,/,
      $        ' hceiling=',g12.4,/,
      $        ' dtout=',g10.3,' nout=',i4,' tf=',g10.3,/,
-     $        ' sep0=',g12.4,/,
+     $        ' sep0old=',g12.4,/,
      $        ' nav=',i2,' alpha=',f6.2,' beta=',f6.2,/,
      $        ' ngr=',i3,/,
      $        ' nrelax=',i2,' trelax=',g12.4,
@@ -447,7 +448,7 @@ c here !!!!!
       return
 
 c     error condition:
- 100  stop 'init:  error reading input file ???'
+ 100  stop 'init:  error reading input file sph.init ???'
       end
 ************************************************************************
 c      subroutine rank_setup
@@ -536,6 +537,20 @@ c      end
       real*8 displacex,displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
+      namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hco,hfloor,
+     $     nrelax,trelax,sep0,bimpact,e0,semimajoraxis,vinf2,
+     $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
+     $     nintvar,ngravprocs,qthreads,gflag,mbh,runit,munit,
+     $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
+     $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
+     $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
+     $     opacityfile,profilefile,nkernel,throwaway,
+     $     stellarevolutioncodetype,npoly,usegravitycorrections,
+     $     hceiling,meanmolecularweight
+      integer filenum
+      common /filenumber/filenum
+      character*8  eccfile
+      character*14 jumpaheadfile
 
       ndisplace=0
       displacex=0d0
@@ -613,7 +628,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       stellarevolutioncodetype=1
       meanmolecularweight=0.10329d-23 ! in grams.  This is 0.617534 proton masses
 
-      open(12,file='sph.input',err=100)
+      open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
       close(12)
 
@@ -671,13 +686,21 @@ c      endif
       if(tf.lt.0.d0) then
          autotf=.true.
          tf=abs(tf)
-         open(23,file='ecc.sph')
-         open(34,file='jumpahead.sph')
+         if(myrank.eq.0) then
+            write(eccfile,103)filenum
+ 103        format('ecc',i1.1,'.sph')
+            write(jumpaheadfile,104)filenum
+ 104        format('jumpahead',i1.1,'.sph')
+            open(23,file=eccfile,status='unknown')
+            open(34,file=jumpaheadfile,status='unknown')
+            write(69,*)'writing eccentricity data to ',eccfile
+            write(69,*)'writing jumpahead data to ',jumpaheadfile
+         endif
       endif
 
       return
 
- 100  stop 'init: error reading input file'
+ 100  stop 'init: error reading input file sph.input'
 
       end
 ************************************************************************
@@ -729,6 +752,7 @@ c      if(myrank.eq.0) write(69,*)'n_lower,n_upper,n',n_lower,n_upper,n
       include 'starsmasher.h'
       logical energyfilealreadyexists!,strideexists
       integer filenum
+      common /filenumber/filenum
       character*11 energyfile
       character*8 logfile
 

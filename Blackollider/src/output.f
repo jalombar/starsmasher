@@ -144,7 +144,8 @@ c     variables used for radiative cooling portion of the code:
       real*8 erad
       common/lostenergy/ erad
       real*8 xi,yi,zi,displacex,displacey,displacez
-      common/displace/displacex,displacey,displacez
+      integer ndisplace
+      common/displace/displacex,displacey,displacez,ndisplace
 
       if(myrank.eq.0) then
 c     find system box and center of mass:
@@ -500,6 +501,7 @@ c     $              (etot-einit)/abs(einit), stot,ajtot
      $           'ajtot'
             write(69,'(14g15.7)')t,epot,ekin,eint,etot,stot,ajtot
             write(34,'(14g15.7)')t,epot,ekin,eint,etot,stot,ajtot
+            call flush(34)
          endif
          
       endif

@@ -12,14 +12,13 @@ MPIPATH = $(shell dirname $(shell dirname $(LD)))
 #FC = ifort -132 -I$(MPIPATH)/include
 #LDFLAGS = -lifcore -lsvml -lifport -limf
 
-CUDAPATH = /cm/shared/apps/cuda80/toolkit/8.0.44/
 CUDAPATH = $(shell dirname $(shell dirname $(shell which nvcc)))
 
 OLEVEL = -O4 #-g 
 FFLAGS = $(OLEVEL)
 CFLAGS = $(OLEVEL)
 CXXFLAGS = $(OLEVEL)
-GRAVLIB = SPHgrav_lib           # use this one for the direct force
+GRAVLIB = SPHgrav_lib2           # use this one for the direct force
 #GRAVLIB = SPHgravtree_lib       # use this one for the  tree  force
 LIBS =  -lm -lstdc++ #-L$(GRAVLIB) -lSPHgrav -L$(CUDAPATH)/lib64 -lcudart
 
@@ -40,8 +39,8 @@ GPUOBJS = $(FOBJS) gpu_grav.o
 #%.o: %.c starsmasher.h
 #	$(CC) -c $(CFLAGS) $<
 
-GPUEXEC = test_gpu_sph
-CPUEXEC = test_cpu_sph
+GPUEXEC = $(shell basename $(shell dirname $(shell pwd)))_gpu_sph
+CPUEXEC = $(shell basename $(shell dirname $(shell pwd)))_cpu_sph
 
 gpu: $(GPUOBJS)
 	make -f Makefile -C $(GRAVLIB)

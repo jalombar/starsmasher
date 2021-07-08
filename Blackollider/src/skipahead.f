@@ -42,6 +42,11 @@
       real*8 dxnew2,dynew2,dznew2
       real*8 dvxnew2,dvynew2,dvznew2
       real*8 thrownawaymass
+      real*8 thrownawaymx,thrownawaymy,thrownawaymz
+      real*8 thrownawaypx,thrownawaypy,thrownawaypz
+      real*8 othrownawaymass
+      real*8 othrownawaymx,othrownawaymy,othrownawaymz
+      real*8 othrownawaypx,othrownawaypy,othrownawaypz
       integer mygravlength,ierr
       integer comm_worker
       common/gravworkers/comm_worker
@@ -50,6 +55,8 @@
       real*8 displacex, displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
+      integer bhi,newbhi
+      real*8 newbhmass
 
 c     Initializing bhcomp
       bhcomp = -1
@@ -87,9 +94,9 @@ c     Initializing bhcomp
       endif
       call enout(.false.)
       if(myrank.eq.0)write(69,*)
-     $     '***done analyzing system right before jump ahead***'
+     $'***done analyzing system right before mass added to black hole**'
 
-      if(throwaway)then
+      if(.true.)then
          call compbest3(.true.)
       else
 c     When throwaway is set equal to .false. (the default value) then...
@@ -293,8 +300,8 @@ c      write(69,*)'semi-latus rectum alpha=',semilatusrectum
          
       if(ecc.ne.ecc .or. ecc.lt.0.d0) stop
 
-      sep0=0.5d0*r12
-c      sep0=r12
+c      sep0=0.5d0*r12
+      sep0=r12
       if(myrank.eq.0) write(69,*)'sep0=',sep0
 
 c     equation (8.10) of marion and thornton
@@ -588,20 +595,38 @@ c     would have happened:
          amass1=0
          amass2=0
          thrownawaymass=0.d0
+         thrownawaymx=0.d0
+         thrownawaymy=0.d0
+         thrownawaymz=0.d0
+         thrownawaypx=0.d0
+         thrownawaypy=0.d0
+         thrownawaypz=0.d0
+         othrownawaymass=0.d0
+         othrownawaymx=0.d0
+         othrownawaymy=0.d0
+         othrownawaymz=0.d0
+         othrownawaypx=0.d0
+         othrownawaypy=0.d0
+         othrownawaypz=0.d0
 
          do i=1,n
-            if(u(i).eq.0) bhcomp=icomp(i)
+            if(u(i).eq.0) then
+               bhi=i
+               bhcomp=icomp(i)
+            endif
          enddo
 
          do i=1,n
             if(  (bhcomp.eq.2 .and. icomp(i).eq.1) .or.
-     $           (bhcomp.eq.1 .and. icomp(i).eq.2) .or. u(i).eq.0)then
+     $           (bhcomp.eq.1 .and. icomp(i).eq.2) .or. i.eq.bhi)then
+               ! Keep the particle, potentially with a new index
                if(icomp(i).eq.1) then
                   amass1=amass1+1
                elseif(icomp(i).eq.2) then
                   amass2=amass2+1
                endif
                ntot=ntot+1
+               if(i.eq.bhi) newbhi=ntot
                x(ntot)=x(i)
                y(ntot)=y(i)
                z(ntot)=z(i)
@@ -625,14 +650,56 @@ c     would have happened:
                divv(ntot)=divv(i)
                icomp(ntot)=icomp(i)
             else
-               thrownawaymass=thrownawaymass+am(i)
+               if(icomp(i).eq.bhcomp) then
+                  ! This mass and its momentum will be added to the BH
+                  thrownawaymass=thrownawaymass+am(i)
+                  thrownawaymx=thrownawaymx+am(i)*x(i)
+                  thrownawaymy=thrownawaymy+am(i)*y(i)
+                  thrownawaymz=thrownawaymz+am(i)*z(i)
+                  thrownawaypx=thrownawaypx+am(i)*vx(i)
+                  thrownawaypy=thrownawaypy+am(i)*vy(i)
+                  thrownawaypz=thrownawaypz+am(i)*vz(i)
+               else
+                  ! This mass and its momentum will be completely thrown away
+                  othrownawaymass=othrownawaymass+am(i)
+                  othrownawaymx=othrownawaymx+am(i)*x(i)
+                  othrownawaymy=othrownawaymy+am(i)*y(i)
+                  othrownawaymz=othrownawaymz+am(i)*z(i)
+                  othrownawaypx=othrownawaypx+am(i)*vx(i)
+                  othrownawaypy=othrownawaypy+am(i)*vy(i)
+                  othrownawaypz=othrownawaypz+am(i)*vz(i)
+               endif
             endif
          enddo
+         newbhmass=am(newbhi)+thrownawaymass
+         x(newbhi)=(am(newbhi)*x(newbhi)+thrownawaymx)/newbhmass
+         y(newbhi)=(am(newbhi)*y(newbhi)+thrownawaymy)/newbhmass
+         z(newbhi)=(am(newbhi)*z(newbhi)+thrownawaymz)/newbhmass
+         vx(newbhi)=(am(newbhi)*vx(newbhi)+thrownawaypx)/newbhmass
+         vy(newbhi)=(am(newbhi)*vy(newbhi)+thrownawaypy)/newbhmass
+         vz(newbhi)=(am(newbhi)*vz(newbhi)+thrownawaypz)/newbhmass
+         am(newbhi)=newbhmass
          if(myrank.eq.0) then
-            write(69,*)'mass thrownaway=',thrownawaymass
+            write(69,*)'mass added to black hole=',thrownawaymass
+            if(thrownawaymass.ne.0) then
+               write(69,*)'center of mass of mass added to black hole=',
+     $              thrownawaymx/thrownawaymass,
+     $              thrownawaymy/thrownawaymass,
+     $              thrownawaymz/thrownawaymass
+            endif
+            write(69,*)'momentum added to black hole=',thrownawaypx,thrownawaypy,thrownawaypz
+            write(69,*)'new position of black hole=',x(newbhi),y(newbhi),z(newbhi)
+            write(69,*)'other mass completely thrown away=',othrownawaymass
+            if(othrownawaymass.ne.0) then
+               write(69,*)'center of mass of that other mass=',
+     $              othrownawaymx/othrownawaymass,
+     $              othrownawaymy/othrownawaymass,
+     $              othrownawaymz/othrownawaymass
+            endif
+            write(69,*)'momentum of that other mass=',othrownawaypx,othrownawaypy,othrownawaypz
             write(69,*)'new ntot=',ntot
             if(ntot.lt.nnopt)
-     $           write(69,*)'not enough particles to continue'        
+     $           write(69,*)'not enough particles to continue'
          endif
 
          if(ntot.lt.nnopt) stop            
@@ -641,7 +708,7 @@ c     would have happened:
          n_upper=ntot
 
          if(myrank.eq.0)write(69,*)
-     $        '***analyze system right after throw away:***'
+     $      '***analyze system right after mass added to black hole:***'
          call gravquant
          call rho_and_h
          call gravforce

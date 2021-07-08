@@ -22,7 +22,7 @@ FFLAGS =  -ffixed-line-length-132
 FFLAGS90= -ffree-line-length-none $(OLEVEL)
 CFLAGS = $(OLEVEL)
 CXXFLAGS = $(OLEVEL)
-GRAVLIB = ./SPHgrav_lib# use this one for the direct force
+GRAVLIB = ./SPHgrav_lib2# use this one for the direct force
 LIBS =   
 
 FOBJS = kdtree2.o advance.o balAV3.o \

@@ -5,7 +5,7 @@ c     creates a star from the data file yrec output
       integer numlines,i
       integer idumb,ip,ix,iy,iz
       real*8 anumden,rhotry,rhoex,rtry,rhomax,hc,xcm,ycm,zcm,amtot,
-     $     ammin,ammax,xtry,ytry,ztry,ri,rhoi,ran1
+     $     ammin,ammax,xtry,ytry,ztry,ri,rhoi
       integer irtry
       real*8 amass,masscgs,radius
       real*8 tem(kdm),pres(kdm),
@@ -40,7 +40,7 @@ c     derived constants:
       common/gravworkers/comm_worker
       integer status(mpi_status_size)
       real*8 hmin
-      integer icount
+      real*8 nplaced, rhoavg
 
       call splinesetup
 
@@ -58,8 +58,6 @@ c     derived constants:
       else
          hc=0.5d0*radius*(1d0*nnopt/n)**(1.d0/3.d0) !trying to better estimate the nearest neighbor number... about 1.3*nnopt
       endif
-
-c      hc=1.d0/(1.d0/AACONST + BBCONST*rhomax**(1.d0/3.d0))
 
       redge2=radius-3.d0*hc
       if(myrank.eq.0)write(69,*)'3h away from surface is redge2=',redge2
@@ -119,7 +117,7 @@ c      enddo
 c     the fraction of particles at a region of density rhoex that
 c     will be kept is (rhoex/rhomax)**equalmass.  so if the number
 c     density of lattice points that will be tried is n, then we expect
-c     the number of particles to be n=n*integrate[4*pi*r**2*
+c     the number of particles to be N=n*integrate[4*pi*r**2*
 c     (rhoex(r)/rhomax)**equalmass,{r,0,redge}].  we can solve this for
 c     n, and then use that the cell volume is 2/n (as there are two
 c     particles per cell)
@@ -151,9 +149,10 @@ c     (a3 vector)=(8/3)^0.5*a1*(z hat)
       ixmax=int(redge/a1)+2
       iymax=int(redge/(3.d0**0.5d0/2.d0*a1))+2
       izmax=int(redge/(0.5d0*(8.d0/3.d0)**0.5d0*a1))+2
+      nplaced=-0.5d0
       do ix=-ixmax,ixmax
          do iy=-iymax,iymax
-            do iz=-izmax,izmax
+            do iz=1,izmax
                xtry=(ix-0.5d0)*a1+mod(abs(iy),2)*0.5d0*a1
                ytry=iy*3.d0**0.5d0/2.d0*a1
      $              -(mod(abs(iz),2)-0.5d0)*1.d0/3.d0**0.5d0*a1
@@ -162,8 +161,13 @@ c     (a3 vector)=(8/3)^0.5*a1*(z hat)
                if(rtry.lt.redge) then
                   call sph_splint(rarray,rhoarray,rhoarray2,numlines,
      $                 rtry,rhoex)
-                  rhotry=rhomax**equalmass*ran1(idumb)      
-                  if (rhotry.le.rhoex**equalmass) then
+
+c                  rhotry=rhomax**equalmass*ran1(idumb)      
+c                  if (rhotry.le.rhoex**equalmass) then
+
+                  nplaced=nplaced+(rhoex/rhomax)**equalmass
+                  if (nplaced.ge.0) then
+                     nplaced=nplaced-1d0
 c     (particle is accepted)    
                      ip=ip+1                 
                      if(rtry.le.a1 .and. myrank.eq.0) then
@@ -173,6 +177,16 @@ c     (particle is accepted)
                      x(ip)=xtry        
                      y(ip)=ytry            
                      z(ip)=ztry
+                     ip=ip+1                 
+                     if(rtry.le.a1 .and. myrank.eq.0) then
+                        write(69,'(4i6,4e12.4)')ip,-ix+1-mod(abs(iy),2),
+     $                       -iy,-iz+1,
+     $                       -xtry,-ytry,-ztry,rtry
+                     endif
+                     x(ip)=-xtry        
+                     y(ip)=-ytry            
+                     z(ip)=-ztry
+
                   endif
                endif
             enddo
@@ -192,6 +206,7 @@ c     assign particle masses (to represent density):
       ycm=0.d0
       zcm=0.d0
 
+      rhoavg=amass/(4d0*pi/3d0*radius**3)
 c     start following loop at the first sph particle (with index 2, not 1, if there is a core particle)
       do i=1+corepts,n+corepts
          ri=sqrt(x(i)**2+y(i)**2+z(i)**2)
@@ -199,7 +214,9 @@ c     start following loop at the first sph particle (with index 2, not 1, if th
          if(rhoi.le.0.d0) then
             if(myrank.eq.0)write(69,*)'warning: rho(',i,')<=0 at r=',ri,'???'
          endif
-         am(i)=amass/n*(integral*rhoi/amass)**(1.d0-equalmass)
+c         am(i)=amass/n*(integral*rhoi/amass)**(1.d0-equalmass)
+         am(i)=integral/n*rhoi**(1.d0-equalmass)*rhomax**equalmass
+
          xcm=xcm+am(i)*x(i)
          ycm=ycm+am(i)*y(i)
          zcm=zcm+am(i)*z(i)
@@ -210,15 +227,14 @@ c     start following loop at the first sph particle (with index 2, not 1, if th
          anumden=rhoi/am(i)
 c     the actual number of neighbors is closer to 1.9*nnopt
          hp(i)=(3.d0/32.d0/pi*
-     $        1.9d0*nnopt/anumden)**(1.d0/3.d0) !   + hfloor
+     $        nnopt/anumden)**(1.d0/3.d0) !   + hfloor
          hp(i)=1d0/(1d0/hp(i)+1d0/(hceiling-hfloor)) + hfloor ! make adjustments so that bb(i) will be uniform 
 
          if(corepts.gt.0)then
             aa(i)=hceiling-hfloor
             dd(i)=hfloor
-            bb(i)=(1/(hp(i)-dd(i)) - 1/aa(i))/rhoi**(1d0/3d0)
+            bb(i)=(1/(hp(i)-dd(i)) - 1/aa(i))/(rhoi**(equalmass/3d0)*rhoavg**((1-equalmass)/3d0))
          endif
-
 
       enddo
       
@@ -265,7 +281,11 @@ c     below here, n=total number of particles
          vz(1)=0.d0
          am(1)=amass-amtot
          if(myrank.eq.0)write(69,*) 'mass of core = ',am(1),'msun'
-         hp(1)=hmin
+         if(hco.gt.0.d0) then
+            hp(1)=hco
+         else
+            hp(1)=hmin
+         endif
          aa(1)=1d30
          dd(1)=hp(1)
          bb(1)=0d0
@@ -321,8 +341,8 @@ c     below here, n=total number of particles
 
       if(myrank.eq.0) then
          open(100,file='sph.passivelyAdvected')
-         do i=1,n                                                                                                 
-            write(100,*) aa(i),bb(i),dd(i)                                              
+         do i=1,n
+            write(100,*) aa(i),bb(i),dd(i)
          enddo
          close(100)
       endif

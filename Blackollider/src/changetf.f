@@ -379,6 +379,7 @@ c         if(myrank.eq.0)write(69,*)'timelast being set to',timelast
       compinabinary(3)=.false.
       compinabinary(4)=.false.
       a12=1.d30
+      ecc12=0
 
       tfold=tf
       tjumpaheadold=tjumpahead
@@ -728,10 +729,24 @@ c            stop
             if(myrank.eq.0)write(69,*)
      $           'the stars have not merged, but they will'
             if(dotproduct12.gt.0 .and. a12*(1.d0+ecc12).gt.
-     $           1000.d0) then
+     $           100.d0) then
 c               tjumpahead=1d30
-               tjumpahead=min(tjumpahead,dble(nint(t+4000.d0)))
-c               tjumpahead=min(tjumpahead,dble(nint(t+75.d0+25*ran1(idumb))))
+               if(myrank.eq.0) write(69,*) 'Orbital period if orbit',
+     $              'were circular at current separation=',
+     $              2*pi*r12**1.5d0/ambin**0.5d0
+c               tjumpahead=min(tjumpahead,dble(
+c     $              nint(t+max(0.1*pi*r12**1.5d0/ambin**0.5d0,1d0))
+c     $              ))
+               if(r12.lt.sep0) then
+                  if(myrank.eq.0) then
+                     write(69,*)'Wait for separation to be > sep0:'
+                     write(69,*)'r12=',r12,'sep0=',sep0
+                  endif
+               else
+                  tjumpahead=min(tjumpahead,dtout*nint(t/dtout+4))
+c                  tjumpahead=min(tjumpahead,dble(nint(t+2.d0)))
+c                  tjumpahead=min(tjumpahead,dble(nint(t+75.d0+25*ran1(idumb))))
+               endif
                tf=max(dble(nint(tjumpahead+4000.d0)),tf)
             else
                if(myrank.eq.0)write(69,*)'not going to jump ahead (',dotproduct12,
@@ -756,10 +771,16 @@ c     p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1)
                eint=eint+am(i)*u(i)
             endif
          enddo
-         if(abs(1.d0-eint/eintsave).gt.0.01d0) then
-            if(myrank.eq.0)write(69,*)'u is changing a lot: will integrate longer'
+         if(myrank.eq.0)write(69,*)
+     $        'eintsave=',eintsave,
+     $        'eint=',eint,1.d0-eint/eintsave
+         if(abs(1.d0-eint/eintsave).gt.0.001d0) then
+c         if(abs(1.d0-eint/eintsave).gt.0.0d0) then
+            if(myrank.eq.0)write(69,*)
+     $           'u is changing a lot: integrate longer',
+     $           1.d0-eint/eintsave
             tf=max(tfold,dble(nint(t+1000.d0)))
-c            tjumpahead=1.d30
+            tjumpahead=1.d30
          endif
       endif
 
@@ -1064,7 +1085,7 @@ c     there is a binary and a third star that is both not bound and not headed c
      $           trim(starname(istarc))
  102        format('(',a,',',a,'),',a)
 
-            tjumpahead=min(tjumpahead,dble(nint(t+100.d0)))
+            tjumpahead=min(tjumpahead,dble(nint(t+1.d0)))
             tf=max(dble(nint(tjumpahead+4000.d0)),tf)
 
          endif
@@ -1118,20 +1139,16 @@ c            write(state,103) stara,starb
       endif
 
 
-
-
-
-
+      eintsave=0.d0
+      do i=1,n
+         if(nintvar.eq.1) then
+            eintsave=eintsave
+     $           +am(i)*u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+         else
+            eintsave=eintsave+am(i)*u(i)
+         endif
+      enddo
       if(tf.ne.tfold) then
-         eintsave=0.d0
-         do i=1,n
-            if(nintvar.eq.1) then
-               eintsave=eintsave
-     $              +am(i)*u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
-            else
-               eintsave=eintsave+am(i)*u(i)
-            endif
-         enddo
          if(myrank.eq.0)
      $        write(69,'(3(a,g13.5))')'tf changed from',tfold,'to',tf,
      $        'when eint=',eintsave
@@ -1141,9 +1158,6 @@ c            write(state,103) stara,starb
          if(myrank.eq.0)write(69,'(3(a,g13.5))')'tjumpahead changed from',tjumpaheadold,
      $        'to',tjumpahead
       endif         
-
-
-
 
 
       ft=.false.
@@ -1337,7 +1351,8 @@ c     shift back to original inertial reference frame:
             endif
          endif
       else
-         if(myrank.eq.0)write(69,*) 'there are no binaries or other multiples'
+         if(myrank.eq.0)write(69,*)
+     $        'there are no binaries or other multiples'
          mejecta=am4
          ekinejecta=0.d0
          eintejecta=0.d0
@@ -1423,16 +1438,16 @@ c     shift back to original inertial reference frame:
          if(myrank.eq.0)write(69,*)'conservation of mass problem:',am4,mce,mejecta
          stop
       endif
-      if(myrank.eq.0)write(69,'(3(a,g13.6))')'m4=mce+mejecta',
-     $     am4,'=',mce,'+',mejecta
-
-ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-
-      write(23,'(d12.5,3d16.8,33d12.4)') t,amb,amg,amr,
-     $     xb,yb,zb,xg,yg,zg,xr,yr,zr,
-     $     dbg,dbr,dgr,am4/amtot,am4,
-     $     abg,eccbg,abr,eccbr,agr,eccgr,abin3,eccbin3,
-     $     ebin3ebin,mejecta
+      if(myrank.eq.0)then
+         write(69,'(3(a,g13.6))')'m4=mce+mejecta',
+     $        am4,'=',mce,'+',mejecta
+         write(23,'(d12.5,3d16.8,33d12.4)') t,amb,amg,amr,
+     $        xb,yb,zb,xg,yg,zg,xr,yr,zr,
+     $        dbg,dbr,dgr,am4/amtot,am4,
+     $        abg,eccbg,abr,eccbr,agr,eccgr,abin3,eccbin3,
+     $        ebin3ebin,mejecta
+         call flush(23)
+      endif
 
 c asynchronize all variables:
       do i=1,n
