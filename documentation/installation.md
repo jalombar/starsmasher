@@ -37,7 +37,7 @@ Just go to the StarSmasher’s GitHub page and download the .zip file. Put it in
 
 On your workstation, clone the repo.
 ```
-git clone https://github.com/jalombar/starsmasher.git
+git clone git://github.com/jalombar/starsmasher.git
 ```
 
 # [2] COMPILING
