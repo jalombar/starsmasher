@@ -198,6 +198,24 @@ If you find a way to make the main makefile more robust, please consider sharing
 
 # [3] Installing SPLASH for visualization
 
+For visualization purposes, install Daniel Price's SPLASH.  The details are given in the installation guide
 
+https://splash-viz.readthedocs.io/en/latest/getting-started.html
+
+and here we summarize the main steps.  If you don't have root privileges, then install SPLASH in your home directory and set the appropriate environment variables as described in the installation guide.  If you do have root privileges and want to install SPLASH system-wide in, say, /usr/local/src/, then execute the following. 
+```
+cd /usr/local/src  
+sudo git clone https://github.com/danieljprice/splash.git
+cd splash
+sudo git clone https://github.com/danieljprice/giza.git
+sudo make SYSTEM=gfortran withgiza
+sudo make install
+```
+If the compilation of SPLASH complains about not finding cairo.h, then try “sudo dnf install cairo-devel” on a CentOS/RHEL/Fedora system.
+
+To use SPLASH to look at out*.sph snapshots created by StarSmasher, use
+```
+splash -f starsmasher out*.sph
+```
 
 We wish to the user a good use of StarSmasher!
