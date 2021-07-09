@@ -191,7 +191,7 @@ to remove any .o and other similar object files.
 
 If you find a way to make the main makefile more robust, please consider sharing it with me (jamie.lombardi at allegheny.edu).
 
-# [3] Installing SPLASH for visualization
+# [3] Installing SPLASH for visualization (optional but encouraged)
 
 For visualization purposes, install Daniel Price's SPLASH.  The details are given in the installation guide
 
@@ -220,11 +220,11 @@ If at run time SPLASH cannot find the giza library, then it will fail with an er
 ```
 splash: error while loading shared libraries: libgiza.so.0: cannot open shared object file: No such file or directory
 ```
-The fix is to find where libgiza.so.0 is located (perhaps with ``locate libgiza.so.0``) and update your LD_LIBRARY_PATH accordingly.  If this file is located in, say, /usr/local/lib then you would execute
+(It's possible that the name of the shared library could be slightly different, but in what follows we assume the name libgiza.so.0.)
+The fix is to find where libgiza.so.0 is located (perhaps with ``locate libgiza.so.0``) and update your LD_LIBRARY_PATH accordingly.  For example, if libgiza.so.0 is located in, say, /usr/local/lib then you would execute
 ```
 export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 ```
 Placing this command in ~/.bashrc or the equivalent would help so that it wouldn't have to be executed by hand in every terminal session that uses SPLASH.
-
 
 We wish to the user a good use of StarSmasher!
