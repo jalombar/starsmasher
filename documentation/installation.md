@@ -39,14 +39,7 @@ The cuda installation should enable communications with the graphics card via th
 ```
 nvidia-smi
 ```
-**If information about your graphics card(s) is returned, then the driver is properly functioning and you can skip to subsection [0.4]!**  If instead you know that your system will need openmpi installed, then execute one of the following two commands, depending on which type of Linux you're using.  For CentOS/RHEL/Fedora and other similar systems, use
-```
-sudo dnf install openmpi
-```
-In Ubuntu or other Debian Linux operating systems, use
-```
-sudo apt install openmpi-bin
-```
+**If information about your graphics card(s) is returned, then the driver is properly functioning and you can skip to subsection [0.4]!**  
 
 -------------------------------------------------
 **Troubleshooting NVIDIA driver communications**
@@ -59,7 +52,14 @@ StarSmasher is parallelized using openmpi.  To check if the openmpi fortran comp
 ```
 mpif90 --version
 ```
-**If version information is returned, then you can proceed to section [1]!**
+**If version information is returned, then you can proceed to section [1]!**  If instead you know that your system will need openmpi installed, then execute one of the following two commands, depending on which type of Linux you're using.  For CentOS/RHEL/Fedora and other similar systems, use
+```
+sudo dnf install openmpi
+```
+In Ubuntu or other Debian Linux operating systems, use
+```
+sudo apt install openmpi-bin
+```
 
 --------------------------------
 **Troubleshooting mpif90 usage**
@@ -72,7 +72,7 @@ To check what directories are in $PATH, use
 ```
 echo $PATH
 ```
-Let's say for the sake of argument that you find mpif90 exists in ``/usr/lib64/openmpi/bin`` but that this directory is not in $PATH.  You should then update your $PATH and correspondingly your $LD_LIBRARY_PATH variables.  In bash, this can be done with
+Let's say for the sake of argument that you find mpif90 exists in ``/usr/lib64/openmpi/bin`` but that this directory is not in $PATH.  You should then update your $PATH environment variables.  In bash, this can be done with
 ```
 export PATH=/usr/lib64/openmpi/bin:$PATH
 ```
@@ -109,43 +109,54 @@ This main directory contains seven subdirectories:
 
 # [2] Compiling StarSmasher
 
-For the code itself, the directory you care about is either parallel_bleeding_edge or Blackollider.  These two version of the code differ primarly in how smoothing lengths are dynamically evolved.  If you plan to run simulations involving compact objects treated as point masses, then Blackollider is the better choice.  The commands in this section [2] below, we'll assume that you're working in the Blackollider folder; however, Blackollider can be replaced with parallel_bleeding_edge if desired.
+For the code itself, the directory you care about is either parallel_bleeding_edge or Blackollider.  These two version of the code differ primarly in how smoothing lengths are dynamically evolved.  If you plan to run simulations involving compact objects treated as point masses, then Blackollider is the better choice.  For the commands in this section [2] below, we'll assume that you're working with the Blackollider version of the code; however, "Blackollider" can be replaced with "parallel_bleeding_edge" if desired.
 
 ## [2.1] Compile the gravity library
 
-To compile the gravity library, cuda will need to be installed.  You can find the gravity library in both parallel_bleeding_edge/src/SPHgrav_lib2 or Blackollider/src/SPHgrav_lib2/.  For example,
+To compile the gravity library, cuda will need to be installed.  You can find the gravity library in both parallel_bleeding_edge/src/SPHgrav_lib2 and Blackollider/src/SPHgrav_lib2/.  From within the main starsmasher folder,
 ```
 cd Blackollider/src/SPHgrav_lib
 ```
 will navigate you to the directory where the library can be built.
 
 The SPHgrav_lib2 subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs.
-In the SPHgrav_lib2 there are few files including some makefiles.  The standard “makefile” should hopefully be sufficient after making one change, as described below. 
-In particular, look for this string to edit:
+In the SPHgrav_lib2 there are few files including some makefiles.  The standard “makefile” should hopefully be sufficient after making one change, as we now describe.
 
+Look for the following string to edit in the Makefile:
 ```
 NVCCFLAGS := -arch=sm_61
 ```
-
-As written, this string is for an NVIDIA card with compute capability (version) 6.1, such as an NVIDIA GTX 1070. You can look up the compute capabilities of NVIDIA cards here:
+As written, this string is for an NVIDIA graphics card with compute capability (version) 6.1, such as an NVIDIA GTX 1070. You can look up the compute capabilities of NVIDIA cards here:
 
 https://en.wikipedia.org/wiki/CUDA
 
 If your graphics card has a different compute capability, then you would want to change the "61" portion of this line accordingly.  For example, if you have a GeForce GTX 950M, which has a compute capability of 5.0, then write:
-
 ```
 NVCCFLAGS := -arch=sm_50
 ```
-
 Or if you have, for example, a NVIDIA TITAN RTX, then write
-
 ```
 NVCCFLAGS := -arch=sm_75
 ```
+because it has a compute capability is 7.5.
 
-because it has a computability version of 7.5, and so on.
+You can test the compilation of the gravity library by typing
+```
+make
+```
+Any warnings about "invalid narrowing conversion" can be ignored.  Successful compilation results in the creation of the library file libSPHgrav.a.
 
-Now that the Makefile of the SPHgrav_lib2 folder is ready, we can return to the "src" folder.
+----------------------------------------------
+**Troubleshooting compilation of the gravity library**
+
+If compilation of the gravity library fails, the most likely explanation is that the Makefile is not identifying the correct location of the nvcc executable and/or cuda libraries.  Within the Makefile, look for the line
+```
+CUDAPATH       := $(shell dirname $(shell dirname $(shell which nvcc)))
+```
+and change it so that it identifies the main cuda directory.  For example, let's say that your system contains the files /usr/local/cuda-11.2/bin/nvcc and /usr/local/cuda-11.2/lib64/libcudart.so.  Then your main cuda directory is /usr/local/cuda-11.2, and you should change the above line in the makefile to
+```
+CUDAPATH       := /usr/local/cuda-11.2
+```
 
 ### [2.2] Finish compiling StarSmasher
 
@@ -162,23 +173,22 @@ If StarSmasher is compiled properly, in your terminal will appear this phrase:
 ```
 ***MADE VERSION THAT USES GPUS***
 ```
-**You can now proceed to the optional section [3], or just start to use StarSmasher!**
-
-----------------------------------------------
-**Troubleshooting compilation of StarSmasher**
-
-If then the compilation is not successful, then make goes in error that's because you are missing one or more libraries. Then, as explained before, you need to install them and Ubuntu is the easiest way to do that.
-
-For example, a problem that you can encounter is that your machine could not find the command "mpif90" during the compilation. To solve this problem, just type in your Ubuntu's terminal:
-
-
-Now StarSmasher is ready to use! When you complete the installation, it will be created an executable file called “test_gpu_sph. This executable is situated in the upper folder of src. To run StarSmasher, you will have to move to that folder. Then just open your terminal where the .exe file is present or, after the installation, just type:
-
+Now StarSmasher is ready to use! When you complete the compilation, it will be create an executable file ending with "\_gpu\_sph." This executable is automatically moved to the directory *above* src. To run StarSmasher, you will have to move to that folder. Then just open your terminal where the .exe file is present or, after the compilation, type
 ```
 cd ..
 ```
 
-Now, to run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
+**You can now proceed to the optional section [3], or just start to use StarSmasher!**  To run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
+
+----------------------------------------------
+**Troubleshooting compilation of StarSmasher**
+
+If then the compilation is not successful, then your setup is either missing or unable to find a library or executable.
+
+For example, a problem that you can encounter is that your machine could not find the command "mpif90" during the compilation. To solve this problem, just type in your Ubuntu's terminal:
+
+
+
 
 
 # [3] Importants suggestions if changing computer systems
