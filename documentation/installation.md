@@ -207,15 +207,24 @@ sudo make SYSTEM=gfortran withgiza
 sudo make install
 ```
 If the compilation of SPLASH complains about not finding cairo.h, then try “sudo dnf install cairo-devel” on a CentOS/RHEL/Fedora system.
-To allow SPLASH to find the necessary giza library, update your LD_LIBRARY_PATH enviornment variable.  For example, in bash and with the installation as above, you would execute
-```
-export LD_LIBRARY_PATH=/usr/local/src/splash/giza/lib:$LD_LIBRARY_PATH
-```
-Placing this command in ~/.bashrc or the equivalent would help so that it wouldn't have to be executed by hand in every terminal session that uses SPLASH.
 
 To use SPLASH to look at out*.sph snapshots created by StarSmasher, use
 ```
 splash -f starsmasher out*.sph
 ```
+
+-----------------------------------------
+**Troubleshooting the running of SPLASH**
+
+If at run time SPLASH cannot find the giza library, then it will fail with an error message such as
+```
+splash: error while loading shared libraries: libgiza.so.0: cannot open shared object file: No such file or directory
+```
+The fix is to find where libgiza.so.0 is located (perhaps with ``locate libgiza.so.0``) and update your LD_LIBRARY_PATH accordingly.  If this file is located in, say, /usr/local/lib then you would execute
+```
+export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
+```
+Placing this command in ~/.bashrc or the equivalent would help so that it wouldn't have to be executed by hand in every terminal session that uses SPLASH.
+
 
 We wish to the user a good use of StarSmasher!
