@@ -129,15 +129,10 @@ As written, this string is for an NVIDIA graphics card with compute capability (
 
 https://en.wikipedia.org/wiki/CUDA
 
-If your graphics card has a different compute capability, then you would want to change the "61" portion of this line accordingly.  For example, if you have a GeForce GTX 950M, which has a compute capability of 5.0, then write:
-```
-NVCCFLAGS := -arch=sm_50
-```
-Or if you have, for example, a NVIDIA TITAN RTX, then write
+If your graphics card has a different compute capability, then you would want to change the "61" portion of this line accordingly.  For example, if you have an NVIDIA TITAN RTX, which has a compute capability of 7.5, then write
 ```
 NVCCFLAGS := -arch=sm_75
 ```
-because it has a compute capability is 7.5.
 
 You can test the compilation of the gravity library by typing
 ```
@@ -212,6 +207,11 @@ sudo make SYSTEM=gfortran withgiza
 sudo make install
 ```
 If the compilation of SPLASH complains about not finding cairo.h, then try “sudo dnf install cairo-devel” on a CentOS/RHEL/Fedora system.
+To allow SPLASH to find the necessary giza library, update your LD_LIBRARY_PATH enviornment variable.  For example, in bash and with the installation as above, you would execute
+```
+export LD_LIBRARY_PATH=/usr/local/src/splash/giza/lib:$LD_LIBRARY_PATH
+```
+Placing this command in ~/.bashrc or the equivalent would help so that it wouldn't have to be executed by hand in every terminal session that uses SPLASH.
 
 To use SPLASH to look at out*.sph snapshots created by StarSmasher, use
 ```
