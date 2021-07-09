@@ -1,16 +1,18 @@
-# if you want to use gfortran, keep these next two lines and comment out the other FC and LDFLAG lines further below
-FC = mpif90 -ffixed-line-length-132
+LD = $(shell which mpif90)
 LDFLAGS = 
 
-LD = $(shell which mpif90)
-#use this for if ifort maped to mpif90
-#FC = mpif90 -132
-
 MPIPATH = $(shell dirname $(shell dirname $(LD)))
-##########FCFLAGS = -cpp -ffixed-line-length-132  -I$(MPIPATH)/include #-mcmodel=large
-#use this if mpif90 is not ifort ... or comment these next two lines out if you don't have ifort
-#FC = ifort -132 -I$(MPIPATH)/include
-#LDFLAGS = -lifcore -lsvml -lifport -limf
+MPITYPE = $(shell mpif90 --version | head -n1 | awk '{print $$1}')
+ifeq ($(MPITYPE),GNU)
+   # mpif90 was built using gfortran
+   FC = mpif90 -ffixed-line-length-132
+   # use the following two lines instead if mpif90 was not built with ifort but you want to use ifort
+   #FC = ifort -132 -I$(MPIPATH)/include
+   #LDFLAGS = -lifcore -lsvml -lifport -limf
+else
+   # mpif90 was (presumably) built using ifort
+   FC = mpif90 -132
+endif
 
 CUDAPATH = $(shell dirname $(shell dirname $(shell which nvcc)))
 
@@ -36,8 +38,6 @@ GPUOBJS = $(FOBJS) gpu_grav.o
 	$(FC) -c $(FFLAGS) $<
 %.o :: %.f90 starsmasher.h
 	$(FC) -c $(FFLAGS) $<
-#%.o: %.c starsmasher.h
-#	$(CC) -c $(CFLAGS) $<
 
 GPUEXEC = $(shell basename $(shell dirname $(shell pwd)))_gpu_sph
 CPUEXEC = $(shell basename $(shell dirname $(shell pwd)))_cpu_sph
