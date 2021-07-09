@@ -125,7 +125,7 @@ Look for the following string to edit in the Makefile:
 ```
 NVCCFLAGS := -arch=sm_61
 ```
-As written, this string is for an NVIDIA graphics card with compute capability (version) 6.1, such as an NVIDIA GTX 1070. You can look up the compute capabilities of NVIDIA cards here:
+As written, this string is for an NVIDIA graphics card with compute capability (version) 6.1, such as an NVIDIA GTX 1070. Figure out what GPU you have (for example, by using ``nvidia-smi``) and then look up its compute capability here:
 
 https://en.wikipedia.org/wiki/CUDA
 
