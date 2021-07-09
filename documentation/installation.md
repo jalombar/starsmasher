@@ -227,4 +227,4 @@ export LD_LIBRARY_PATH=/usr/local/lib:$LD_LIBRARY_PATH
 ```
 Placing this command in ~/.bashrc or the equivalent would help so that it wouldn't have to be executed by hand in every terminal session that uses SPLASH.
 
-We wish to the user a good use of StarSmasher!
+We wish you happy times smashing stars!
