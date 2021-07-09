@@ -47,34 +47,38 @@ Now that you have the code, let's go in the StarSmasher folder!
 cd starsmasher
 ```
 
-This main directory contains at least four subdirectories:
-* visualazing_data: this directory contains the tutorial to read the simulation's snapshots of StarSmasher
+This main directory contains seven subdirectories:
+* Blackollider: a modified StarSmasher's code optimized to make collisions Between Black Holes / Neutron Stars and Stars (Both Main Sequence, pre Main Sequence, Giants...)
+* Data_visualization: a tutorial on reading and displaying the output snapshots from StarSmasher
+* documentation: installation and other instructions
 * example_input: contains example input files for various cases
-* misc: miscellaneous files such as assorted makefiles and the StarCrash manual
+* misc: miscellaneous files such as assorted makefiles, the StarCrash manual, and a tree gravity GPU library
 * parallel_bleeding_edge: latest version of code (this is probably what you want)
 * splot_directories: post-simulation code used for data extraction and analysis
-* Blackollider: a modified StarSmasher's code optimized to make collisions Between Black Holes / Neutron Stars and Stars (Both Main Sequence, pre Main Sequence, Giants...)
 
-For runs on a gpu-enabled cluster, the directory you care about is parallel_bleeding_edge.
-Let's try to compile the code in there.
-
-```
-cd parallel_bleeding_edge/src/SPHgrav_lib
-```
+For the code itself, the directory you care about is either parallel_bleeding_edge or Blackollider.  These two version of the code differ primarly in how smoothing lengths are dynamically evolved.  If you plan to run simulations involving compact objects treated as point masses, then Blackollider is the better choice.
 
 ## [2.1] Prepare your machine to install the GPU's version of StarSmasher
 
---------------------------------------------------------
-PS: If you want to install the CPU version of the code, go to the paragraph [2.3].
---------------------------------------------------------
-Before installing the GPU version of StarSmasher, you must prepare your machine/PC. If you are running on Linux (Ubuntu especially), the first thing that you have to do is to install the correct driver for your Graphic card (even more than one if you have different graphic cards). To do that, type in your Ubuntu's terminal:
+Before installing StarSmasher, you must prepare your machine.
+To compile the gravity library, cuda will need to be installed.  You can find the gravity library in either parallel_bleeding_edge/src/SPHgrav_lib2 or Blackollider/src/SPHgrav_lib2/.  For example,
+```
+cd Blackollider/src/SPHgrav_lib
+```
+will navigate you to the directory where the library can be built.
 
-```
-ubuntu-drivers devices
-```
-Your Ubuntu terminal will write (for my case):
+[//]: # "--------------------------------------------------------"
+[//]: # "PS: If you want to install the CPU version of the code, go to the paragraph [2.3]."
+[//]: # "--------------------------------------------------------"
 
-```
+[//]: # "If you are running on Linux (Ubuntu especially), the first thing that you have to do is to install the correct driver for your Graphic card (even more than one if you have different graphic cards). To do that, type in your Ubuntu's terminal:"
+
+[//]: # "```"
+[//]: # "ubuntu-drivers devices"
+[//]: # "```"
+[//]: # "Your Ubuntu terminal will write (for my case):"
+
+[//]: # " ```
 == /sys/devices/pci0000:00/0000:00:01.0/0000:01:00.0 ==
 modalias : pci:v000010DEd0000139Asv00001043sd00001C9Dbc03sc02i00
 vendor   : NVIDIA Corporation
@@ -85,40 +89,41 @@ driver   : nvidia-driver-450 - distro non-free
 driver   : nvidia-driver-440-server - distro non-free
 driver   : nvidia-driver-450-server - distro non-free
 driver   : nvidia-driver-460 - distro non-free recommended
-driver   : xserver-xorg-video-nouveau - distro free builtin
-```
-Then i will install the driver that is good for ME (460). So:
+driver   : xserver-xorg-video-nouveau - distro free builtin"
+[//]: # "```"
+[//]: # "Then i will install the driver that is good for ME (460). So:"
 
-```
-sudo apt install nvidia-driver-460
-```
-Obviously you have to install the driver that you need and that it's good for your NVIDIA Graphic card. It's reccomended to install the driver that Ubuntu suggest to you, the 460 in my case.
+[//]: # "```"
+[//]: # "sudo apt install nvidia-driver-460"
+[//]: # "```"
+[//]: # "Obviously you have to install the driver that you need and that it's good for your NVIDIA Graphic card. It's reccomended to install the driver that Ubuntu suggest to you, the 460 in my case."
 
-now reboot
+[//]: # "now reboot"
 
+[//]: # "```"
+[//]: # "sudo reboot"
 
-```
-sudo reboot
+[//]: # "```"
 
-```
+[//]: # "After rebooting, you have to install the NVIDIA nvcc toolkit, then just type this command in your Ubuntu terminal:"
 
-After rebooting, you have to install the NVIDIA nvcc toolkit, then just type this command in your Ubuntu terminal:
+[//]: # "```"
+[//]: # "sudo apt install nvidia-cuda-toolkit"
 
-```
-sudo apt install nvidia-cuda-toolkit
+[//]: # "```"
+[//]: # "This last command is reccomended to install nvcc because we have already done a Makefile (MakefileGPUubuntu, MakefileGPUUbuntu10.04 and MakefileUbuntuCudaToolkit) that contain the path already written for this installation (as you will see later)."
 
-```
-This last command is reccomended to install nvcc because we have already done a Makefile (MakefileGPUubuntu, MakefileGPUUbuntu10.04 and MakefileUbuntuCudaToolkit) that contain the path already written for this installation (as you will see later).
+[//]: # "But keep attention. If you have, for example, the latest NVIDIA graphic card or another OS, there is the possibility that NVIDIA developers didn’t updated 'nvidia-cuda-toolkit' to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to"
 
-But keep attention. If you have, for example, the latest NVIDIA graphic card or another OS, there is the possibility that NVIDIA developers didn’t updated "nvidia-cuda-toolkit" to the latest version for your graphic card. There is the possibility, then, that you could get in trouble during installation. My personal suggestion is, if you won't be able to run the GPU version of StarSmasher following the installation via the last command, to install it with the NVIDIA official [guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html)
+Install cuda following the NVIDIA official [guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html), which is constantly updated.
 
-It's reccomended to follow the guide that is in constant update. Then, choose your Linux OS and follow step by step what the guide says to do. When you will choose your NVIDIA toolkit package, it's reccomended to follow the installation via deb(network) because it's the easier and it avoid many problems that could occur with other installation methods.
+[//]: # "Then, choose your Linux OS and follow step by step what the guide says to do. When you will choose your NVIDIA toolkit package, it's reccomended to follow the installation via deb(network) because it's the easier and it avoid many problems that could occur with other installation methods."
 
+[//]: # "We also reccomend you to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it [there](https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027)"
 
-We also reccomend you to get an NVIDIA graphic card that has a high gravitation’s compute performance. A very new graphic card doesn’t mean that is less powerful to calculate gravity respect to the old one. You can check it [there](https://gpu.userbenchmark.com/Compare/Nvidia-Titan-RTX-vs-Nvidia-RTX-2080-Ti/m664199vs4027)
-
-As you can see the NVIDIA Titan RTX is newer than the NVIDIA RTX 2080 Ti, However, about gravity calculation, is just a 10% more performant, there is like no difference then. In this case the NVIDIA RTX 2080 Ti is a better choice because it’s older and there surely is the nvcc version ready for that graphic card.
-Once your installation is complete, you now have a nvcc file in your Ubuntu OS. Search it and keep in mind its location.
+[//]: # "As you can see the NVIDIA Titan RTX is newer than the NVIDIA RTX 2080 Ti, However, about gravity calculation, is just a 10% more performant, there is like no difference then. In this case the NVIDIA RTX 2080 Ti is a better choice because it’s older and there surely is the nvcc version ready for that graphic card."
+Once your installation is complete, you now have a nvcc executable that will be used to compile the gravity library of StarSmasher.
+[//]: # "Search it and keep in mind its location."
 
 
 ### [2.2] Compile the gravity library (CUDA) and StarSmasher
