@@ -1,3 +1,5 @@
+Welcome to the installation guide for StarSmasher!  Please feel free to contact me (jamie.lombardi at allegheny.edu) for help or to provide feedback.
+
 # [0] What you'll need to install StarSmasher
 You'll need a few things to prepare for a clean installation of StarSmasher.
 
@@ -113,14 +115,11 @@ For the code itself, the directory you care about is either parallel_bleeding_ed
 
 ## [2.1] Compile the gravity library
 
-To compile the gravity library, cuda will need to be installed.  You can find the gravity library in both parallel_bleeding_edge/src/SPHgrav_lib2 and Blackollider/src/SPHgrav_lib2/.  From within the main starsmasher folder,
+To compile the gravity library, cuda will need to be installed.  You can find the gravity library in both parallel_bleeding_edge/src/SPHgrav_lib2 and Blackollider/src/SPHgrav_lib2/.  The SPHgrav_lib2 subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs. From within the main starsmasher folder,
 ```
-cd Blackollider/src/SPHgrav_lib
+cd Blackollider/src/SPHgrav_lib2
 ```
-will navigate you to the directory where the library can be built.
-
-The SPHgrav_lib2 subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs.
-In the SPHgrav_lib2 there are few files including some makefiles.  The standard “makefile” should hopefully be sufficient after making one change, as we now describe.
+will navigate you to this directory, where the library will be built.  In the SPHgrav_lib2 subdirectory, there are few files including a Makefile.  This Makefile should hopefully be sufficient after making one change, as we now describe.
 
 Look for the following string to edit in the Makefile:
 ```
@@ -153,14 +152,14 @@ If compilation of the gravity library fails, the most likely explanation is that
 ```
 CUDAPATH       := $(shell dirname $(shell dirname $(shell which nvcc)))
 ```
-and change it so that it identifies the main cuda directory.  For example, let's say that your system contains the files /usr/local/cuda-11.2/bin/nvcc and /usr/local/cuda-11.2/lib64/libcudart.so.  Then your main cuda directory is /usr/local/cuda-11.2, and you should change the above line in the makefile to
+and change it so that it identifies the main cuda directory.  For example, let's say that your system contains the files /usr/local/cuda-11.2/bin/nvcc and /usr/local/cuda-11.2/lib64/libcudart.so.  Then your main cuda directory is /usr/local/cuda-11.2, and you can change the above line in the makefile to
 ```
 CUDAPATH       := /usr/local/cuda-11.2
 ```
 
 ### [2.2] Finish compiling StarSmasher
 
-Now that you SPHgrav_lib2 is ready, go back a level to the src folder:
+Now that your SPHgrav_lib2 is ready, go back a level to the src folder:
 ```
 cd ..
 ```
@@ -169,35 +168,36 @@ The StarSmasher code lives here, along with several example makefiles. To find o
 ```
 make
 ```
-If StarSmasher is compiled properly, in your terminal will appear this phrase:
+If StarSmasher compiles properly, in your terminal will appear this phrase:
 ```
 ***MADE VERSION THAT USES GPUS***
 ```
-Now StarSmasher is ready to use! When you complete the compilation, it will be create an executable file ending with "\_gpu\_sph." This executable is automatically moved to the directory *above* src. To run StarSmasher, you will have to move to that folder. Then just open your terminal where the .exe file is present or, after the compilation, type
+When you complete the compilation, it will be create an executable file ending with "\_gpu\_sph." This executable is automatically moved to the directory *above* src. To run StarSmasher, you will have to move to that folder. Then just open your terminal where the .exe file is present or, after the compilation, type
 ```
 cd ..
 ```
-
-**You can now proceed to the optional section [3], or just start to use StarSmasher!**  To run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
+StarSmasher is ready to use! 
+**You can now proceed to the optional section [3], or just start to use StarSmasher.**  To run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
 
 ----------------------------------------------
 **Troubleshooting compilation of StarSmasher**
 
-If then the compilation is not successful, then your setup is either missing or unable to find a library or executable.
+If the compilation is unsuccessful, then your setup is either missing or unable to find at least one library or executable.  A few other makefiles exist in the src directory.  They're unlikely to work, but you can try them with ``make -f filename``, and they may provide some inspiration as for what to change.
 
-For example, a problem that you can encounter is that your machine could not find the command "mpif90" during the compilation. To solve this problem, just type in your Ubuntu's terminal:
+* If you had to hard-code in a CUDAPATH in SPHgrav_lib2/Makefile to get the gravity library to compile (see the end of section [2.1] above), then you may need to make the same change in the main makefile in the src directory.
+* If the mpif90 command is not found but has been installed as described in subsection [0.4], then MPIPATH may need set explicity.  For example, if you want to use /usr/lib64/openmpi/bin/mpif90, then set MPIPATH to /usr/lib64/openmpi in the makefile.
+* If the desired compiler is not being used, then you may want to change FC to point directly to the desired compiler.  For example, if you wish to use ifort located in  /cm/shared/apps/intel/Compiler/11.1/046/bin/intel64/, then try setting FC to  ``/cm/shared/apps/intel/Compiler/11.1/046/bin/intel64/ifort -132`` in the makefile.
 
-
-
-
-
-# [3] Importants suggestions if changing computer systems
-
-If you want to do a new install, start the compilation process fresh by first doing
-
+Another possible compilation issue can occur if you've ported the source code from one system to another without removing or recreating the .o object files created on the previous system.  In this scenario, start the compilation process fresh by first doing
 ```
 make clean
 ```
 to remove any .o and other similar object files.
+
+If you find a way to make the main makefile more robust, please consider sharing it with me (jamie.lombardi at allegheny.edu).
+
+# [3] Installing SPLASH for visualization
+
+
 
 We wish to the user a good use of StarSmasher!
