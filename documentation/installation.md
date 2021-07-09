@@ -1,9 +1,40 @@
-# [0] Before installing StarSmasher
+# [0] What you'll need to install StarSmasher
 Before installing StarSmasher, you need a few things to make a clean installation and run the program.
 
-First, you must have at least one NVIDIA graphics card. If you have more than one card, they should be of the same compute capability (version): this wikipedia [page](https://en.wikipedia.org/wiki/CUDA) gives the compute capability of each NVIDIA graphic card.
+## [0.1] A Linux computer with an NVIDIA graphics card
 
-Second, we suggest Linux as the operating system (OS) to run StarSmasher. This doesn’t mean that you won’t be able to install StarSmasher in another OS: it's just not supported and could be challenging.
+First, you should have a computer running Linux with at least one NVIDIA graphics card. While it may be possible to install StarSmasher in an operating system other than Linux, that's not yet been tested and could be challenging.
+
+## [0.2] cuda
+
+The gravity library in StarSmasher uses the graphics card and is compiled in cuda using the NVIDIA compiler nvcc.  To check if nvcc is installed, type
+```
+nvcc --version
+```
+**If the version information is returned, then nvcc is properly installed and you can skip to section [0.3]!**  If instead you know that your system will need cuda installed, then follow NVIDIA's installation guide to do so:
+
+https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html
+
+### [0.2.1] Troubleshooting cuda
+
+If ``nvcc --version`` returns a command not found error message, it's possible that ``cuda`` is installed but your $PATH environment variable is improperly set.  If you think that may be the case, try to find where nvcc is located, for example by using
+```
+locate nvcc
+```
+To check what directories are in $PATH, use
+```
+echo $PATH
+```
+Let's say for the sake of argument that you find nvcc exists in ``/usr/local/cuda-11.4/bin`` but that this directory is not in $PATH.  You should then update your $PATH and correspondingly your $LD_LIBRARY_PATH variables.  In bash, this can be done with
+```
+export PATH=/usr/local/cuda-11.4/bin:$PATH
+export LD_LIBRARY_PATH=/usr/local/cuda-11.4/lib64:$LD_LIBRARY_PATH
+```
+Such commands could be placed in your ~/.bashrc file or equivalent so that they wouldn't need to be executed by hand in every session.
+
+
+Note that there are post installation steps and a reboot after installation can help.  If the machine stalls on reboot, check in the BIOS that the EFI Secure Boot is disabled.
+
 
 # [1] OBTAINING
 
@@ -44,7 +75,7 @@ cd Blackollider/src/SPHgrav_lib
 ```
 will navigate you to the directory where the library can be built.
 
-Install cuda following the [official NVIDIA guide](https://docs.nvidia.com/cuda/cuda-installation-guide-linux/index.html), which is regularly updated. Once your installation is complete, you will have a nvcc executable that will be used to compile the gravity library of StarSmasher.
+
 
 ### [2.2] Compile the gravity library (CUDA) and StarSmasher
 
