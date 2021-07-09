@@ -10,7 +10,7 @@
 FC=mpifort 
 LD=mpifort
 
-CUDAPATH =  /usr/lib/nvidia-cuda-toolkit/
+CUDAPATH = $(shell dirname $(shell dirname $(shell which nvcc)))
 
 #this is for the case on uses with ifort
 #LDFLAGS = -lpthread -lifcore -lsvml -lifport -limf -lintlc -lrt -lstdc++ -lcudart
@@ -48,17 +48,17 @@ GPUOBJS = $(FOBJS) gpu_grav.o
 #%.o: %.c starsmasher.h
 #	$(CC) -c $(CFLAGS) $<
 
-GPUEXEC = test_gpu_sph
-CPUEXEC = test_cpu_sph
+GPUEXEC = $(shell basename $(shell dirname $(shell pwd)))_gpu_sph
+CPUEXEC = $(shell basename $(shell dirname $(shell pwd)))_cpu_sph
 
 gpu: $(GPUOBJS)
 	make -f Makefile -C $(GRAVLIB)
-	$(LD) -o $(GPUEXEC) $(LDFLAGS) $(LIBS) $(GPUOBJS) -L $(GRAVLIB) -lSPHgrav -L/usr/local/cuda/lib64 -lcudart  -lstdc++ 
+	$(LD) -o $(GPUEXEC) $(LDFLAGS) $(LIBS) $(GPUOBJS) -L $(GRAVLIB) -lSPHgrav -L$(CUDAPATH)/lib64 -lcudart  -lstdc++ 
 	mv $(GPUEXEC) ..
 	echo ***MADE VERSION THAT USES GPUS***
 
 cpu: $(CPUOBJS)
-	$(LD) -o $(CPUEXEC)  $(LDFLAGS) $(CPUOBJS) $(LIBS) 
+	$(LD) -o $(CPUEXEC) $(LDFLAGS) $(CPUOBJS) $(LIBS) 
 	mv $(CPUEXEC) ..
 	echo ***MADE VERSION THAT DOES NOT NEED GPUS***
 
