@@ -5,7 +5,7 @@ CC   := gcc
 AR   := ar ruv
 RANLIB := ranlib
 
-# path to your CUDA installation: CUDAPATH should contain the directory lib64 that contains libcudart.so
+# path to your CUDA installation: CUDAPATH should contain the directory lib64 that contains libcudart.so as well as the bin directory that contains nvcc
 CUDAPATH       := $(shell dirname $(shell dirname $(shell which nvcc)))
 CUDAINCLUDE    := -I$(CUDAPATH)/include
 NVCC           := $(CUDAPATH)/bin/nvcc
