@@ -197,7 +197,7 @@ For visualization purposes, install Daniel Price's SPLASH.  The details are give
 
 https://splash-viz.readthedocs.io/en/latest/getting-started.html
 
-and here we summarize the main steps.  If you don't have root privileges, then install SPLASH in your home directory and set the appropriate environment variables as described in the installation guide.  If you do have root privileges and want to install SPLASH system-wide in, say, /usr/local/src/, then execute the following. 
+and here we summarize the main steps.  If you don't have root privileges, then install SPLASH in your home directory and set the appropriate environment variables as described in the installation guide.  If you do have root privileges and want to install SPLASH system-wide in, say, /usr/local/src/ using a local giza, then execute the following. 
 ```
 cd /usr/local/src  
 sudo git clone https://github.com/danieljprice/splash.git
@@ -206,7 +206,23 @@ sudo git clone https://github.com/danieljprice/giza.git
 sudo make SYSTEM=gfortran withgiza
 sudo make install
 ```
-If the compilation of SPLASH complains about not finding cairo.h, then try “sudo dnf install cairo-devel” on a CentOS/RHEL/Fedora system.
+If the compilation of SPLASH complains about not finding cairo.h, then try “sudo dnf install cairo-devel” on a CentOS/RHEL/Fedora system.  
+
+Alternatively, if you want to first install cairo and giza system-wide and then install Splash after that, then execute the following as root.
+```
+cd /usr/local/src
+svn co http://svn.code.sf.net/p/giza/code/ giza
+cd giza
+sudo yum install cairo-devel
+./configure
+make
+make install
+cd /usr/local/src  
+sudo git clone https://github.com/danieljprice/splash.git
+cd splash
+sudo make SYSTEM=gfortran
+sudo make install
+```
 
 To use SPLASH to look at out*.sph snapshots created by StarSmasher, use
 ```
