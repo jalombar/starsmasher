@@ -172,7 +172,7 @@ When you complete the compilation, it will be create an executable file ending w
 cd ..
 ```
 StarSmasher is ready to use! 
-**You can now proceed to the optional section [3], or just start to use StarSmasher.**  To run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_imput” folder!
+**You can now proceed to the optional section [3], or just start to use StarSmasher.**  To run your first simulations, follow the tutorial “How to create a MESA star” situated in the “example_input” folder!
 
 ----------------------------------------------
 **Troubleshooting compilation of StarSmasher**
