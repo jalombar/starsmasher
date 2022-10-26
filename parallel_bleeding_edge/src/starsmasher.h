@@ -67,7 +67,7 @@
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
       common/courantnumbers/ cn1,cn2,cn3,cn4,cn5,cn6,cn7
       common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling,nkernel
-      parameter(kdm=5000)
+      parameter(kdm=10000)
       integer ntypes,cc(nmax)
       parameter(ntypes=32)
       common/softening/cc
