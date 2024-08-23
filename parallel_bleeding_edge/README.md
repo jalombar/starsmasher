@@ -32,6 +32,35 @@ Please make sure that you do not have more than one `cuda` library in your syste
    $ mv ./*_sph ../bin/
 ```
 
+*Another important note:*
+
+You might run into difficulties when trying to set up the `Makefile` in the `SPHgrav_lib2`
+folder. My advice is that you
+
+-First find out what CUDA card you have. The best is to run `$ lspci | grep VGA`
+
+```
+$ lspci | grep VGA
+45:00.0 VGA compatible controller: NVIDIA Corporation TU102GL [Quadro
+RTX 6000/8000] (rev a1)
+61:00.0 VGA compatible controller: NVIDIA Corporation TU102GL [Quadro
+RTX 6000/8000] (rev a1)
+```
+
+In my case, I have two cards, `TU102GL`. Thanks to the wikipedia, 
+
+<a href="https://en.wikipedia.org/wiki/CUDA">https://en.wikipedia.org/wiki/CUDA</a>
+
+(look for "Compute Capability, GPU semiconductors and Nvidia GPU board products"),
+I know that I have to use 
+
+```
+NVCCFLAGS := -arch=sm_75
+```
+
+In my case, I had to remove the `-abi=no` flag from the makefile to make it compile.
+
+
 Create 3D models from MESA 1D models
 =====================================
 
