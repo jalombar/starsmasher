@@ -143,9 +143,13 @@ c     (if dtout<0, interpret as a number of iterations)
 c     variables used for radiative cooling portion of the code:
       real*8 erad
       common/lostenergy/ erad
+
       real*8 xi,yi,zi,displacex,displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
+      real*8 epoteat,ekineat,einteat
+      common /eatenenergy/ epoteat,ekineat,einteat
+
 
       if(myrank.eq.0) then
 c     find system box and center of mass:
@@ -489,10 +493,20 @@ c     $              (etot-einit)/abs(einit), stot,ajtot,
 c               write(22,'(15g15.7)')t,epot,ekin,eint,etot,
 c     $              (etot-einit)/abs(einit), stot,ajtot
                if(ncooling.eq.0) then
-                  write(22,'(14g15.7)')t,epot,ekin,eint,etot,stot,ajtot
+                  if(reat.le.0d0) then
+                     write(22,'(14g15.7)')t,epot,ekin,eint,etot,stot,ajtot
+                  else
+                     write(22,'(14g15.7)')t,epot,ekin,eint,etot,stot,ajtot,
+     $                    epoteat,ekineat,einteat
+                  endif
                else
-                  write(22,'(14g15.7)')t,epot,ekin,eint,etot,stot,ajtot,
-     $              erad
+                  if(reat.le.0) then
+                     write(22,'(14g15.7)')t,epot,ekin,eint,etot,stot,ajtot,
+     $                    erad
+                  else
+                     write(22,'(14g15.7)')t,epot,ekin,eint,etot,stot,ajtot,
+     $                    erad,epoteat,ekineat,einteat
+                  endif
                endif
             endif
             call flush(22)

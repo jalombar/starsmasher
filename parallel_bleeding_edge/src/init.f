@@ -27,10 +27,13 @@ c     initialization of run (new or restart)
       real*8 displacex,displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
+      real*8 epoteat,ekineat,einteat
+      common /eatenenergy/ epoteat,ekineat,einteat
 
       erad=0d0
-
-      call energy_setup
+      epoteat=0d0
+      ekineat=0d0
+      einteat=0d0
 
 c     read in hosts, find gravhost:
 c      call rank_setup
@@ -41,6 +44,8 @@ c      call myinit
 
 c     get parameters from input file:
       call get_input
+      call energy_setup
+
 c     compute look-up tables:
       call tabulinit
 
@@ -260,7 +265,7 @@ c         write(69,*) "setting t=0", myrank
          t=0.d0
 c     initialize output parameters:
 c     get 3-letter code for type of initial condition from init file
-         open(12,file='sph.init',err=100)
+         open(12,file='sph.init',err=100,STATUS='OLD')
          read(12,initt)
          close(12)
          if(myrank.eq.0) write(69,*)'init: new run, iname=',iname
@@ -280,6 +285,12 @@ c     get 3-letter code for type of initial condition from init file
             call hyperbolic_binary_single
          elseif(iname.eq.'erg')then
             call parent
+            if(myrank.eq.0) write(69,*)'init: tf=',tf,dtout
+         elseif(iname.eq.'meq')then
+            call multiequalmass
+            if(myrank.eq.0) write(69,*)'init: tf=',tf,dtout
+         elseif(iname.eq.'res')then
+            call rescale
             if(myrank.eq.0) write(69,*)'init: tf=',tf,dtout
          elseif(iname.eq.'tri')then
             call triple
@@ -338,10 +349,10 @@ c     write run parameters:
 c here !!!!!
       if(myrank.eq.0) then
          write(69,*)'init: t=',t,' nit=',nit
-         write(69,101) n,nnopt,hco,hfloor,dtout,nout,tf,sep0,nav,
+         write(69,101) n,nnopt,hco,mco,hfloor,dtout,nout,tf,sep0,nav,
      $     alpha,beta,ngr,nrelax,trelax,dt,ntot-n
  101     format (' init: parameters for this ideal + radiation run:',/,
-     $        ' n=',i7,' nnopt=',i4,' hco=',g12.4,' hfloor=',g12.4,/,
+     $        ' n=',i7,' nnopt=',i4,' hco=',g12.4,' mco=',g12.4,' hfloor=',g12.4,/,
      $        ' dtout=',g10.3,' nout=',i4,' tf=',g10.3,/,
      $        ' sep0=',g12.4,/,
      $        ' nav=',i2,' alpha=',f6.2,' beta=',f6.2,/,
@@ -401,7 +412,7 @@ c here !!!!!
       return
 
 c     error condition:
- 100  stop 'init:  error reading input file ???'
+ 100  stop 'init:  error reading input file sph.init ???'
       end
 ************************************************************************
 c      subroutine rank_setup
@@ -481,7 +492,7 @@ c      end
       include 'starsmasher.h'
       logical autotf
       common/autotfblock/autotf
-      common/orbitalelements/e0,semimajoraxis
+      common/orbitalelements/e0,semimajoraxis,impactparameter,vinf2
       real*8 rhocgs,mucgs
       common/ueqstuff/rhocgs,teq,mucgs
       common /jumpcomm/ tjumpahead
@@ -490,15 +501,15 @@ c      end
       real*8 displacex,displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
-      namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hco,hfloor,
-     $     nrelax,trelax,sep0,bimpact,e0,semimajoraxis,vinf2,
+      namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hco,mco,hfloor,
+     $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
-     $     nintvar, ngravprocs,qthreads,gflag,mbh,runit,munit,
+     $     nintvar,ngravprocs,qthreads,gflag,mbh,runit,munit,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,throwaway,
-     $     stellarevolutioncodetype
+     $     stellarevolutioncodetype,rp
 
       ndisplace=0
       displacex=0d0
@@ -506,7 +517,8 @@ c      end
       displacez=0d0
 
       semimajoraxis=0.d0
-      bimpact=-1.d30
+      impactparameter=-1.d30
+      rp=-1.d30
       e0=-1.d30
       vinf2=1.d30
 
@@ -520,7 +532,8 @@ c     set some default values, so that they don't necessarily have to be set in 
       alpha=1                  ! av coefficient for term linear in mu
       beta=2                   ! av coefficient for mu^2 term
       ngr=3                    ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
-      hco=1d0                  ! softening/smoothing length for compact object or core particle
+      hco=-1d30                ! softening/smoothing length for compact object or core particle (<0 for auto-set)
+      mco=-1d30                ! mass of compact object or core particle
       hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
       trelax=1.d30             ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
@@ -534,7 +547,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u
       ngravprocs=-2            ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
       qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
-      mbh=20d0                 ! mass of black hole
+      mbh=10d0                 ! mass of black hole
       runit=6.9599d10          ! number of cm in the unit of length.  use 6.9599d10 if want solar radius.
       munit=1.9891d33          ! number of g in unit of mass.  use 1.9891d33 if want solar mass.
 !     the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
@@ -559,7 +572,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       starmass=1d0
       starradius=1d0
       ncooling=0 ! 0 if no cooling, otherwise radiative cooling
-      nkernel=0
+      nkernel=2
       teq=100d0
       tjumpahead=1d30
       startfile1='sph.start1u'
@@ -570,7 +583,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       throwaway=.false.
       stellarevolutioncodetype=1
 
-      open(12,file='sph.input',err=100)
+      open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
       close(12)
 
@@ -634,7 +647,7 @@ c      endif
 
       return
 
- 100  stop 'init: error reading input file'
+ 100  stop 'init: error reading input file sph.input'
 
       end
 ************************************************************************
@@ -688,6 +701,7 @@ c      if(myrank.eq.0) write(69,*)'n_lower,n_upper,n',n_lower,n_upper,n
       integer filenum
       character*11 energyfile
       character*8 logfile
+      character*8 eatfile
 
       if(myrank.eq.0) then 
          energyfilealreadyexists=.true.
@@ -705,6 +719,12 @@ c      if(myrank.eq.0) write(69,*)'n_lower,n_upper,n',n_lower,n_upper,n
          open(69,file=logfile,status='unknown')
          write(69,*)'writing energy data to ',energyfile
          write(69,*)'writing log data to ',logfile
+         if(reat.gt.0) then
+            write(eatfile,104)filenum
+ 104        format('eat',i1.1,'.sph')
+            open(43,file=eatfile,status='unknown')
+            write(69,*)'writing eat data to ',eatfile
+         endif
       endif
       end
 ************************************************************************

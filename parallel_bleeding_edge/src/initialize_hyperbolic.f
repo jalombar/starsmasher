@@ -6,7 +6,7 @@
      $     eorb0check
       real*8 altotint,r,amu,ak,vxcm,vycm,xcm,ycm
       integer n2,i,nchk,corepts
-      integer nnoptold,noutold,nitold,navold,ngrold,nrelaxold
+      integer nnoptold,nnoptold2,noutold,nitold,navold,ngrold,nrelaxold
       real*8 hcoold,hfloorold,sep0old,tfold,dtoutold,told,
      $     alphaold,betaold,trelaxold,dtold
       logical twofiles
@@ -16,7 +16,7 @@
       integer idumb
       real*8 costh1,sinth1,costh2,sinth2,ps1,ps2
       real*8 xold,yold,zold,vxold,vyold,vzold,ran1
-      real*8 am1,am2,am1tot,am2tot
+      real*8 am1,am2
 c      real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2,am1tot,am2tot
 c      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       real*8 amass1,amass2
@@ -30,31 +30,13 @@ c      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
      $     amtwo,x2,y2,z2,vx2,vy2,vz2,
      $     amthree,x3,y3,z3,vx3,vy3,vz3,am4,
      $     icomp
-      real*8 divv(nmax),ra
+      real*8 divv(nmax)
       common/commdivv/divv
-      common/orbitalelements/e0,semimajoraxis
+      common/orbitalelements/e0,semimajoraxis,impactparameter,vinf2
+      real*8 xcmparent,ycmparent,zcmparent,vxcmparent,vycmparent,vzcmparent
+      real*8 hprms
 
       call cpu_time(time1)
-
-c     If enough information is available to determine that sep0 has an invalid value,
-c     then reset sep0 to the apoapsis distance ra:
-      if(vinf2.ge.1d30 .and. semimajoraxis.eq.0.d0)then
-c     presumably e0 and bimpact have been set in sph.input:
-         rp=bimpact
-         ra=rp*(1.d0+e0)/(1-e0)
-         if(ra.gt.0 .and. (sep0.gt.ra .or. sep0.lt.rp)) sep0=ra
-      else if(vinf2.ge.1d30 .and. e0.lt.0.d0)then
-c     presumably semimajoraxis and bimpact have been set in sph.input:
-         rp=bimpact
-         ra=2*semimajoraxis-rp
-         if(sep0.gt.ra .or. sep0.lt.rp) sep0=ra
-      else if(bimpact.lt.0.d0 .and. vinf2.ge.1.d30)then
-c     presumably semimajoraxis and e0 have been set in sph.input:
-         rp=semimajoraxis*(1.d0-e0)
-         ra=semimajoraxis*(1.d0+e0)
-         if(sep0.gt.ra .or. sep0.lt.rp) sep0=ra
-      endif
-
 
       corepts=0
       if(myrank.eq.0) write (69,*)
@@ -69,7 +51,16 @@ c     used in subroutine dump)
      $     navold,alphaold,betaold,tjumpahead,
      $     ngrold,
      $     nrelaxold,trelaxold,dtold,omega2
-      am1tot=0.d0
+
+      if(nnoptold.ne.nnopt) then
+         if(myrank.eq.0) then
+            write(69,*) 'NOTE: Currently nnopt=',nnopt
+            write(69,*) '      The NNOPT in startfile1=',nnoptold
+            write(69,*) '      Changing NNOPT to be',nnoptold
+         endif
+         nnopt=nnoptold
+      endif
+
       am1=0.d0
       if(myrank.eq.0) write(69,*)'n1=',n1
       amass1=n1
@@ -97,9 +88,16 @@ c      if(twofiles) then
       else
          costh1=1.d0
          sinth1=0.d0
-         ps1=0.d0
+c         ps1=-0.645772d0        ! 37 degrees
+         ps1=0d0
       endif
 
+      xcmparent=0d0
+      ycmparent=0d0
+      zcmparent=0d0
+      vxcmparent=0d0
+      vycmparent=0d0
+      vzcmparent=0d0
       do i=1,n1
          icomp(i)=2
          read (12) xold,yold,zold,am(i),hp(i),rho(i),vxold,vyold,
@@ -114,10 +112,7 @@ c     place velocities at same time as everything else:
          vyold=vyold-vydot(i)*0.5d0*dtold
          vzold=vzold-vzdot(i)*0.5d0*dtold
 
-         am1tot=am1tot+am(i)
-         if(xold**2+yold**2+zold**2.le.sep0**2) then
-            am1=am1+am(i)
-         endif
+         am1=am1+am(i)
          x(i)=cos(ps1)*xold+costh1*sin(ps1)*yold+
      &        sin(ps1)*sinth1*zold
          y(i)=-sin(ps1)*xold+costh1*cos(ps1)*yold+
@@ -128,13 +123,38 @@ c     place velocities at same time as everything else:
          vy(i)=-sin(ps1)*vxold+costh1*cos(ps1)*vyold+
      &        cos(ps1)*sinth1*vzold
          vz(i)=-sinth1*vyold+costh1*vzold
+         xcmparent=xcmparent+am(i)*x(i)
+         ycmparent=ycmparent+am(i)*y(i)
+         zcmparent=zcmparent+am(i)*z(i)
+         vxcmparent=vxcmparent+am(i)*vx(i)
+         vycmparent=vycmparent+am(i)*vy(i)
+         vzcmparent=vzcmparent+am(i)*vz(i)
       enddo
       read(12) nchk
       close(12)
-
-      amtwo=am1
-
       if (nchk.ne.n1) stop 'hyperbolic: problem with sph.start1u file'
+      xcmparent=xcmparent/am1
+      ycmparent=ycmparent/am1
+      zcmparent=zcmparent/am1
+      vxcmparent=vxcmparent/am1
+      vycmparent=vycmparent/am1
+      vzcmparent=vzcmparent/am1
+      amtwo=am1
+      if(myrank.eq.0) then
+         write(69,*)'Center of mass position & velocity of star 1'
+         write(69,*)'(to be subtracted off):'
+         write(69,*) xcmparent,ycmparent,zcmparent
+         write(69,*) vxcmparent,vycmparent,vzcmparent
+      endif
+      do i=1,n1
+         x(i)=x(i)-xcmparent
+         y(i)=y(i)-ycmparent
+         z(i)=z(i)-zcmparent
+         vx(i)=vx(i)-vxcmparent
+         vy(i)=vy(i)-vycmparent
+         vz(i)=vz(i)-vzcmparent
+      enddo
+
       if(twofiles) then
          if(myrank.eq.0) write (69,*)
      $        'hyperbolic: reading startfile2 ',
@@ -154,18 +174,34 @@ c     place velocities at same time as everything else:
          open(12,file=startfile2,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
-         read(12) n2,nnoptold,hcoold,hfloorold,sep0old,
+         read(12) n2,nnoptold2,hcoold,hfloorold,sep0old,
      $        tfold,dtoutold,noutold,nitold,told,navold,
      $        alphaold,betaold,tjumpahead,ngrold,
      $        nrelaxold,trelaxold,dtold,omega2
+         if(nnoptold2.ne.nnoptold) then
+            write(69,*) 'ERROR: nnopt from star 1=',nnoptold
+            write(69,*) '       nnopt from star 2=',nnoptold2
+            stop
+         endif
+         if(nnoptold2.ne.nnopt) then
+            write(69,*) 'ERROR: currently nnopt=',nnopt
+            write(69,*) '       the NNOPT in startfile2=',nnoptold
+            stop
+         endif
+
          amass2=n2
-         am2tot=0.d0
          am2=0.d0
          ntot=n1+n2
          if (ntot.gt.nmax) then
             if(myrank.eq.0) write(69,*)'must increase nmax...'
             stop
          endif
+         xcmparent=0d0
+         ycmparent=0d0
+         zcmparent=0d0
+         vxcmparent=0d0
+         vycmparent=0d0
+         vzcmparent=0d0
          do i=n1+1,ntot
             icomp(i)=3
             read (12) xold,yold,zold,am(i),hp(i),rho(i),vxold,vyold,
@@ -180,10 +216,7 @@ c     place velocities at same time as everything else:
             vyold=vyold-vydot(i)*0.5d0*dtold
             vzold=vzold-vzdot(i)*0.5d0*dtold
             
-            am2tot=am2tot+am(i)
-            if(xold**2+yold**2+zold**2.le.sep0**2) then
-               am2=am2+am(i)
-            endif
+            am2=am2+am(i)
             x(i)=cos(ps2)*xold+costh2*sin(ps2)*yold+
      &           sin(ps2)*sinth2*zold
             y(i)=-sin(ps2)*xold+costh2*cos(ps2)*yold+
@@ -197,22 +230,48 @@ c     place velocities at same time as everything else:
             if(hp(i).le.0.d0) then
                corepts=corepts+1
             endif
+            xcmparent=xcmparent+am(i)*x(i)
+            ycmparent=ycmparent+am(i)*y(i)
+            zcmparent=zcmparent+am(i)*z(i)
+            vxcmparent=vxcmparent+am(i)*vx(i)
+            vycmparent=vycmparent+am(i)*vy(i)
+            vzcmparent=vzcmparent+am(i)*vz(i)
          enddo
          n=ntot-corepts
          read(12) nchk
          close(12)
          if (nchk.ne.n2) stop
      $        'hyperbolic: problem with sph.start2u file'
+         xcmparent=xcmparent/am2
+         ycmparent=ycmparent/am2
+         zcmparent=zcmparent/am2
+         vxcmparent=vxcmparent/am2
+         vycmparent=vycmparent/am2
+         vzcmparent=vzcmparent/am2
+         if(myrank.eq.0) then
+            write(69,*)'Center of mass position & velocity of star 2'
+            write(69,*)'(to be subtracted off):'
+            write(69,*) xcmparent,ycmparent,zcmparent
+            write(69,*) vxcmparent,vycmparent,vzcmparent
+         endif
+         do i=n1+1,ntot
+            x(i)=x(i)-xcmparent
+            y(i)=y(i)-ycmparent
+            z(i)=z(i)-zcmparent
+            vx(i)=vx(i)-vxcmparent
+            vy(i)=vy(i)-vycmparent
+            vz(i)=vz(i)-vzcmparent
+         enddo
       else
          if(myrank.eq.0) write (69,*)
      $        'startfile2 ',
      $        trim(startfile2),
-     $        ' does not exist: will use black hole instead'
+     $        ' does not exist: will use compact object ',
+     $        'particle instead'
          
          n2=1
          ntot=n1+n2
          i=ntot
-         am2tot=mbh
          am2=mbh
          am(i)=am2
          x(i)=0.d0
@@ -232,74 +291,75 @@ c     place velocities at same time as everything else:
          if(hco.gt.0.d0) then
             hp(i)=hco
          else
-            hp(i)=hp(n1)
+            hprms=0d0
+            do i=1,n1
+               hprms=hprms+hp(i)**2
+            enddo
+            hprms=sqrt(hprms/n1)
+            if(myrank.eq.0) then
+               write(69,*) 'rms smoothing length h in star=',hprms
+            endif
+            hp(i)=hprms
          endif
          cc(i)=0
-         if(myrank.eq.0) write(69,*)'black_hole_mass',am(i)
-         if(myrank.eq.0) write(69,*)'black_hole_smoothing_length',hp(i)
+         if(myrank.eq.0) write(69,*)'compact_object_mass',am(i)
+         if(myrank.eq.0) write(69,*)'compact_object_smoothing_length',
+     $        hp(i)
       endif
       amthree=am2
 
-      xx=(am1+am2)/(vinf2*bimpact)
-      if(myrank.eq.0) write(69,*)'dimensionless parameter x=',xx
-      rp=bimpact/(xx+sqrt(1.d0+xx**2))
-
-
-      if(myrank.eq.0) then
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
-        write(69,*) 'setting rp=bimpact'
+c     From energy conservation 0.5*vinf^2=0.5*vp^2-G*M/rp
+c     -> vinf^2=vp^2-2*G*M/rp
+c            =(vinf*b/rp)^2-2*G*M/rp because of angular momentum conservation vinf*b = vp*rp
+c     -> rp^2=b^2-2*rp*G*M/vinf^2
+c            =b^2-2*rp*xx*b where we have defined xx=G*M/(vinf^2*b)
+c     -> rp^2*(1.d0+xx^2)=b^2-2*rp*xx*b+rp^2*xx^2
+c     -> rp*sqrt(1.d0+xx**2)=b-rp*xx
+c     -> b=rp*xx+rp*sqrt(1.d0+xx**2)
+c     Solving for rp yields the desired result
+      if(rp.lt.0d0 .and. impactparameter.ge.0) then
+         xx=(am1+am2)/(vinf2*impactparameter)
+         if(myrank.eq.0) write(69,*)'dimensionless parameter x=',xx
+         rp=impactparameter/(xx+sqrt(1.d0+xx**2))
       endif
 
       k=am1*am2
       mu=am1*am2/(am1+am2)
 
-      if(bimpact.lt.0.d0 .and. semimajoraxis.eq.0.d0)then
+      if(rp.lt.0.d0 .and. semimajoraxis.eq.0.d0)then
 c     presumably e0 and vinf2 have been set in sph.input:
          eorb0=0.5d0*mu*vinf2
          semimajoraxis=-0.5d0*k/eorb0
          rp=semimajoraxis*(1.d0-e0)
       else if(vinf2.ge.1d30 .and. semimajoraxis.eq.0.d0)then
-c     presumably e0 and bimpact have been set in sph.input:
-         rp=bimpact
+c     presumably e0 and (rp or impactparameter) have been set in sph.input:
          semimajoraxis=rp/(1.d0-e0)
          eorb0=-0.5d0*k/semimajoraxis
          vinf2=2.d0*eorb0/mu
       else if(vinf2.ge.1d30 .and. e0.lt.0.d0)then
-c     presumably semimajoraxis and bimpact have been set in sph.input:
-         rp=bimpact
+c     presumably semimajoraxis and (rp or impactparameter) have been set in sph.input:
          eorb0=-0.5d0*k/semimajoraxis
          vinf2=2.d0*eorb0/mu
          e0=1.d0-rp/semimajoraxis
-      else if(bimpact.lt.0.d0 .and. vinf2.ge.1.d30)then
+      else if(rp.lt.0.d0 .and. vinf2.ge.1.d30)then
 c     presumably semimajoraxis and e0 have been set in sph.input:
          rp=semimajoraxis*(1.d0-e0)
          eorb0=-0.5d0*k/semimajoraxis
          vinf2=2.d0*eorb0/mu
       else
-c     presumably bimpact and vinf2 have been set in sph.input:
-         rp=bimpact
+c     presumably (rp or impactparameter) and vinf2 have been set in sph.input:
          eorb0=0.5d0*mu*vinf2
          semimajoraxis=-0.5d0*k/eorb0
          e0=1.d0-rp/semimajoraxis
       endif
 
       if(myrank.eq.0) then
-         write(69,*) 'hyperbolic: bimpact=',
-     $        bimpact,'v_inf2=',vinf2,'semimajoraxis=',semimajoraxis
+         write(69,*) 'hyperbolic: impactparameter (if set)=',
+     $        impactparameter,'v_inf2=',vinf2,'semimajoraxis=',semimajoraxis
          write(69,*) 'hyperbolic: e_orb=',eorb0
          write(69,*) 'hyperbolic: n=',n,'ntot=',ntot,'rp=',rp
          write(69,*) 'hyperbolic: sep0 = ',sep0
-         write(69,*) 'hyperbolic: masses = ',am1tot,am2tot
-         write(69,*) 'hyperbolic: masses used for orbital parameters= ',
-     $        am1,am2
+         write(69,*) 'hyperbolic: masses = ',am1,am2
          open(30,file='m1m2rp.sph')
 c     make file m1m2rp.sph with masses and radius in solar units
          write(30,*) n1,n2,rp
@@ -315,6 +375,8 @@ c      if(myrank.eq.0) write(69,*)k,mu,semimajoraxis,e0
 c     equation (8.41) of marion and thornton
       costheta = (semilatusrectum/sep0-1.d0)/e0
       if(abs(costheta).gt.1.d0 .or. e0.eq.0) then
+         sep0=semilatusrectum/(1-e0)
+         costheta = -1d0
          if(myrank.eq.0) then
             if(abs(costheta).gt.1.d0) then
                write(69,*)'bad initial conditions in sph.input:'
@@ -322,11 +384,7 @@ c     equation (8.41) of marion and thornton
                write(69,*)'sep0 cannot be larger than',
      $              semilatusrectum/(1-e0)
             endif
-         endif
-         costheta = -1d0
-         if(sep0.gt.semilatusrectum/(1-e0)) then
-            sep0=semilatusrectum/(1-e0)
-            if(myrank.eq.0) write(69,*)'reset sep0=',sep0
+            write(69,*)'reset sep0=',sep0
          endif
       endif
 

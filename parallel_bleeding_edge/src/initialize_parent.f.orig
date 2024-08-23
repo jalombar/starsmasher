@@ -38,11 +38,10 @@ c     derived constants:
       integer mylength,mygravlength, ierr
       integer comm_worker, irank
       common/gravworkers/comm_worker
-      integer status(mpi_status_size),count
-      real*8 hmin,hrms
+      integer status(mpi_status_size)
+      real*8 hmin
       real*8 rpreedge, rpost
       real*8 rprearray(kdm),rarray2(kdm)
-      real*8 amtotal,rnearby
 
       call splinesetup
 
@@ -207,7 +206,6 @@ c     (a3 vector)=(8/3)^0.5*a1*(z hat)
       ixmax=int(rpreedge/a1)+2
       iymax=int(rpreedge/(3.d0**0.5d0/2.d0*a1))+2
       izmax=int(rpreedge/(0.5d0*(8.d0/3.d0)**0.5d0*a1))+2
-      rnearby=0d0
       do ix=-ixmax,ixmax
          do iy=-iymax,iymax
             do iz=1,izmax
@@ -233,26 +231,21 @@ c     (particle is accepted)
                   x(ip)=xtry*rpost/rtry
                   y(ip)=ytry*rpost/rtry 
                   z(ip)=ztry*rpost/rtry
-                  if(rtry.le.a1) then
-                     rnearby=max(rnearby,(x(ip)**2+y(ip)**2+z(ip)**2)**0.5d0)
-                     if(myrank.eq.0) then
-                        write(69,'(4i6,4e12.4)')ip,ix,iy,iz,
-     $                       x(ip),y(ip),z(ip),rpost
-                     endif
+                  if(rtry.le.a1 .and. myrank.eq.0) then
+                     write(69,'(4i6,4e12.4)')ip,ix,iy,iz,
+     $                    x(ip),y(ip),z(ip),rpost
                   endif
 
                   ip=ip+1                 
                   x(ip)=-xtry*rpost/rtry
                   y(ip)=-ytry*rpost/rtry 
                   z(ip)=-ztry*rpost/rtry
-                  if(rtry.le.a1) then
-                     rnearby=max(rnearby,(x(ip)**2+y(ip)**2+z(ip)**2)**0.5d0)
-                     if(myrank.eq.0) then
-                        write(69,'(4i6,4e12.4)')ip,-ix+1-mod(abs(iy),2),
-     $                       -iy,-iz+1,
-     $                       x(ip),y(ip),z(ip),rpost
-                     endif
+                  if(rtry.le.a1 .and. myrank.eq.0) then
+                     write(69,'(4i6,4e12.4)')ip,-ix+1-mod(abs(iy),2),
+     $                    -iy,-iz+1,
+     $                    x(ip),y(ip),z(ip),rpost
                   endif
+
                endif
             enddo
          enddo
@@ -312,15 +305,11 @@ c     the actual number of neighbors is closer to 1.9*nnopt
 
       hmin=1.d30
       hmax=0.d0
-      hrms=0
       do i=1+corepts,n+corepts
-         hrms=hrms+hp(i)**2
          hmin=min(hmin,hp(i))
          hmax=max(hmax,hp(i))
       enddo
-      hrms=(hrms/n)**0.5
       if(myrank.eq.0)then
-         write(69,*)'hrms=',hrms
          write(69,*)'hmin=',hmin
          write(69,*)'hmax=',hmax
       endif
@@ -344,45 +333,12 @@ c     below here, n=total number of particles
          vx(1)=0.d0
          vy(1)=0.d0
          vz(1)=0.d0
-         if(mco.gt.0.d0) then
-            am(1)=mco
-c     At this point, amtot=mass of SPH particles and am(1) is the mass of the core
-c     This is not guaranteed to be the desired mass amass.  Most likly, amtot is a little
-c     too small. We want the SPH particle mass to increase by amass-amtot-am(1) overall.
-c     That will make the new SPH mass amass-am(1). Therefore, for all SPH particles,
-c     increase their mass by the factor (amass-am(1))/amtot
-            count=0
-            do i=1+corepts,ntot
-c               am(i)=am(i)*(amass-am(1))/amtot
-               rtry=(x(i)**2+y(i)**2+z(i)**2)**0.5d0
-               if(rtry.le.rnearby) then
-                  am(i)=am(i)+(amass-amtot-am(1))/6
-                  count=count+1
-                  if(myrank.eq.0) write(69,*)'particle',i,
-     $                 'will be given more mass'
-               endif
-            enddo
-            if(count.ne.6) then
-               write(69,*) 'rnearby=',rnearby
-               write(69,*) 'count=',count
-               write(69,*) 'There should be 6 close particles'
-               stop
-            endif
-         else
-            am(1)=amass-amtot
-         endif
-         amtotal=0
-         do i=1,ntot
-            amtotal=amtotal+am(i)
-         enddo
-         if(myrank.eq.0) then
-            write(69,*) 'mass of core = ',am(1),'msun'
-            write(69,*) 'mass of entire star = ',amtotal,'msun'
-         endif
+         am(1)=amass-amtot
+         if(myrank.eq.0)write(69,*) 'mass of core = ',am(1),'msun'
          if(hco.gt.0.d0) then
             hp(1)=hco
          else
-            hp(1)=hrms
+            hp(1)=hmin
          endif
          if(myrank.eq.0)write(69,*)'hp(core mass)',hp(1)
          cc(1)=int(2.d0*log(1.35d0*a1*

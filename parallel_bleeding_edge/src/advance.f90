@@ -170,7 +170,7 @@
       enddo
 
       if(myrank.eq.0 .and. ncooling.ne.0)&
-           write(69,*),'mass not in thermal equilibrium=',amnotte
+           write(69,*)'mass not in thermal equilibrium=',amnotte
 
       t=t+dthnew
 
@@ -377,9 +377,9 @@
          ! Change hp(i) to mean hptilde(i) while solving eq.(A1) of GLPZ 2010.
          hp(i)=hp(i) - hfloor
 
-         xacc=1.d-4*hp(i)
+         xacc=2.d-6*hp(i)
          hpguess=max(hp(i)*(1.d0+divv(i)*dt/3.d0),xacc)
-         dxmax=min(max(xacc,abs(hp(i)*divv(i)*dt)),0.5d0*hpguess)
+         dxmax=min(max(10*xacc,abs(hp(i)*divv(i)*dt)),0.5d0*hpguess)
 
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !         hp(i) = ezrtsafe(hpguess,xacc,i,dxmax)

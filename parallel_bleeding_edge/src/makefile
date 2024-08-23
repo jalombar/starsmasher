@@ -1,5 +1,5 @@
 # if you want to use gfortran, keep these next two lines and comment out the other FC and LDFLAG lines further below
-FC = mpif90 -ffixed-line-length-132
+FC = mpif90 -ffixed-line-length-132 -fallow-argument-mismatch
 LDFLAGS = 
 
 LD = $(shell which mpif90)
@@ -19,7 +19,7 @@ OLEVEL = -O4 #-g
 FFLAGS = $(OLEVEL)
 CFLAGS = $(OLEVEL)
 CXXFLAGS = $(OLEVEL)
-GRAVLIB = SPHgrav_lib           # use this one for the direct force
+GRAVLIB = SPHgrav_lib2           # use this one for the direct force
 #GRAVLIB = SPHgravtree_lib       # use this one for the  tree  force
 LIBS =  -lm -lstdc++ #-L$(GRAVLIB) -lSPHgrav -L$(CUDAPATH)/lib64 -lcudart
 
@@ -29,7 +29,7 @@ FOBJS = kdtree2.o advance.o balAV3.o \
         main.o output.o pressure.o\
         ran1.o spline.o splint.o\
         initialize_polyes.o initialize_polymces.o\
-        initialize_corotating.o relax.o zeroin.o resplintmu.o grav.o initialize_triple.o temperaturefunction.o initialize_bps.o initialize_bpbh.o calccom.o elements.o initialize_smbh.o initialize_parent.o initialize_hyperbolic_binary_single.o skipahead.o compbest3.o changetf.o tstep.o initialize_grsph.o eatem.o useeostable.o hunt.o usekappatable.o initialize_asciiimage.o
+        initialize_corotating.o relax.o zeroin.o resplintmu.o grav.o initialize_triple.o temperaturefunction.o initialize_bps.o initialize_bpbh.o calccom.o elements.o initialize_smbh.o initialize_parent.o initialize_multiequalmass.o initialize_rescale.o initialize_hyperbolic_binary_single.o skipahead.o compbest3.o changetf.o tstep.o initialize_grsph.o eatem.o useeostable.o hunt.o usekappatable.o initialize_asciiimage.o
 #  grav.o 
 CPUOBJS = $(FOBJS) cpu_grav.o
 GPUOBJS = $(FOBJS) gpu_grav.o

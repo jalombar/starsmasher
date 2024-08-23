@@ -50,6 +50,7 @@ c     main program loop:
                   if(myrank.eq.0) then
                      close(22)
                      close(69)
+                     if(reat.gt.0) close(43)
                   endif
                   call mpi_finalize(ierr)
                   stop
@@ -105,6 +106,7 @@ c            beta=2.d0
                write (69,*) 'main: end of integration, t=',t,tf
                close(22)
                close(69)
+               if(reat.gt.0) close(43)
             endif
             call mpi_finalize(ierr)
          endif

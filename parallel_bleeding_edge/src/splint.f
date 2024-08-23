@@ -17,7 +17,7 @@
       endif
       h=xa(khi)-xa(klo)
       if (h.eq.0.d0) then
-         write(69,*)'bad xa input in sph_splint'
+         write(69,*)'bad xa input in sph_splint',khi,klo,xa(khi),xa(klo)
          stop
       endif
       a=(xa(khi)-x)/h

@@ -1,7 +1,7 @@
       implicit none
 
       integer nmax,nnmax
-      parameter(nmax=1600000,nnmax=170)
+      parameter(nmax=900000,nnmax=170)
       integer n_lower,n_upper,myrank,nprocs
       integer qthreads,q,gflag
       real*8 mbh,reat,starmass,starradius
@@ -15,9 +15,9 @@
       integer n,nnopt,ntot,nout,nit,nitpot,ngr,nrelax,nav,nintvar
       common/mine/vxdotsm,vydotsm,vzdotsm
       integer ntab
-      parameter(ntab=100000)                                           
+      parameter(ntab=10000000)  
       real*8 pi,alpha,beta
-      real*8 trelax,sep0,t,tf,dtout,dt,dth,hco,hfloor,tscanon,sepfinal
+      real*8 trelax,sep0,t,tf,dtout,dt,dth,hco,mco,hfloor,tscanon,sepfinal
       real*8 dgdhtab(ntab), dgtab(ntab), gtab(ntab)
       real*8 wtab(ntab),dwtab(ntab),ctab,dwdhtab(ntab),dphidhtab(ntab)
       real*8 x(nmax),y(nmax),z(nmax),vx(nmax),vy(nmax),vz(nmax)  
@@ -28,7 +28,7 @@
       real*8 vxdot(nmax),vydot(nmax),vzdot(nmax),udot(nmax)
       real*8 gx(nmax),gy(nmax),gz(nmax),tthermal(nmax),ueq(nmax)
       integer nn(nmax),list(nnmax*nmax),first(nmax), ngb_j(nmax)
-      real*8 rp,vinf2,equalmass,treloff,tresplintmuoff,bimpact 
+      real*8 rp,vinf2,equalmass,treloff,tresplintmuoff,impactparameter
       real time0,time1,time2,time3,seconds
       parameter (pi=3.1415926535897932384626d0)
       real*8 arad,boltz,erg,cm,gram,sec,kelvin,qconst
@@ -48,8 +48,8 @@
       integer computeexclusivemode,ppn
       common/grav/ ngr,computeexclusivemode
       real*8 omega2,omega_spin
-      common/relaxp/ trelax,bimpact,vinf2,equalmass,treloff,tresplintmuoff,omega2,omega_spin,nrelax,nitpot,stellarevolutioncodetype
-      common/intpar/ dt,n,nnopt,hco,hfloor,dth,ntot
+      common/relaxp/ trelax,equalmass,treloff,tresplintmuoff,omega2,omega_spin,nrelax,nitpot,stellarevolutioncodetype
+      common/intpar/ dt,n,nnopt,hco,mco,hfloor,dth,ntot
       common/out/ t,tf,dtout,nout,nit     
       common/wtabul/dgdhtab,dgtab,gtab,wtab,dwtab,ctab,dwdhtab,dphidhtab
       common/part/ x,y,z,vx,vy,vz,am,hp,u,rho,por2,grpot,zeta,bonet_omega,bonet_0mega, bonet_psi, bonet_wn, max_vsig
@@ -86,4 +86,4 @@
       common/gravdisplacements/gravdispls,gravrecvcounts
       common/adiabaticindex/ gam
       integer maxnumx
-      parameter(maxnumx=10)
+      parameter(maxnumx=16)

@@ -107,7 +107,7 @@ __forceinline__ __device__ devForce dev_force_ij_nkernel0(
     const float gacc = r2 > 0.0f ? 
         0.5f*(g.x*mj2.x*acc.x + (1.0f - g.x)*mrinv3 + 
               g.y*mj2.y*acc.y + (1.0f - g.y)*mrinv3) : 0.0f;
-    const float gpot = r2 > 0.0f ? 
+    const float gpot = r2 > 0.0f || pi.h2 != pj.h2 || pi.mass != pj.mass ? 
         0.5f*(g.x*mj1.x*pot.x + (g.x - 1.0f)*mrinv1 + 
               g.y*mj1.y*pot.y + (g.y - 1.0f)*mrinv1) : (-1.4f)*pj.hflag*(mj1.x + mj1.y);
 
@@ -227,7 +227,7 @@ __forceinline__ __device__ devForce dev_force_ij_nkernel1(
      const float gacc = r2 > 0.0f ? 
       	       0.5f*(g.x*mj2.x*acc.x + (1.0f - g.x)*mrinv3 + 
                      g.y*mj2.y*acc.y + (1.0f - g.y)*mrinv3) : 0.0f;
-     const float gpot = r2 > 0.0f ? 
+     const float gpot = r2 > 0.0f || pi.h2 != pj.h2 || pi.mass != pj.mass ? 
      	       0.5f*(mj1.x*pot.x + (g.x - 1.0f)*mrinv1 + 
                      mj1.y*pot.y + (g.y - 1.0f)*mrinv1) : (-1.9140625f)*pj.hflag*(mj1.x + mj1.y);
 
@@ -332,7 +332,7 @@ __forceinline__ __device__ devForce dev_force_ij_nkernel2(
 /*    const float2 g = {1.0f, 1.0f}; */
     const float gacc = r2 > 0.0f ? 
       	    0.5f*(mj2.x*acc.x + mj2.y*acc.y) : 0.0f;
-    const float gpot = r2 > 0.0f ? 
+    const float gpot = r2 > 0.0f || pi.h2 != pj.h2 || pi.mass != pj.mass ? 
       	      0.5f*(mj1.x*pot.x + mj1.y*pot.y) : (-1.71875f)*pj.hflag*(mj1.x + mj1.y);
 
     iforce.ax  += gacc * dr.x;
@@ -569,7 +569,7 @@ struct SPHgrav_direct
   {
     force.d2h();
     cudaEventRecord( stop, 0 );
-    cudaThreadSynchronize();
+    cudaDeviceSynchronize();
     float elapsed_time_ms;
     cudaEventElapsedTime( &elapsed_time_ms, start, stop );
 

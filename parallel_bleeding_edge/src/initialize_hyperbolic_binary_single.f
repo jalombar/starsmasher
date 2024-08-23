@@ -19,13 +19,21 @@ c     hyperbolic collision with a neutron star
       real*8 costh2,sinth2,ps2
       real*8 xold,yold,zold,vxold,vyold,vzold,ran1,hmax,hmin
 
+ 
+      print *,'MUST FINISHING FIXING bimpact->impactparameter transition.'
+      print *,'For now have just replaced bimpact with impactparameter'
+      
+      sToP
+  
+
+
       call cpu_time(time1)
 
       hpcore=1d30
 
 c         write(69,*)'hns: rp=',rp
       if(vinf2.ne.0) then
-         write(69,*) 'hbs: bimpact=',bimpact,'v_inf2=',vinf2
+         write(69,*) 'hbs: impactparameter=',impactparameter,'v_inf2=',vinf2
       endif
          corepts=0
          write (69,*) 'hbs: reading start files ...'
@@ -97,15 +105,15 @@ c     make the bh-wd binary:
          enddo
 
          if(vinf2.ne.0.d0)then
-            xx=(am1+am2)/(vinf2*bimpact)
+            xx=(am1+am2)/(vinf2*impactparameter)
             write(69,*)'dimensionless parameter x=',xx
-            rp=bimpact/(xx+sqrt(1.d0+xx**2))
+            rp=impactparameter/(xx+sqrt(1.d0+xx**2))
          else
-            rp=bimpact
+            rp=impactparameter
             xx=1.d10
-            bimpact=rp*(xx+sqrt(1.d0+xx**2))
-            vinf2=(am1+am2)/(xx*bimpact)
-            write(69,*) 'hbs: bimpact=',bimpact,'v_inf2=',vinf2
+            impactparameter=rp*(xx+sqrt(1.d0+xx**2))
+            vinf2=(am1+am2)/(xx*impactparameter)
+            write(69,*) 'hbs: impactparameter=',impactparameter,'v_inf2=',vinf2
          endif
          write (69,*)'hbs: n=',n,'ntot=',ntot,'rp=',rp
 
