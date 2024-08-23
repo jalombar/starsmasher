@@ -1,10 +1,15 @@
 Compile 
 ========
 
-Compile the source and place the executable in the `bin/` directory
+Compile the source and place the executable in the `bin/` directory, after you have modified the makefile for your system. 
+
+*As an important advice:* 
+
+Please make sure that you do not have more than one `cuda` library in your system. If you do, then make sure that the makefile in the `SPHgrav_lib2` and in the main `src` directories are (1) using the same one and (2) that you choose the more recent release.
 
 
-```$ cd src/SPHgrav_lib2
+```
+   $ cd ./src/SPHgrav_lib2
    $ make
    $ cd ..
    $ make
