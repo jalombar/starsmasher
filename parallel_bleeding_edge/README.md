@@ -1,3 +1,19 @@
+Note
+=====
+
+These notes are being developed as a stand-alone in the
+`parallel-bleeding-edge` folder by Pau Amaro Seoane. Any mistake should be
+attributed to me. If you spot any, please let me know.
+
+I am focusing on:
+
+- Initial conditions created with MESA.
+- A parabolic collision between two stars.
+
+But StarSmasher is capable of many more things. Have a look at the upper
+folders and the `README.md` file there.
+
+
 Compile 
 ========
 
