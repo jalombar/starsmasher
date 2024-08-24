@@ -18,6 +18,14 @@ Compile
 ========
 
 Compile the source and place the executable in the `bin/` directory, after you have modified the makefile for your system. 
+In `bin/` you will find not just the executable, but other interesting scripts useful for analysing the data, cleaning, etc.
+You should add it to your shell path. In `zsh` (but also `bash`) the syntax is
+
+```
+export PATH="$PATH:/bin:/usr/bin:/usr/local/bin:/sbin:/home/pau/StarSmasher/parallel-bleeding-edge/bin/"
+```
+
+This way you can start a simulation anywhere you want and analyse the datafiles, etc.
 
 *As an important advice:* 
 
