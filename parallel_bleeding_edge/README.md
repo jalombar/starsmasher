@@ -86,7 +86,8 @@ sph.input (last rows). This will create an SPH profile from the 1D MESA file,
 say profile9.data. It needs to relax.
 
 ```
-   $ cp MESA/LOGS/profile9.data ./ICs_MESA
+   $ cp MESA_initial_1D_models/LOGS/profile9.data MESA_initial_3D_models/
+   $ cd MESA_initial_3D_models/
    $ sed -i.bak "s|^profilefile=.*|profilefile='profile9.data'|" sph.input
 ```
 
