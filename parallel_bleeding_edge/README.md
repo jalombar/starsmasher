@@ -17,9 +17,15 @@ folders and the `README.md` file there.
 Compile 
 ========
 
-Compile the source and place the executable in the `bin/` directory, after you have modified the makefile for your system. 
-In `bin/` you will find not just the executable, but other interesting scripts useful for analysing the data, cleaning, etc.
-You should add it to your shell path. In `zsh` (but also `bash`) the syntax is
+Compile the source and place the executable in the `bin/` directory, after you
+have modified the makefile for your system. 
+
+In `bin/` you will find not just the executable, but other interesting scripts
+useful for analysing the data, cleaning, etc.  All of them start with `StSm_`
+so that you can easily find them from the command line.
+
+You should add the `bin/`directory to your shell path. In `zsh` (but also
+`bash`) the syntax is
 
 ```
 export PATH="$PATH:/bin:/usr/bin:/usr/local/bin:/sbin:/home/pau/StarSmasher/parallel-bleeding-edge/bin/"
