@@ -1,3 +1,8 @@
+# Note: This Makefile will output the executable to a "bin"
+#       directory one level up. Make sure it exists.
+#       Pau Amaro Seoane, 24 August 2024
+
+# Choose your compiler: gfortran or ifort       
 # gfortran
 FC      = mpif90 -ffixed-line-length-132 -fallow-argument-mismatch
 LDFLAGS = 

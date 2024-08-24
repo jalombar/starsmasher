@@ -1,3 +1,7 @@
+# Take into account the localtion of CUDAPATH and the
+# "-abi=no" flag in NVCCFLAGS
+# Pau Amaro Seoane, Berlin 24 August 2024
+
 .SUFFIXES: .cu 
 
 CXX  := g++
@@ -5,20 +9,21 @@ CC   := gcc
 AR   := ar ruv
 RANLIB := ranlib
 
-# path to your CUDA installation
-#CUDAPATH       := $(shell dirname $(shell dirname $(shell which nvcc)))
+# Path to your CUDA installation
+# Make sure you do not have different versions installed.
+# If that's the case, use the same CUDAPATH here and in the
+# main folder, and choose the most recent version for both.
+
 CUDAPATH       := /usr/local/cuda-12.6
 CUDAINCLUDE    := -I$(CUDAPATH)/include
 NVCC           := $(CUDAPATH)/bin/nvcc
 
-#use this for Turing TU102GL (gecko)
-# It should be 75 but the -abi=no flag gives trouble with it
-# We use instead 60 and remove the -abi=no flag
+# Remove the "-abi=no" flag to avoid bug
+#
 NVCCFLAGS := -arch=sm_75
 #NVCCFLAGS += -O4 -g  $(CUDAINCLUDE)  -I./ -Xptxas -v,-abi=no 
 NVCCFLAGS += -O4 -g  $(CUDAINCLUDE)  -I./ -Xptxas -v
 
-# NVCCFLAGS += -maxrregcount=32
 NVCCFLAGS += -Xcompiler="-Wall"
 CUDA_LIBS = -L$(CUDAPATH)/lib64 -lcudart
 
