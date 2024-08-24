@@ -98,10 +98,10 @@ Create a collision directory,
    $ mkdir Collision
 ```
 
-Copy all necessary collision files into that directory,
+Copy all necessary collision files from `tools/` into that directory,
 
 ```
-   $ cp coll_files/* Collision
+   $ cp tools/* Collision
 ```
 
 
