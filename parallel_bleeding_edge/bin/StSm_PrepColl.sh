@@ -4,7 +4,7 @@
 # have your simulations
 
 TOOLS=/projects/StarSmasher/starsmasher/parallel_bleeding_edge/tools
-MESA=/projects/StarSmasher/starsmasher/parallel_bleeding_edge/MESA_ICs
+MESA=/projects/StarSmasher/starsmasher/parallel_bleeding_edge/MESA/MESA_initial_3D_models/
 WORK=$HOME/treball/StarSmasher_Collisions
 
 # Initialize the base directory name in the work folder
@@ -15,10 +15,14 @@ cd $WORK
 while true; do
     suffix=$(openssl rand -hex 4)
     dir_name="Collision_$suffix"
-    
+
     # Check if the directory already exists
     if [ ! -d "$dir_name" ]; then
         echo "Directory name generated: $dir_name"
+        
+        # Create the directory
+        mkdir "$dir_name"
+        
         break
     fi
 done

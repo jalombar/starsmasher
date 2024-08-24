@@ -81,6 +81,11 @@ This way you can start a simulation anywhere you want and analyse the datafiles,
 Create 3D models from MESA 1D models
 =====================================
 
+I am going to assume that you have a directory in the main level named `MESA/`
+with two subdirectories
+
+- 
+
 Use your 1D profile file created in a directory with MESA as input for the
 sph.input (last rows). This will create an SPH profile from the 1D MESA file,
 say profile9.data. It needs to relax.
