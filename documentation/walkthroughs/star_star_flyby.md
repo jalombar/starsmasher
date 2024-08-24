@@ -1,4 +1,4 @@
-Before reading this guide, we reccomend you to read the installation tutorial first and then "Creating a MESA star" tutorial to get confidence with the code and the commands.
+Before reading this guide, we recommend that you read the installation tutorial first and then "Creating a MESA star" tutorial to get confidence with the code and the commands.
 
 ## Walkthrough: fly-by of two stars
 
@@ -117,24 +117,23 @@ Take a look at it:
 emacs -nw sph.input
 ```
 While you're in the file, check that DTOUT=1 on line 3, which means that an out*.sph file will be dumped every 1 time unit.
-Also, on line 16 or so, make BIMPACT=3.9d0, which means the periastron separation of the initial orbit is 3.9 stellar radii.
+Also, on line 16 or so, you may see a reference to either BIMPACT (this variable is now deprecated) or RP.  Change this line to say, for example, RP=3.9d0, which will set the periastron separation of the initial orbit to be 3.9 stellar radii.
 
-In sph.input you can use any of the following pairs of data to initialize a collision in hyperbolic.f: (e0,vinf2), (e0,bimpact), (semimajoraxis,bimpact), (semimajoraxis,e0), (bimpact,vinf2).  Here e0 is the eccentricity of the initial orbit, and bimpact is the periastron separation (not really the impact parameter).
+In sph.input you can use any of the following pairs of data to initialize a collision in hyperbolic.f: (e0,vinf2), (e0,rp), (semimajoraxis,rp), (semimajoraxis,e0), (rp,vinf2).  Here e0 is the eccentricity of the initial orbit, and rp is the periastron separation.
 For example, sph.input could contain
 
 ```
-BIMPACT=4.d0,
+rp=4.d0,
 semimajoraxis=118.57d0,
 ```
 
 and e0 and vinf2 could be unspecified.
-Or you could specify BIMPACT and e0, and the same code works, etc.
-The code in initialize_hyperbolic.f figures out what it needs to solve for.
+Or you could specify rp and e0, and the code in initialize_hyperbolic.f will figure out what it needs.
 
 Whether the encounter is hyperbolic, parabolic, or elliptical is controlled by the velocity at infinity squared, vinf2, or the semimajoraxis a.
 The value of vinf2 is negative for elliptical encounters, zero for parabolic encounters, and positive for hyperbolic encounters.
 Note that the orbital energy G*M*mu/(-2a) just equals mu*vinf2/2.
-Therefore, there is a simple relation between the semimahor axis a and vinf2, namely.  
+Therefore, there is a simple relation between the semimajor axis a and vinf2, namely.  
 a=-G*M/vinf2, where M is the total mass of the two stars.  
 For example, if you are colliding a 0.3 Msun and 8Msun star and if vinf2=-0.07, then the semimajor axis a=(0.3+8)/0.07=118.57, where I assume the units chosen are the usual G=Msun=Rsun=1.
 
