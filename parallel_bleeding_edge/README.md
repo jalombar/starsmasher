@@ -20,19 +20,6 @@ Compile
 Compile the source and place the executable in the `bin/` directory, after you
 have modified the makefile for your system. 
 
-In `bin/` you will find not just the executable, but other interesting scripts
-useful for analysing the data, cleaning, etc.  All of them start with `StSm_`
-so that you can easily find them from the command line.
-
-You should add the `bin/`directory to your shell path. In `zsh` (but also
-`bash`) the syntax is
-
-```
-export PATH="$PATH:/bin:/usr/bin:/usr/local/bin:/sbin:/home/pau/StarSmasher/parallel-bleeding-edge/bin/"
-```
-
-This way you can start a simulation anywhere you want and analyse the datafiles, etc.
-
 *As an important advice:* 
 
 Please make sure that you do not have more than one `cuda` library in your system. If you do, then make sure that the makefile in the `SPHgrav_lib2` and in the main `src` directories are (1) using the same one and (2) that you choose the more recent release.
@@ -51,7 +38,7 @@ Please make sure that you do not have more than one `cuda` library in your syste
 You might run into difficulties when trying to set up the `Makefile` in the `SPHgrav_lib2`
 folder. My advice is that you
 
--First find out what CUDA card you have. The best is to run `$ lspci | grep VGA`
+First find out what CUDA card you have. The best is to run `$ lspci | grep VGA`
 
 ```
 $ lspci | grep VGA
@@ -74,6 +61,22 @@ NVCCFLAGS := -arch=sm_75
 
 In my case, I had to remove the `-abi=no` flag from the makefile to make it compile.
 
+Adding the `bin/`directory to your path: Why you should do it
+=============================================================
+
+In `bin/` you will find not just the executable, but other interesting scripts
+useful for analysing the data, cleaning, etc.  All of them start with `StSm_`
+so that you can easily find them from the command line.
+
+You should add the `bin/`directory to your shell path. In `zsh` (but also
+`bash`) the syntax is
+
+```
+export PATH="$PATH:/bin:/usr/bin:/usr/local/bin:/sbin:/home/pau/StarSmasher/parallel-bleeding-edge/bin/"
+```
+
+This way you can start a simulation anywhere you want and analyse the datafiles, etc.
+
 
 Create 3D models from MESA 1D models
 =====================================
@@ -85,7 +88,7 @@ profile from the 1D MESA file, say profile9.data. It needs to relax.
 ```
    $ cp MESA_profiles/LOGS/profile9.data ./MESA/
    $ sed -i.bak "s|^profilefile=.*|profilefile='profile9.data'|" sph.input
-   $ ./run.sh
+   $ StSm_run.sh
 ```
 
 Then wait for it to finish.
@@ -130,5 +133,5 @@ Get into the directory and start the simulation,
 
 ```
    $ cd Collision/
-   $ ./run.sh
+   $ StSm_run.sh
 ```
