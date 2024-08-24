@@ -39,6 +39,6 @@
 ! the final timestep dt is the minimum of dt_sph and dt_co for all particles i
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like forge
  ppn=16, ! set this to the number of cpu cores per node
- profilefile='profile8_1p0.data'
+ profilefile='profile8.data'
  stellarevolutioncodetype=0 ! 0 for TWIN, 1 for MESA
  &end

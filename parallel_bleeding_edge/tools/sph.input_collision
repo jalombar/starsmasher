@@ -1,10 +1,15 @@
  &input
- tf=300, ! desired final time to stop simulation; use negative values if want to have code potentially change tf and/or skipahead
- dtout=1, ! how often an out*.sph files should be dumped
- nrelax=0, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
- sep0=5, ! initial separation of two stars in a binary or collision calculation
- rp=0.7, ! WAS CALLED bimpact BEFORE - periastron separation
- vinf2 = 0.0 ! PARABOLIC COLLISION
- ngravprocs=2, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
- ppn=16, ! set this to the number of cpu cores per node
+ tf=300,       ! Desired final time to stop simulation.
+                 ! Use negative values if want to have code potentially change tf and/or skipahead.
+ dtout=1,      ! How often an out*.sph files should be dumped.
+ nrelax=0,     ! Relaxation flag :  
+                 ! 0=dynamical calculation.
+                 ! 1=relaxation of single star.
+                 ! 2=relaxation of binary in corotating frame with centrifugal force.
+                 ! 3=calculation in corotating frame with centrifugal and coriolis forces.
+ sep0=5,       ! Initial separation of two stars in a binary or collision calculation.
+ rp=0.7,       ! Reriastron separation.
+ vinf2 = 0.0,  ! Parabolic orbit.
+ ngravprocs=2, ! Number of GPUS (must be <= min(nprocs,ngravprocsmax)).
+ ppn=16,       ! Number of cpu cores per node.
  &end

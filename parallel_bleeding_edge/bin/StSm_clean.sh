@@ -1,2 +1,2 @@
 #!/bin/sh
-rm -r *.sph output.txt stderr.txt
+rm -r *.sph *.txt *.txt *.data *.log
