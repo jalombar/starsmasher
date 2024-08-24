@@ -81,20 +81,23 @@ This way you can start a simulation anywhere you want and analyse the datafiles,
 Create 3D models from MESA 1D models
 =====================================
 
-Get into MESA/ and use your 1D profile file created with MESA
-as input for the sph.input (last rows). This will create an SPH
-profile from the 1D MESA file, say profile9.data. It needs to relax.
+Use your 1D profile file created in a directory with MESA as input for the
+sph.input (last rows). This will create an SPH profile from the 1D MESA file,
+say profile9.data. It needs to relax.
 
 ```
-   $ cp MESA_profiles/LOGS/profile9.data ./MESA/
+   $ cp MESA/LOGS/profile9.data ./ICs_MESA
    $ sed -i.bak "s|^profilefile=.*|profilefile='profile9.data'|" sph.input
+```
+
+Edit `sph.input` according to your needs and, then, run
+
+```
    $ StSm_run.sh
 ```
 
-Then wait for it to finish.
-
-Take the last snapshot as your input 3D file for the
-stellar collision. Rename it
+and wait for it to finish. After that, take the last snapshot as your input 3D
+file for the stellar collision. Rename it
 
 ```
    $ mv out0300.sph sph.start1u
@@ -106,27 +109,36 @@ Repeat for the second profile, corresponding to the second star.
    $ mv out0300.sph sph.start2u
 ```
 
-Brace for the collision
-========================
+After that, you can clean the directory to save disc space,
 
-Use the script `StSm_PrepColl.sh`
+```
+   $ StSm_clean.sh
+```
+
+Brace for collision
+====================
+
+You can either (blindly) use the script `StSm_PrepColl.sh`
 
 ```
    $ StSm_PrepColl.sh
 ```
 
-Or do it step by step. Create a collision directory,
+Or do it step by step. 
+
+*(1) Create a collision directory,*
 
 ```
    $ mkdir Collision
 ```
 
-Copy all necessary collision files from `tools/` into that directory,
+*(2) Copy all necessary collision files* 
+
+from `tools/` into that directory,
 
 ```
    $ cp tools/* Collision
 ```
-
 
 Move the 3D MESA SPH initial profiles into the Collision directory
 
@@ -134,8 +146,7 @@ Move the 3D MESA SPH initial profiles into the Collision directory
    $ mv MESA/sph.start* Collision/
 ```
 
-
-Get into the directory and start the simulation,
+*(3) Start the simulation*
 
 ```
    $ cd Collision/
