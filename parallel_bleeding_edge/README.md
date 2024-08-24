@@ -82,9 +82,18 @@ Create 3D models from MESA 1D models
 =====================================
 
 I am going to assume that you have a directory in the main level named `MESA/`
-with two subdirectories
+with two subdirectories:
 
-- 
+- `MESA_initial_1D_models/`
+- `MESA_initial_3D_models/`
+
+The folder `MESA_initial_1D_models/` is the usual working folder of MESA, i.e.
+
+```
+$ cp -r $MESA_DIR/star/work ./MESA_initial_1D_models/
+$ cd ./MESA_initial_1D_models/
+$ ./rn
+```
 
 Use your 1D profile file created in a directory with MESA as input for the
 sph.input (last rows). This will create an SPH profile from the 1D MESA file,
