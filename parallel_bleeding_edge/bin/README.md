@@ -85,5 +85,5 @@ The script generates a plot with the following features:
 - **Y-axis:** Density in g/cm³.
 - **Curve:** The plot shows density as a function of time, with a smooth curve using circles as markers.
 
-This plot helps visualize how the density changes over time during the simulation. The script is designed to ensure that both time and density data are correctly aligned and that the plot is aesthetically pleasing with LaTeX-rendered labels and proper scaling.
+This plot helps visualize how the density changes over time during the simulation. 
 
