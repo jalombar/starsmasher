@@ -1,6 +1,6 @@
 # StarSmasher Collision Simulation Scripts
 
-This repository contains several shell scripts designed to facilitate the management and execution of collision simulations using the StarSmasher software. Below is an overview of each script and its functionality.
+This repository contains several shell scripts designed to facilitate the management and execution of collision simulations using the StarSmasher software. Below is an overview of each script and its functionality. Note that I am assuming you use the `zsh` shell. Otherwise, please change the kernel line in all scripts.
 
 ## Scripts Overview
 
