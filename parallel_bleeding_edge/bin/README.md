@@ -1,4 +1,4 @@
-# StarSmasher Collision Simulation Scripts
+# StarSmasher collision simulation scripts
 
 This repository contains several shell scripts designed to facilitate the management and execution of collision simulations using the StarSmasher software. Below is an overview of each script and its functionality. Note that I am assuming you use the `zsh` shell. Otherwise, please change the kernel line in all scripts.
 
@@ -64,3 +64,26 @@ Run the script to start the StarSmasher simulation:
 ```
 
 The script will automatically log the details of the run and handle the output and error files.
+
+Here's the entry for `Rho_Time.py` in the README.md format:
+
+### 6. `Rho_Time.py`
+
+**Purpose:**
+This Python script extracts density and time data from the `log0.sph` and `energy0.sph` files generated during a simulation, converts these values to physical units (density in g/cm³ and time in years), and plots the density against time. The script also adds a secondary x-axis representing time in days, making it easier to interpret the results on different timescales.
+
+**Usage:**
+Run the script to generate the plot:
+```bash
+python3 Rho_Time.py
+```
+
+**Output:**
+The script generates a plot with the following features:
+- **X-axis (bottom):** Time in years.
+- **X-axis (top):** Time in days.
+- **Y-axis:** Density in g/cm³.
+- **Curve:** The plot shows density as a function of time, with a smooth curve using circles as markers.
+
+This plot helps visualize how the density changes over time during the simulation. The script is designed to ensure that both time and density data are correctly aligned and that the plot is aesthetically pleasing with LaTeX-rendered labels and proper scaling.
+
