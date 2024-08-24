@@ -152,13 +152,13 @@ Or do it step by step.
 from `tools/` into that directory,
 
 ```
-   $ cp tools/* Collision
+   $ cp tools/* Collision/
 ```
 
 Move the 3D MESA SPH initial profiles into the Collision directory
 
 ```
-   $ mv MESA/sph.start* Collision/
+   $ mv MESA_initial_3D_models/sph.start* Collision/
 ```
 
 *(3) Start the simulation*
