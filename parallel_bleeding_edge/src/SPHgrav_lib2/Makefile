@@ -6,15 +6,17 @@ AR   := ar ruv
 RANLIB := ranlib
 
 # path to your CUDA installation
-CUDAPATH       := $(shell dirname $(shell dirname $(shell which nvcc)))
+#CUDAPATH       := $(shell dirname $(shell dirname $(shell which nvcc)))
+CUDAPATH       := /usr/local/cuda-12.6
 CUDAINCLUDE    := -I$(CUDAPATH)/include
 NVCC           := $(CUDAPATH)/bin/nvcc
 
-#use this for Fermi cards
-NVCCFLAGS := -arch=sm_20
-#use this for GTX280/290/295, or any GT200 architecture with DP support
-# NVCCFLAGS := -arch=sm_13
-NVCCFLAGS += -O4 -g  $(CUDAINCLUDE)  -I./ -Xptxas -v,-abi=no 
+#use this for Turing TU102GL (gecko)
+# It should be 75 but the -abi=no flag gives trouble with it
+# We use instead 60 and remove the -abi=no flag
+NVCCFLAGS := -arch=sm_75
+#NVCCFLAGS += -O4 -g  $(CUDAINCLUDE)  -I./ -Xptxas -v,-abi=no 
+NVCCFLAGS += -O4 -g  $(CUDAINCLUDE)  -I./ -Xptxas -v
 
 # NVCCFLAGS += -maxrregcount=32
 NVCCFLAGS += -Xcompiler="-Wall"
