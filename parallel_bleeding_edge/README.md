@@ -109,7 +109,13 @@ Repeat for the second profile, corresponding to the second star.
 Brace for the collision
 ========================
 
-Create a collision directory,
+Use the script `StSm_PrepColl.sh`
+
+```
+   $ StSm_PrepColl.sh
+```
+
+Or do it step by step. Create a collision directory,
 
 ```
    $ mkdir Collision
