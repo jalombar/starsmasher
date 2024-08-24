@@ -1,2 +1,2 @@
 #!/bin/sh
-rm -r *.sph *.txt *.txt *.data *.log
+rm -f *.sph *.txt *.txt *.data *.log
