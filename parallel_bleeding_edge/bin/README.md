@@ -12,7 +12,7 @@ This script is used to clean up the working directory by removing all `.sph` fil
 **Usage:**  
 Simply run the script to remove the files:
 ```
-./StSm_clean.sh
+$ StSm_clean.sh
 ```
 
 ### 2. `StSm_plot.sh`
@@ -23,7 +23,7 @@ This script checks whether the `splash` visualization tool is installed on your 
 **Usage:**  
 Execute the script and provide any necessary arguments for `splash`:
 ```
-./StSm_plot.sh [additional_arguments]
+$ StSm_plot.sh [additional_arguments]
 ```
 
 ### 3. `StSm_PrepColl.sh`
@@ -34,7 +34,7 @@ This script sets up a new collision directory with a unique name and prepares it
 **Usage:**  
 Run the script to create a new collision directory and set up the environment:
 ```
-./StSm_PrepColl.sh
+$ StSm_PrepColl.sh
 ```
 
 ### 4. `StSm_rm.sh`
@@ -45,11 +45,11 @@ This script is designed to selectively remove snapshots from a StarSmasher simul
 **Usage:**  
 Specify the range of snapshots to remove by providing the start and end numbers as arguments:
 ```
-./StSm_rm.sh [start] [end]
+$ StSm_rm.sh [start] [end]
 ```
 For example, to remove snapshots between 250 and 3022:
 ```
-./StSm_rm.sh 250 3022
+$ StSm_rm.sh 250 3022
 ```
 
 ### 5. `StSm_run.sh`
@@ -60,22 +60,22 @@ This script runs the StarSmasher simulation using MPI (Message Passing Interface
 **Usage:**  
 Run the script to start the StarSmasher simulation:
 ```
-./StSm_run.sh
+$ StSm_run.sh
 ```
 
 The script will automatically log the details of the run and handle the output and error files.
 
 Here's the entry for `Rho_Time.py` in the README.md format:
 
-### 6. `Rho_Time.py`
+### 6. `StSm_Rho_Time.py`
 
 **Purpose:**
 This Python script extracts density and time data from the `log0.sph` and `energy0.sph` files generated during a simulation, converts these values to physical units (density in g/cm³ and time in years), and plots the density against time. The script also adds a secondary x-axis representing time in days, making it easier to interpret the results on different timescales.
 
 **Usage:**
 Run the script to generate the plot:
-```bash
-python3 Rho_Time.py
+```
+$ StSm_Rho_Time.py
 ```
 
 **Output:**
