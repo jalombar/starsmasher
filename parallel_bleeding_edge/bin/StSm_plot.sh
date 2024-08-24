@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env zsh
 
 if ! command -v splash &> /dev/null; then
     echo "splash is not installed."

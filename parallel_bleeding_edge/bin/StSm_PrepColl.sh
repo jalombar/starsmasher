@@ -29,7 +29,10 @@ done
 
 # Copy all necessary collision files from tools/ into that directory
 
-cp $TOOLS/* "$dir_name/"
+cp $TOOLS/*_collision "$dir_name/"
+cd "$dir_name/"
+mv sph.init_collision  sph.init
+mv sph.input_collision sph.input
 
 # Check if the 3D MESA SPH initial profiles exist, else exit.
 # If they exist, move them into the Collision directory

@@ -96,8 +96,17 @@ $ ./rn
 ```
 
 Use your 1D profile file created in a directory with MESA as input for the
-sph.input (last rows). This will create an SPH profile from the 1D MESA file,
-say profile9.data. It needs to relax.
+`sph.input` (last rows). You will also need `sph.init`. You can find both
+files in the `tools/` directory:
+
+```
+$ cp tools/sph.init_MESA  MESA_initial_3D_models/sph.init
+$ cp tools/sph.input      MESA_initial_3D_models/sph.input
+```
+
+After you have your profile from the 1D MESA file, say profile9.data, copy it
+to the 3D folder to create an SPH profile which needs to relax before we start
+the simulation,
 
 ```
    $ cp MESA_initial_1D_models/LOGS/profile9.data MESA_initial_3D_models/
