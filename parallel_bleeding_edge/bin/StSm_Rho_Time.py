@@ -76,7 +76,7 @@ ax1.tick_params(axis='y', which='both', labelsize=tick_fontsize)
 # Upper x-axis with time in days
 ax2 = ax1.twiny()
 ax2.plot(time_data_days, density_data, 'bo-', alpha=0.0)  # Use alpha=0 to avoid showing the line again
-ax2.set_xlabel(r'Time (days)', fontsize=label_fontsize)
+ax2.set_xlabel(r'Time (days)', fontsize=label_fontsize, labelpad=13)
 ax2.tick_params(axis='x', labelsize=tick_fontsize)
 
 # Grid and title
