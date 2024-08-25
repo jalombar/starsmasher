@@ -195,3 +195,22 @@ Move the 3D MESA SPH initial profiles into the Collision directory
    $ cd Collision/
    $ StSm_run.sh
 ```
+Beyond the collision
+=====================
+
+The SPH collision will give you an outcome which is interesting in many different ways, 
+but maybe you are interested in the long term evolution of the object, and that could 
+take a long time to integrate, and a large accumulated numerical error.
+
+Fortunately, there is a tool to convert the three-dimensional output of StarSmasher into
+a 1D file that MESA can read. This code has been developed by Charles Gibson and can be found here:
+
+<a href="https://github.com/charlie-gibson/sph-to-mesa/">https://github.com/charlie-gibson/sph-to-mesa/tree/main</a>
+
+I may end up adding it to the `tools/` folder to have everything centralised but all of the credits for
+the hard work go to Charles, of course.
+
+
+
+
+
