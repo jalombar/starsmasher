@@ -139,6 +139,25 @@ After that, you can clean the directory to save disc space,
    $ StSm_clean.sh
 ```
 
+## Kinds of Collisions
+
+### To initiate a collision
+
+The three-letter code word in `sph.init` should be `hyp`, which directs the code to the initialization routine `initialize_hyperbolic.f`. In `sph.input`, you can use any of the following pairs of data to initialize the orbital parameters: `(e0, vinf2)`, `(e0, rp)`, `(semimajoraxis, rp)`, `(semimajoraxis, e0)`, or `(rp, vinf2)`. Here, `e0` is the eccentricity of the initial orbit, and `rp` is the periastron separation.
+
+### Hyperbolic, parabolic or elliptical: `vinf2`
+
+Whether the encounter is hyperbolic, parabolic, or elliptical can be controlled by the parameter `vinf2` (the relative velocity at infinity squared in code units) or by the parameter `semimajoraxis` (the semimajor axis). The code unit of velocity is approximately 436.73 km/s. The value of `vinf2` is negative for elliptical encounters, zero for parabolic encounters, and positive for hyperbolic encounters.
+
+### Examples
+
+For example, if you'd like a relative velocity at infinity of 1000 km/s, then you would set `vinf2` to approximately 5.243. As another example, if `vinf2` is set to approximately 11.796, then the relative velocity at infinity would be around 1500 km/s.
+
+Note that the orbital energy (which relates to the semimajor axis) has a simple relationship with `vinf2`: the semimajor axis `a` is equal to `-G * M / vinf2`, where `M` is the total mass of the two stars. 
+
+I.e. example, if you are colliding a 0.3 solar mass star with an 8 solar mass star, and `vinf2` is set to `-0.07`, then the semimajor axis `a` would be approximately 118.57, assuming the units are the default ones where `G`, the mass of the Sun, and the radius of the Sun are all equal to 1.
+
+
 Brace for collision
 ====================
 
