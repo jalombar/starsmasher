@@ -1,4 +1,4 @@
-# StarSmasher post-pocessing code: Charles Gibson's sph-to-mesa
+# Post-pocessing code: Charles Gibson's sph-to-mesa
 
 This repository contains post-processing codes developed in Python to analyze
 output data from the StarSmasher simulation software. The primary focus of
