@@ -1,20 +1,23 @@
-# Post-pocessing code: Charles Gibson's sph-to-mesa
+# Directory `tools2/` 
 
-This repository contains post-processing codes developed in Python to analyze
-output data from the StarSmasher simulation software. The primary focus of
-these codes is to construct 1-D stellar models based on the 3-D data produced
-by StarSmasher. The generated output files can be utilized to evolve the
-results of Smoothed Particle Hydrodynamics (SPH) collisions within the MESA
-(Modules for Experiments in Stellar Astrophysics) framework.
+This directory contains more complex tools than the main `tools/` one,
+where we have configuration files and light-weight tools. In `tools2/`
+we will add codes which go beyond the small scripts of `bin/`.
 
-The code `sph-to-mesa` provided in the `tools2` directory is a reproduction of
-the program originally developed by Charles Gibson. This work serves as a
-foundation for the current repository, contributing to the ongoing development
-and refinement of post-processing tools for stellar simulations.
+# Charles Gibson's sph-to-mesa
 
-We have decided to include it here to have everything centralised, but do not
-get it wrong; the author is Charles Gibson and he deserves all of the credit
-for the work. This is his original repository:
+These codes developed in Python analyse output data from StarSmasher
+collisions. The primary focus of these codes is to construct 1-D stellar models
+based on the 3-D data produced by StarSmasher. The generated output files can
+be utilized to evolve the results of Smoothed Particle Hydrodynamics (SPH)
+collisions within the MESA (Modules for Experiments in Stellar Astrophysics)
+framework.
+
+The code `sph-to-mesa` provided in the `tools2/` directory is a reproduction of
+the program originally developed by Charles Gibson. We have decided to include
+it here to have everything centralised, but do not get it wrong; the author is
+Charles Gibson and he deserves all of the credit for the work. This is his
+original repository:
 
 <a href="https://github.com/charlie-gibson/sph-to-mesa">https://github.com/charlie-gibson/sph-to-mesa</a>
 
