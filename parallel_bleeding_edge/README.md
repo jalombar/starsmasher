@@ -1,7 +1,8 @@
-Note
-=====
+"Bleeding edge"
+=================
 
-These notes are being developed as a stand-alone in the
+As the name points out in a subtle way, this is the most updated 
+version of the code. These notes are being developed as a stand-alone in the
 `parallel-bleeding-edge` folder by Pau Amaro Seoane. Any mistake should be
 attributed to me. If you spot any, please let me know.
 
@@ -195,6 +196,39 @@ Move the 3D MESA SPH initial profiles into the Collision directory
    $ cd Collision/
    $ StSm_run.sh
 ```
+
+### Analysing the collision
+
+You can use the scripts in the `bin/` folder. There's another `README.md` file
+there.
+
+Besides that, plotting quantities `energy?.sph` can help you to understand for instance
+how many passages there are before merger. The columns in that file are as follows, with 
+all quantities in code units (G=Msun=Rsun=1):
+
+1. time t
+2. potential energy W
+3. kinetic energy T
+4. internal energy U
+5. total energy E =  W + T + U
+6. total entropy
+7. angular momentum
+
+For certain types of runs, there will be additional columns as well.
+
+For instance, ounting the number of major "dips" in W versus t gives the number of passages. 
+
+But... what is a major dip from a passage, and what is a minor dip from an oscillation?
+
+Dips in the potential energy W correspond either to a collision of the two components before 
+final merging or to a maximum contraction during the subsequent oscillations of the merger remnant. 
+The criterion we use to distinguish collisions (which should be included in the number of interactions 
+`n_p` before the stars merge) from oscillations is that the first local maximum of W which is lower than 
+the previous local maximum occurs immediately after the final merging. The idea behind this criterion 
+is that a collision without merger ultimately tends to increase the system's gravitational potential 
+energy, whereas a merger will decrease the potential energy.
+
+
 Beyond the collision
 =====================
 
