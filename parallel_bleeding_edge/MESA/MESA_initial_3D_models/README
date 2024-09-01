@@ -1,7 +1,6 @@
-Remember to name the final snapshot to
+Take as sph.start1u the out?.sph which corresponds to
+the end of the relaxation:
 
-sph.start1u
+In "sph.input" look for
 
-or
-
-sph.start2u
+treloff=50
