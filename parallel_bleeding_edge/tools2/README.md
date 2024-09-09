@@ -59,6 +59,13 @@ link it, i.e.
 $ ln -sf /path/to/sph-to-mesa/python_splot/ .
 ```
 
+so that it now shows
+
+```
+$ ls
+
+Collision_0b52ae08/  sph-to-mesa
+```
 
 ### Create `sph.composition`
 
