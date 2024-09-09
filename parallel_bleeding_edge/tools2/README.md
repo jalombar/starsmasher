@@ -38,6 +38,28 @@ sys.path.insert(0, f'/path/to/sph-to-mesa/python_splot/') # location of the main
 Then move the script `splot.py` to any folder which is in your path. For
 instance, in `$HOME/bin`.
 
+Also, in order for `splot.py` to properly work, note that the script is expecting 
+`python_splot` to be in the folder in which you run your simulations. I.e. if you
+have under this directory your folders with your simulations,
+
+```
+$ pwd
+
+~/work/StarSmasher_Collisions
+
+$ ls
+
+Collision_0b52ae08/
+```
+
+you need to either copy the folder with `python_splot` to `~/work/StarSmasher_Collisions` or
+link it, i.e.
+
+```
+$ ln -sf /path/to/sph-to-mesa/python_splot/ .
+```
+
+
 ### Create `sph.composition`
 
 In the folder in which you have created the 3D models for the collision simulation,
@@ -149,8 +171,6 @@ Finally, you concatenate the two `sph.composition` files into a single one,
 ```
 cat 1st_star/sph.composition 2nd_star/sph.composition > sph.composition
 ```
-
-
 
 ## Note: Features and limitations
 
