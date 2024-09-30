@@ -3,8 +3,8 @@
  dtout=1, ! how often an out*.sph files should be dumped
  nrelax=0, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
  sep0=15, ! initial separation of two stars in a binary or collision calculation
- rp=3.9d0, ! the impact parameter for collisions; despite the name, this is actually the *periastron separation*
- semimajoraxis=20d0, ! the semimajor axis for the collision (in units of runit below)
+ rp=3.9d0, ! periastron separation of initial Keplerian orbit
+ semimajoraxis=20d0, ! the semimajor axis for the collision (in units of runit)
  ngravprocs=-2, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
  ppn=16, ! set this to the number of cpu cores per node
