@@ -806,6 +806,21 @@ c     profilefile comes from MESA
      $        star_mass_n14,star_mass_o16,star_mass_ne20,he_core_mass,       
      $        c_core_mass,o_core_mass,si_core_mass,fe_core_mass,             
      $        neutron_rich_core_mass
+     
+         if((num_zones .gt. kdm).and.(myrank .eq. 0)) then
+              print *, "Too many zones in the MESA profile!"
+              print *, "Edit the value of 'kdm' in starsmasher.h to use"//
+     $             " more."
+              print *, "num_zones = ",num_zones
+              print *, "Max allowed zones kdm = ", kdm
+              write(69,*) "Too many zones in the MESA profile!"
+              write(69,*) "Edit the value of 'kdm' in starsmasher.h to "//
+     $             "use more."
+              write(69,*) "num_zones = ",num_zones
+              write(69,*) "Max allowed zones kdm = ", kdm
+              error stop
+         end if
+     
          read(io,*)             ! blank line
          read(io,*)             ! list of integers                   
 
