@@ -102,7 +102,7 @@ files in the `tools/` directory:
 
 ```
 $ cp tools/sph.init_MESA  MESA_initial_3D_models/sph.init
-$ cp tools/sph.input      MESA_initial_3D_models/sph.input
+$ cp tools/sph.input_MESA MESA_initial_3D_models/sph.input
 ```
 
 After you have your profile from the 1D MESA file, say profile9.data, copy it
