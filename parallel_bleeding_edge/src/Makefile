@@ -47,8 +47,8 @@ GPUOBJS = $(FOBJS) gpu_grav.o
 #%.o: %.c starsmasher.h
 #	$(CC) -c $(CFLAGS) $<
 
-GPUEXEC = test_gpu_sph
-CPUEXEC = test_cpu_sph
+GPUEXEC = test_gpu_sph_REMOVE
+CPUEXEC = test_cpu_sph_REMOVE
 
 gpu: $(GPUOBJS)
 	make -f Makefile -C $(GRAVLIB)
