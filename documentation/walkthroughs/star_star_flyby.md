@@ -69,24 +69,31 @@ Where '8' can me changed to the number of parallel processes (often equal to the
 This creates, among other things, a file log0.sph that collects
 ascii tex about the run.
 
-### Step 1(b): Relaxing a TWIN model
+### Step 1(b): Relaxing a MESA (or TWIN) model
 
+Now let's relax a model with a more realistic structure than a simple polytrope, that is, one from a stellar evolution code like MESA or TWIN.
 Get the directories ready:
 ```
 cd ~/starsmasher   ### or cd to wherever your main installation is
-cp -r parallel_bleeding_edge TWIN
-cd TWIN
+cp -r parallel_bleeding_edge realistic_model
+cd realistic_model
 cp ../example_input/relaxation_TWIN_model/* .
 ```
 
-To relax a TWIN model instead, the three letter code word in sph.init should be 'erg'.
-The SPH code will look for a model named 'eg.last1.muse_s2mm' by default.
-You can create a symbolic link from an appropriate output file of TWIN if you like (e.g., "cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm").
-The file m_8_t_5.7.last1.muse_s2mm is the default in example_input/relaxation_TWIN_model.
-It represents an 8M_sun MS star at t=5.7Myr.
+To relax such a model, the three letter code word in sph.init should be 'erg'. Within sph.input, you tell StarSmasher which model you want to use by setting the parameter profilefile to the appropriate filename. If you don't want to run a stellar evolution code yourself and just want something quick, you can use the TWIN file
+m_8_t_5.7.last1.muse_s2mm that's in example_input/relaxation_TWIN_model/. It represents an 8M_sun MS star at t=5.7Myr.
 
-The sph.input file, also available within example_input/relaxation_TWIN_model/, should be similar to the sph.input file used above for the polytrope (probably just change N and nothing else unless necessary).
-The file on the svn site does have TRELOFF to 200 in this case, to make sure there was enough time for oscillations to die off, and TF is 300 so the star could be monitored for 100 time units after the relaxation was turned off.
+Most people will presumably want to make their own model from MESA.  To do this, follow the
+MESA documentation at https://docs.mesastar.org/en/latest/.  There are many helpful YouTube tutorials curated by Frank Timmes: https://www.youtube.com/@fxtimmes4444/videos
+
+Once you run MESA, you will find snapshots named profile*.data in the LOGS subdirectory of your MESA calculation.  Pick the one that you want, and copy it to your StarSmasher directory called realistic_model above.  For the sake of argument, let's say you've chosen profile123.data.  Then in sph.input, you would set
+
+```
+profilefile="profile123.data"
+```
+
+The sph.input file, such as the one within example_input/relaxation_TWIN_model/, should be similar to the sph.input file used above for the polytrope (probably just change N, profilefile, and nothing else unless necessary).
+The example file on the GitHub site does have TRELOFF to 200 in this case, to make sure there was enough time for oscillations to die off, and TF is 300 so the star could be monitored for 100 time units after the relaxation was turned off.
 
 As discussed before, if you are using a pbs scheduler, run the code using the following:
 ```
