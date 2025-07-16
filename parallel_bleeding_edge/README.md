@@ -4,7 +4,8 @@
 As the name points out in a subtle way, this is the most updated 
 version of the code. These notes are being developed as a stand-alone in the
 `parallel-bleeding-edge` folder by Pau Amaro Seoane. Any mistake should be
-attributed to me. If you spot any, please let me know.
+attributed to me. Please do not use this version of starsmasher unless you are
+willing to run intro trouble. If you spot any error, please let me know.
 
 I am focusing on:
 
@@ -78,6 +79,42 @@ export PATH="$PATH:/bin:/usr/bin:/usr/local/bin:/sbin:/home/pau/StarSmasher/para
 
 This way you can start a simulation anywhere you want and analyse the datafiles, etc.
 
+A note on units
+===============
+
+StarSmasher assumes that `R_sun = M_sun = G = 1`
+
+where
+
+```
+R_sun = 6.9599 * 10^10 cm
+M_sun = 1.9891 * 10^33 g
+G = 6.6739 * 10^-8 cm^3 g^-1 s^-2
+```
+
+You can combine these three values to get the StarSmasher units for other quantities.
+
+For example, a StarSmasher unit of time is
+
+``` 
+t_sun = sqrt(R_sun^3 / (G*M_sun)) = 1593.6 seconds
+``` 
+
+You can use the same approach for other physical quantities such as to get the pressure unit
+that was also included in the output you provided, where
+
+``` 
+P_sun = G * M_sun^2 / R_sun^4 = 1.1253*10^16 g cm^-1 s^-2
+```
+
+This means that you have to multiply the code output by these factors to
+get physical units,
+
+ConversionFactorLength = 1           # To get lengths in Rsun
+ConversionFactorLength = 2.255e-8    # To get lengths in parsecs
+ConversionFactorTime   = 5.053e-5    # To get time in years
+ConversionFactorMass   = 1           # To get mass in Msun
+ConversionFactorPressure = 1.1253e16 # To get g/(cm sec)
 
 Create 3D models from MESA 1D models
 =====================================
