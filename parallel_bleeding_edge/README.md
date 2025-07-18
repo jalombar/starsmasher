@@ -89,12 +89,14 @@ where
 ```
 R_sun = 6.9599 * 10^10 cm
 M_sun = 1.9891 * 10^33 g
-G = 6.6739 * 10^-8 cm^3 g^-1 s^-2
+G = 6.6739 * 10^-8 cm^3 g^-1 s^-2 # Newton's constant in cgs units
 ```
 
-You can combine these three values to get the StarSmasher units for other quantities.
+You can combine these three values to get the StarSmasher units for other quantities. The idea for any 
+quantity is that its units are whatever combination of G, Msun, and Rsun give you that quantity.  
+For example, the unit of density is Msun/Rsun^3.
 
-For example, a StarSmasher unit of time is
+A StarSmasher unit of time is
 
 ``` 
 t_sun = sqrt(R_sun^3 / (G*M_sun)) = 1593.6 seconds
