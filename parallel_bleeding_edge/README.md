@@ -89,12 +89,14 @@ where
 ```
 R_sun = 6.9599 * 10^10 cm
 M_sun = 1.9891 * 10^33 g
-G = 6.6739 * 10^-8 cm^3 g^-1 s^-2
+G = 6.6739 * 10^-8 cm^3 g^-1 s^-2 # Newton's constant in cgs units
 ```
 
-You can combine these three values to get the StarSmasher units for other quantities.
+You can combine these three values to get the StarSmasher units for other quantities. The idea for any 
+quantity is that its units are whatever combination of G, Msun, and Rsun give you that quantity.  
+For example, the unit of density is Msun/Rsun^3.
 
-For example, a StarSmasher unit of time is
+A StarSmasher unit of time is
 
 ``` 
 t_sun = sqrt(R_sun^3 / (G*M_sun)) = 1593.6 seconds
@@ -107,15 +109,18 @@ that was also included in the output you provided, where
 P_sun = G * M_sun^2 / R_sun^4 = 1.1253*10^16 g cm^-1 s^-2
 ```
 
-This means that you have to multiply the code output by these factors to
-get physical units,
+A few more examples: You have to multiply the code output by these factors to
+get physical units:
 
 ```
-ConversionFactorLength = 1           # To get lengths in Rsun
-ConversionFactorLength = 2.255e-8    # To get lengths in parsecs
-ConversionFactorTime   = 5.053e-5    # To get time in years
-ConversionFactorMass   = 1           # To get mass in Msun
-ConversionFactorPressure = 1.1253e16 # To get g/(cm sec)
+ConversionFactorLength   = 1           # To get lengths in Rsun
+ConversionFactorLength   = 2.255e-8    # To get lengths in parsecs
+ConversionFactorTime     = 1593.6      # To get time in seconds
+ConversionFactorTime     = 5.053e-5    # To get time in years
+ConversionFactorMass     = 1           # To get mass in Msun
+ConversionFactorMass     = 1.9891e33   # To get mass in grams
+ConversionFactorPressure = 1.1253e16   # To get g/(cm sec)
+ConversionFactorDensity  = 4.1063e+11  # To get g/cm^2 (column density!)
 ```
 
 Create 3D models from MESA 1D models
