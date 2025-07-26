@@ -137,6 +137,55 @@ The folder `MESA_initial_1D_models/` is the usual working folder of MESA, i.e.
 ```
 $ cp -r $MESA_DIR/star/work ./MESA_initial_1D_models/
 $ cd ./MESA_initial_1D_models/
+$ cp $MESA_DIR/star/defaults/profile_columns.list .
+$ vim $MESA_DIR/star/defaults/profile_columns.list
+```
+These last two steps is to have information about the abundances, which might
+be useful. Edit `profile_columns.list` and add just below `z_mass_fraction_metals`
+the following:
+```
+   zone       ! numbers start with 1 at the surface
+   mass       ! m/Msun. mass coordinate of outer boundary of cell.
+   logR       ! log10(radius/Rsun) at outer boundary of zone
+   logT       ! log10(temperature) at center of zone
+   logRho     ! log10(density) at center of zone
+   logP       ! log10(pressure) at center of zone
+   x_mass_fraction_H
+   y_mass_fraction_He
+   z_mass_fraction_metals
+   h1
+   he3
+   he4
+   c12
+   n14
+   o16
+   ne20
+   mg24
+   q
+```
+Save the file and modify `inlist_project` to make sure MESA reads in what you want:
+```
+&star_job
+  ! see star/defaults/star_job.defaults
+
+  ! begin with a pre-main sequence model
+    create_pre_main_sequence_model = .true.
+
+  ! save a model at the end of the run
+    save_model_when_terminate = .false.
+    !save_model_filename = '15M_at_TAMS.mod'
+
+  ! display on-screen plots
+    pgstar_flag = .true.
+
+    profile_columns_file = 'profile_columns_file' ! < ---- HERE
+
+/ ! end of star_job namelist
+
+```
+Make and run
+```
+$ ./mk
 $ ./rn
 ```
 
