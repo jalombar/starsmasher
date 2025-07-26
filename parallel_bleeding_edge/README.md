@@ -178,11 +178,19 @@ Save the file and modify `inlist_project` to make sure MESA reads in what you wa
   ! display on-screen plots
     pgstar_flag = .true.
 
-    profile_columns_file = 'profile_columns_file' ! < ---- HERE
+    profile_columns_file = 'profile_columns.list' ! < ---- HERE
 
 / ! end of star_job namelist
 
 ```
+You might also be interested in having the evolutionary plots in pdf
+format with a white background instead of the default one. For that,
+change your pgplot configuration file to this
+```
+$ cat XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+```
+
+
 Make and run
 ```
 $ ./mk
