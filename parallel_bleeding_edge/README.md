@@ -15,6 +15,12 @@ I am focusing on:
 But StarSmasher is capable of many more things. Have a look at the upper
 folders and the `README.md` file there.
 
+WARNING
+=======
+Unless you know what you are doing and have a good overview of what StSm does and
+how it works, *you should NOT be using bleeding edge*. You will be running into bugs
+and problems, since this is meant to be a rolling version of StSm. Use the default
+one instead.
 
 Compile 
 ========
