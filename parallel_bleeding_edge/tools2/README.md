@@ -35,36 +35,76 @@ to line 25:
 sys.path.insert(0, f'/path/to/sph-to-mesa/python_splot/') # location of the main folder
 ```
 
-Then move the script `splot.py` to any folder which is in your path. For
+Then (soft) link the script `splot.py` to any folder which is in your path. For
 instance, in `$HOME/bin`.
 
-Also, in order for `splot.py` to properly work, note that the script is expecting 
-`python_splot` to be in the folder in which you run your simulations. I.e. if you
-have under this directory your folders with your simulations,
-
 ```
-$ pwd
-
-~/work/StarSmasher_Collisions
-
-$ ls
-
-Collision_0b52ae08/
+$ ln -sf /path/to/sph-to-mesa/python_splot/splot.py $HOME/bin
 ```
 
-you need to either copy the folder with `python_splot` to `~/work/StarSmasher_Collisions` or
-link it, i.e.
+### Make sure you have the information from the 1D MESA models 
+
+When you run your MESA simulations, make sure you have this file in the simulation
+directory
 
 ```
-$ ln -sf /path/to/sph-to-mesa/python_splot/ .
+$ cp $MESA_DIR/star/defaults/profile_columns.list .
+```
+This file contains every column that can be included in a MESA profile. In order to track 
+the composition, you will need to have various composition values written to the MESA profile. 
+This file should contain the following default values:
+
+``` 
+   zone       ! numbers start with 1 at the surface
+   mass       ! m/Msun. mass coordinate of outer boundary of cell.
+   logR       ! log10(radius/Rsun) at outer boundary of zone
+   logT       ! log10(temperature) at center of zone
+   logRho     ! log10(density) at center of zone
+   logP       ! log10(pressure) at center of zone
+   x_mass_fraction_H
+   y_mass_fraction_He
+   z_mass_fraction_metals
+```
+Then, there are many lines with commented out values. You will need to add in the composition 
+lines by adding the following lines *just below* the ones you see above:
+
+``` 
+   h1
+   he3
+   he4
+   c12
+   n14
+   o16
+   ne20
+   mg24
+   q
 ```
 
-so that it now shows
+Edit the file called `inlist_project` and add the line
 
 ```
-$ ls
+profile_columns_file = 'profile_columns_file'
+```
 
-Collision_0b52ae08/  sph-to-mesa
+in the `&star_job` section. For instance:
+
+```
+&star_job
+  ! see star/defaults/star_job.defaults
+
+  ! begin with a pre-main sequence model
+    create_pre_main_sequence_model = .true.
+
+  ! save a model at the end of the run
+    save_model_when_terminate = .false.
+    !save_model_filename = '15M_at_TAMS.mod'
+
+  ! display on-screen plots
+    pgstar_flag = .true.
+
+    profile_columns_file = 'profile_columns_file'
+
+/ ! end of star_job namelist
 ```
 
 ### Create `sph.composition`
