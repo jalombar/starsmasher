@@ -187,7 +187,77 @@ You might also be interested in having the evolutionary plots in pdf
 format with a white background instead of the default one. For that,
 change your pgplot configuration file to this
 ```
-$ cat XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+$ cat cat inlist_pgstar 
+&pgstar
+  ! see star/defaults/pgstar.defaults
+    
+    file_device = 'vcps'
+    file_extension = 'eps'
+
+  ! MESA uses PGPLOT for live plotting and gives the user a tremendous
+  ! amount of control of the presentation of the information.
+
+  ! show HR diagram
+  ! this plots the history of L,Teff over many timesteps
+    HR_win_flag = .true.
+
+  ! set static plot bounds
+    HR_logT_min = 3.5
+    HR_logT_max = 4.0
+    HR_logL_min = -1.0
+    HR_logL_max = 4.0
+
+  ! set window size (aspect_ratio = height/width)
+    HR_win_width = 6
+    HR_win_aspect_ratio = 1.0
+
+  ! show temperature/density profile
+  ! this plots the internal structure at single timestep
+    TRho_Profile_file_flag = .true.
+    TRho_Profile_file_dir = 'png'
+    TRho_Profile_file_prefix = 'trho_profile_'
+    TRho_Profile_file_interval = 5
+    TRho_Profile_file_width = -1
+    TRho_Profile_file_aspect_ratio = -1
+
+  ! add legend explaining colors
+    show_TRho_Profile_legend = .true.
+
+  ! display numerical info about the star
+    show_TRho_Profile_text_info = .true.
+
+  ! set window size (aspect_ratio = height/width)
+    TRho_Profile_win_width = 8
+    TRho_Profile_win_aspect_ratio = 0.75
+
+
+    TmaxRho_file_flag = .true.
+    TmaxRho_file_dir = 'png'
+    TmaxRho_file_prefix = 'trho_'
+    TmaxRho_file_interval = 5
+    TmaxRho_file_width = -1
+    TmaxRho_file_aspect_ratio = -1
+
+    logL_Teff_file_flag = .false.
+    logL_Teff_file_dir = 'png'
+    logL_Teff_file_prefix = 'logL_Teff_'
+    logL_Teff_file_interval = 5
+    logL_Teff_file_width = -1
+    logL_Teff_file_aspect_ratio = -1
+
+    L_Teff_file_flag = .false.
+    L_Teff_file_dir = 'png'
+    L_Teff_file_prefix = 'L_Teff_'
+    L_Teff_file_interval = 5
+    L_Teff_file_width = -1
+    L_Teff_file_aspect_ratio = -1
+
+    file_white_on_black_flag = .false.
+    win_white_on_black_flag = .false.
+
+
+
+/ ! end of pgstar namelist
 ```
 
 
