@@ -327,6 +327,35 @@ The three-letter code word in `sph.init` should be `hyp`, which directs the code
 
 Whether the encounter is hyperbolic, parabolic, or elliptical can be controlled by the parameter `vinf2` (the relative velocity at infinity squared in code units) or by the parameter `semimajoraxis` (the semimajor axis). The code unit of velocity is approximately 436.73 km/s. The value of `vinf2` is negative for elliptical encounters, zero for parabolic encounters, and positive for hyperbolic encounters.
 
+### A collision (or not) with a compact object, including a supermassive black hole
+
+If you want to simulate a tidal disruption or whatever torture you want to inflict upon a poor star with a compact object, the only thing you need to do is to use only one sph file for the star you want to torture, `sph.start1u` and then add in `sph.input` " mbh=10 " or whatever you want the mass to be. For instance, you could have a supermassive black hole of mass 4.3e6 (Msun). The nice thing is that you can define an `reat` radius in `sph.input` from which the gas particles' mass will be added to the black hole and removed from the simulation.
+
+For a M=4.3e6 Msun BH, the Schwarschild radius is 18 Rsun, and the innermost stable circular orbit radius is three times that or about 55 Rsun.  It would be reasonable to set `reat=55`.
+
+This will output a file called `eat0.sph` in your folder with the following information (per column):
+
+1. t = Simulation time at which particles are being removed ("eaten") by the black hole.
+2. thrownawaymass = Total mass of particles removed (and added to the mass of the black hole) at this time step.
+3. thrownawaynum = Number of particles removed.
+4. thrownawayepot = Total gravitational potential energy associated with the removed particles before removal.
+5. thrownawayekin = Total kinetic energy of the removed particles before removal.
+6. thrownawayeint = Total internal (thermal) energy of the removed particles before removal.
+7. epotfinal = Gravitational potential energy of the entire system after removal and black hole mass update.
+8. epotoriginal = Gravitational potential energy of the system before removal.
+9. ekinbhfinal = Kinetic energy of the black hole (treated as the last particle) after removal.
+10. ekinbhoriginal = Kinetic energy of the black hole before removal.
+11. Energy Accounting Term thrownawayekin + thrownawayeint + (epotoriginal - epotfinal) + (ekinbhoriginal - ekinbhfinal) = Total energy removed from the gas and transferred to the black hole (or lost from the system).
+
+Components of Energy Accounting Term:
+- thrownawayekin + thrownawayeint: kinetic + internal energy of removed particles.
+- (epotoriginal - epotfinal): change in potential energy due to their removal.
+- (ekinbhoriginal - ekinbhfinal): change in black hole kinetic energy due to mass & momentum adjustment.
+
+So column 11 should allow you to explain jumps in the energy that appear in `energy*.sph`.
+
+
+
 ### Examples
 
 For example, if you'd like a relative velocity at infinity of 1000 km/s, then you would set `vinf2` to approximately 5.243. As another example, if `vinf2` is set to approximately 11.796, then the relative velocity at infinity would be around 1500 km/s.
