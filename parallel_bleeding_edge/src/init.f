@@ -308,6 +308,8 @@ c     get 3-letter code for type of initial condition from init file
          endif
       endif
 
+      call sync_initial_conditions
+
       if(n.gt.nmax)then
          if(myrank.eq.0) write(69,*)'init: increase nmax to',n
          stop
@@ -498,11 +500,12 @@ c      end
       common /jumpcomm/ tjumpahead
       logical fileexists
       integer ierr
-      real*8 displacex,displacey,displacez
+      real*8 displacex,displacey,displacez,bimpact
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
       namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hco,mco,hfloor,
      $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
+     $     bimpact,
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
      $     nintvar,ngravprocs,qthreads,gflag,mbh,runit,munit,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
@@ -518,6 +521,7 @@ c      end
 
       semimajoraxis=0.d0
       impactparameter=-1.d30
+      bimpact=-1.d30
       rp=-1.d30
       e0=-1.d30
       vinf2=1.d30
@@ -586,6 +590,10 @@ c     set some default values, so that they don't necessarily have to be set in 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
       close(12)
+
+      if(impactparameter.le.-1.d29 .and. bimpact.gt.-1.d29) then
+         impactparameter=bimpact
+      endif
 
       if(nitpot.ne.1 .and. ngr.ne.0) then
          if(myrank.eq.0) then
@@ -699,9 +707,9 @@ c      if(myrank.eq.0) write(69,*)'n_lower,n_upper,n',n_lower,n_upper,n
       include 'starsmasher.h'
       logical energyfilealreadyexists!,strideexists
       integer filenum
-      character*11 energyfile
-      character*8 logfile
-      character*8 eatfile
+      character*14 energyfile
+      character*11 logfile
+      character*11 eatfile
 
       if(myrank.eq.0) then 
          energyfilealreadyexists=.true.
@@ -709,19 +717,19 @@ c      if(myrank.eq.0) write(69,*)'n_lower,n_upper,n',n_lower,n_upper,n
          do while(energyfilealreadyexists)
             filenum=filenum+1
             if(myrank.eq.0) write(energyfile,101)filenum
- 101        format('energy',i1.1,'.sph')
+ 101        format('energy',i4.4,'.sph')
             inquire(file=energyfile,exist=energyfilealreadyexists)
          enddo
       
          write(logfile,103)filenum
- 103     format('log',i1.1,'.sph')
+ 103     format('log',i4.4,'.sph')
          open(22,file=energyfile,status='unknown')
          open(69,file=logfile,status='unknown')
          write(69,*)'writing energy data to ',energyfile
          write(69,*)'writing log data to ',logfile
          if(reat.gt.0) then
             write(eatfile,104)filenum
- 104        format('eat',i1.1,'.sph')
+ 104        format('eat',i4.4,'.sph')
             open(43,file=eatfile,status='unknown')
             write(69,*)'writing eat data to ',eatfile
          endif
@@ -765,6 +773,38 @@ c      do i=n_lower,n_upper
          u(i)=u(i)+dth*udot(i)  ! update u to half-timestep
       enddo
       t=t+dth
+
+      return
+      end
+
+************************************************************************
+      subroutine sync_initial_conditions
+c     Keep generated or read initial conditions identical on every rank.
+      include 'starsmasher.h'
+      include 'mpif.h'
+      integer ierr,count
+
+      call mpi_bcast(n,1,mpi_integer,0,mpi_comm_world,ierr)
+      call mpi_bcast(ntot,1,mpi_integer,0,mpi_comm_world,ierr)
+      count=max(ntot,1)
+
+      call mpi_bcast(x,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(y,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(z,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(vx,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(vy,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(vz,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(am,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(hp,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(u,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(rho,count,mpi_double_precision,0,mpi_comm_world,ierr)
+      call mpi_bcast(por2,count,mpi_double_precision,0,mpi_comm_world,
+     $     ierr)
+      call mpi_bcast(grpot,count,mpi_double_precision,0,mpi_comm_world,
+     $     ierr)
+      call mpi_bcast(meanmolecular,count,mpi_double_precision,0,
+     $     mpi_comm_world,ierr)
+      call mpi_bcast(cc,count,mpi_integer,0,mpi_comm_world,ierr)
 
       return
       end

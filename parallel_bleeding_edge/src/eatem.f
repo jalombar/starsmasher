@@ -165,15 +165,9 @@ c     each processor will compute gravity for its chunk of particles
             if(ngravprocs.gt.1) then
                if(nusegpus.eq.1)then
 c     mygravlength=ngrav_upper-ngrav_lower+1
-                  if(myrank.ne.0) then
-                     call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
-     $                    grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                    comm_worker, ierr)
-                  else
-                     call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                    grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                    comm_worker, ierr)
-                  endif
+                  call gatherv_real8_to_root(grpot(ngrav_lower), grpot,
+     $                 mygravlength, gravrecvcounts, gravdispls, 0,
+     $                 comm_worker)
                else
                   call mpi_reduce(grpot, grpottot, n, mpi_double_precision,
      $                 mpi_sum, 0, mpi_comm_world, ierr)

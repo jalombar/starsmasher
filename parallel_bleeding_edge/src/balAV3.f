@@ -271,17 +271,8 @@ c     p=(gam-1)*rho*u=a*rho^gam, so a=(gam-1)*rho^(1-gam)*u
 c      write(6,'(a)')'hydrompi'
 
       mylength=n_upper-n_lower+1
-      do irank=0,nprocs-1
-         if(myrank.ne.irank)then
-            call mpi_gatherv(udot(n_lower), mylength, mpi_double_precision,
-     $           udot, recvcounts,displs, mpi_double_precision, irank,
-     $           mpi_comm_world, ierr)
-         else
-            call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $           udot, recvcounts,displs, mpi_double_precision, irank,
-     $           mpi_comm_world, ierr)
-         endif
-      enddo
+      call allgatherv_real8(udot(n_lower), udot, mylength,
+     $     recvcounts, displs, mpi_comm_world)
 c      call mpi_allgatherv(mpi_in_place, mylength, mpi_double_precision,
 c     $     udot, recvcounts,displs, mpi_double_precision, 
 c     $     mpi_comm_world, ierr)
@@ -392,23 +383,10 @@ c     using eos table, solve for u_eq such that temperature t=teq
          endif
 
          mylength=n_upper-n_lower+1
-         do irank=0,nprocs-1
-            if(myrank.ne.irank)then
-               call mpi_gatherv(tthermal(n_lower), mylength, mpi_double_precision,
-     $              tthermal, recvcounts,displs, mpi_double_precision, irank,
-     $              mpi_comm_world, ierr)
-               call mpi_gatherv(ueq(n_lower), mylength, mpi_double_precision,
-     $              ueq, recvcounts,displs, mpi_double_precision, irank,
-     $              mpi_comm_world, ierr)
-            else
-               call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $              tthermal, recvcounts,displs, mpi_double_precision, irank,
-     $              mpi_comm_world, ierr)
-               call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $              ueq, recvcounts,displs, mpi_double_precision, irank,
-     $              mpi_comm_world, ierr)
-            endif
-         enddo
+         call allgatherv_real8(tthermal(n_lower), tthermal, mylength,
+     $        recvcounts, displs, mpi_comm_world)
+         call allgatherv_real8(ueq(n_lower), ueq, mylength,
+     $        recvcounts, displs, mpi_comm_world)
       endif
 
 c      write(6,'(a)')'hydrompi_complete'
@@ -423,15 +401,9 @@ c      write(6,'(a)')'hydrompi_complete'
          if(ngravprocs.gt.1) then
             if(nusegpus.eq.1)then
                mygravlength=ngrav_upper-ngrav_lower+1
-               if(myrank.ne.0) then
-                  call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
-     $                 grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-               else
-                  call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                 grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-               endif
+               call gatherv_real8_to_root(grpot(ngrav_lower), grpot,
+     $              mygravlength, gravrecvcounts, gravdispls, 0,
+     $              comm_worker)
             else
                call mpi_reduce(grpot, grpottot, n, mpi_double_precision,
      $              mpi_sum, 0, mpi_comm_world, ierr)

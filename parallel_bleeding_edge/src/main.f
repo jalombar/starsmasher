@@ -202,6 +202,8 @@ c     called by init,lfstart,setup1em,setup1es,setup2cm,setup2cs
             write(69,*)'ngravprocs=',ngravprocs
          endif
       endif
+
+      call adjust_ngravprocs_for_backend(ngravprocs,nprocs,ppn)
       
       if(ngravprocs.gt.ngravprocsmax)then
          write(69,*)'increase ngravprocsmax in starsmasher.h'
@@ -293,6 +295,17 @@ c     hydro), while myrank=2,3,4,5,6,7 do hydro (and no gravity):
      $              'gpurank,gravdispl,gravrecvcount=',
      $              irank,gravdispls(irank+1),gravrecvcounts(irank+1)
             enddo
+         else if(ngravprocs.eq.1) then
+            gravdispls(1)=0
+            gravrecvcounts(1)=n
+            ngrav_lower=1
+            ngrav_upper=n
+            if(myrank.eq.0) then
+               write(69,*)'cpurank,gravdispl,gravrecvcount=',
+     $              0,gravdispls(1),gravrecvcounts(1)
+               write(6,*)'cpurank,gravdispl,gravrecvcount=',
+     $              0,gravdispls(1),gravrecvcounts(1)
+            endif
          else
             totnuminteractions=n*(n+1d0)/2 ! total number of gravity interactions that need followed.
                                            ! the '+' is because particle interacts with self
@@ -421,7 +434,3 @@ c     the first call to a gpu is usually slow, so let's not time this one:
       endif
 
       end
-
-
-
-

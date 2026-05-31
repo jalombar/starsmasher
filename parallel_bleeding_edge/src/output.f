@@ -16,21 +16,10 @@ c      if (mod(nit,nitch).eq.0 .or. t.ge.32661.425d0) then
 
 c     myrank=0 needs the rho, divv values to make the output file
          mylength=n_upper-n_lower+1
-         if(myrank.ne.0)then
-            call mpi_gatherv(rho(n_lower), mylength, mpi_double_precision,
-     $           rho, recvcounts, displs, mpi_double_precision, 0,
-     $           mpi_comm_world, ierr) 
-            call mpi_gatherv(divv(n_lower), mylength, mpi_double_precision,
-     $           divv, recvcounts, displs, mpi_double_precision, 0,
-     $           mpi_comm_world, ierr) 
-         else
-            call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $           rho, recvcounts, displs, mpi_double_precision, 0,
-     $           mpi_comm_world, ierr) 
-            call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $           divv, recvcounts, displs, mpi_double_precision, 0,
-     $           mpi_comm_world, ierr) 
-         endif
+         call gatherv_real8_to_root(rho(n_lower), rho, mylength,
+     $        recvcounts, displs, 0, mpi_comm_world)
+         call gatherv_real8_to_root(divv(n_lower), divv, mylength,
+     $        recvcounts, displs, 0, mpi_comm_world)
 
          if(myrank.ne.0) return
 
@@ -541,33 +530,15 @@ c     write binary dump file containing complete current results
 
 c     myrank=0 needs the rho,divv values to make the output file
       mylength=n_upper-n_lower+1
-      if(myrank.ne.0)then
-         call mpi_gatherv(rho(n_lower), mylength, mpi_double_precision,
-     $        rho, recvcounts, displs, mpi_double_precision, 0,
-     $        mpi_comm_world, ierr)
-         call mpi_gatherv(divv(n_lower), mylength, mpi_double_precision,
-     $        divv, recvcounts, displs, mpi_double_precision, 0,
-     $        mpi_comm_world, ierr)
-      else
-         call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $        rho, recvcounts, displs, mpi_double_precision, 0,
-     $        mpi_comm_world, ierr)
-         call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $        divv, recvcounts, displs, mpi_double_precision, 0,
-     $        mpi_comm_world, ierr)
-      endif
+      call gatherv_real8_to_root(rho(n_lower), rho, mylength,
+     $     recvcounts, displs, 0, mpi_comm_world)
+      call gatherv_real8_to_root(divv(n_lower), divv, mylength,
+     $     recvcounts, displs, 0, mpi_comm_world)
 
       if(nrelax.eq.1 .and. mod(nout,10).eq.0) then
 c     this is here for the generation of col*.sph files
-         if(myrank.ne.0)then
-            call mpi_gatherv(por2(n_lower), mylength, mpi_double_precision,
-     $           por2, recvcounts, displs, mpi_double_precision, 0,
-     $           mpi_comm_world, ierr)
-         else
-            call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $           por2, recvcounts, displs, mpi_double_precision, 0,
-     $           mpi_comm_world, ierr)
-         endif
+         call gatherv_real8_to_root(por2(n_lower), por2, mylength,
+     $        recvcounts, displs, 0, mpi_comm_world)
       endif
 
       if(myrank.eq.0) then
@@ -589,40 +560,21 @@ c     this is here for the generation of col*.sph files
    
       if(nrelax.eq.1 .and. mod(nout,10).eq.0) then
          mylength=n_upper-n_lower+1
-         if(myrank.ne.0)then
-            call mpi_gatherv(nn(n_lower), mylength, mpi_integer,
-     $           nn, recvcounts, displs, mpi_integer, 0,
-     $           mpi_comm_world, ierr)
-         else
-            call mpi_gatherv(mpi_in_place, mylength, mpi_integer,
-     $           nn, recvcounts, displs, mpi_integer, 0,
-     $           mpi_comm_world, ierr)
-         endif
+         call gatherv_integer_to_root(nn(n_lower), nn, mylength,
+     $        recvcounts, displs, 0, mpi_comm_world)
          if(ngr.ne.0 .and. myrank.lt.ngravprocs)then
 c     myrank=0 needs the nn,gx,gy,gz values to make the col file
             if(ngravprocs.gt.1) then
                mygravlength=ngrav_upper-ngrav_lower+1
-               if(myrank.ne.0)then
-                  call mpi_gatherv(gx(ngrav_lower), mygravlength, mpi_double_precision,
-     $                 gx, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-                  call mpi_gatherv(gy(ngrav_lower), mygravlength, mpi_double_precision,
-     $                 gy, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-                  call mpi_gatherv(gz(ngrav_lower), mygravlength, mpi_double_precision,
-     $                 gz, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-               else
-                  call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                 gx, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-                  call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                 gy, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-                  call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                 gz, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-               endif
+               call gatherv_real8_to_root(gx(ngrav_lower), gx,
+     $              mygravlength, gravrecvcounts, gravdispls, 0,
+     $              comm_worker)
+               call gatherv_real8_to_root(gy(ngrav_lower), gy,
+     $              mygravlength, gravrecvcounts, gravdispls, 0,
+     $              comm_worker)
+               call gatherv_real8_to_root(gz(ngrav_lower), gz,
+     $              mygravlength, gravrecvcounts, gravdispls, 0,
+     $              comm_worker)
             endif
          endif
 

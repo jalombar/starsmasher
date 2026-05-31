@@ -382,8 +382,9 @@ c     nkernel=2 is the Wendland C4 kernel
 
       subroutine set_nusegpus
       implicit none
-      integer nintvar,neos,nusegpus,nselfgravity,ncooling
-      common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling
+      integer nintvar,neos,nusegpus,nselfgravity,ncooling,nkernel
+      common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling,
+     $     nkernel
       nusegpus=0
       return
       end
@@ -404,5 +405,11 @@ c     nkernel=2 is the Wendland C4 kernel
       subroutine gpu_init_dev(i,theta_angle)
       integer i
       real*8 theta_angle
+      return
+      end
+
+      subroutine adjust_ngravprocs_for_backend(ngravprocs_in,nprocs_in,
+     $     ppn_in)
+      integer ngravprocs_in,nprocs_in,ppn_in
       return
       end

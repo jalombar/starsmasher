@@ -104,7 +104,7 @@ c     make the bh-wd binary:
             cc(i)=ccmax
          enddo
 
-         if(vinf2.ne.0.d0)then
+         if(vinf2.gt.0.d0)then
             xx=(am1+am2)/(vinf2*impactparameter)
             write(69,*)'dimensionless parameter x=',xx
             rp=impactparameter/(xx+sqrt(1.d0+xx**2))

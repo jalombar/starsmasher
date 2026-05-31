@@ -1,7 +1,6 @@
       implicit none
 
-      integer nmax,nnmax
-      parameter(nmax=900000,nnmax=170)
+      include 'starsmasher_limits.generated.h'
       integer n_lower,n_upper,myrank,nprocs
       integer qthreads,q,gflag
       real*8 mbh,reat,starmass,starradius
@@ -14,8 +13,6 @@
       real*8 vxdotsm(nmax),vydotsm(nmax),vzdotsm(nmax)
       integer n,nnopt,ntot,nout,nit,nitpot,ngr,nrelax,nav,nintvar
       common/mine/vxdotsm,vydotsm,vzdotsm
-      integer ntab
-      parameter(ntab=10000000)  
       real*8 pi,alpha,beta
       real*8 trelax,sep0,t,tf,dtout,dt,dth,hco,mco,hfloor,tscanon,sepfinal
       real*8 dgdhtab(ntab), dgtab(ntab), gtab(ntab)

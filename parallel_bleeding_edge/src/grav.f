@@ -82,3 +82,55 @@ c     $     fcmx,fcmy,fcmz
       
       return
       end
+***********************************************************************
+      subroutine allgatherv_real8(sendbuf, recvbuf, sendcount,
+     $     recvcounts, displs, comm)
+      include 'mpif.h'
+      integer sendcount, recvcounts(*), displs(*), comm, ierr
+      real*8 sendbuf(*), recvbuf(*)
+
+      call mpi_allgatherv(sendbuf, sendcount, mpi_double_precision,
+     $     recvbuf, recvcounts, displs, mpi_double_precision,
+     $     comm, ierr)
+
+      return
+      end
+***********************************************************************
+      subroutine allgatherv_integer(sendbuf, recvbuf, sendcount,
+     $     recvcounts, displs, comm)
+      include 'mpif.h'
+      integer sendbuf(*), recvbuf(*)
+      integer sendcount, recvcounts(*), displs(*), comm, ierr
+
+      call mpi_allgatherv(sendbuf, sendcount, mpi_integer,
+     $     recvbuf, recvcounts, displs, mpi_integer, comm, ierr)
+
+      return
+      end
+***********************************************************************
+      subroutine gatherv_real8_to_root(sendbuf, recvbuf, sendcount,
+     $     recvcounts, displs, root, comm)
+      include 'mpif.h'
+      integer sendcount, recvcounts(*), displs(*), root, comm
+      integer ierr
+      real*8 sendbuf(*), recvbuf(*)
+
+      call mpi_gatherv(sendbuf, sendcount, mpi_double_precision,
+     $     recvbuf, recvcounts, displs, mpi_double_precision, root,
+     $     comm, ierr)
+
+      return
+      end
+***********************************************************************
+      subroutine gatherv_integer_to_root(sendbuf, recvbuf, sendcount,
+     $     recvcounts, displs, root, comm)
+      include 'mpif.h'
+      integer sendbuf(*), recvbuf(*)
+      integer sendcount, recvcounts(*), displs(*), root, comm
+      integer ierr
+
+      call mpi_gatherv(sendbuf, sendcount, mpi_integer, recvbuf,
+     $     recvcounts, displs, mpi_integer, root, comm, ierr)
+
+      return
+      end

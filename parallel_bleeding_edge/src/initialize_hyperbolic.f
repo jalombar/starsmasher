@@ -318,9 +318,13 @@ c     -> rp*sqrt(1.d0+xx**2)=b-rp*xx
 c     -> b=rp*xx+rp*sqrt(1.d0+xx**2)
 c     Solving for rp yields the desired result
       if(rp.lt.0d0 .and. impactparameter.ge.0) then
-         xx=(am1+am2)/(vinf2*impactparameter)
-         if(myrank.eq.0) write(69,*)'dimensionless parameter x=',xx
-         rp=impactparameter/(xx+sqrt(1.d0+xx**2))
+         if(vinf2.gt.0.d0) then
+            xx=(am1+am2)/(vinf2*impactparameter)
+            if(myrank.eq.0) write(69,*)'dimensionless parameter x=',xx
+            rp=impactparameter/(xx+sqrt(1.d0+xx**2))
+         else
+            rp=impactparameter
+         endif
       endif
 
       k=am1*am2

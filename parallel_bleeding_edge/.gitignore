@@ -32,3 +32,13 @@ restartrad.sph
 *.txt
 sph.start1u
 sph.start2u
+src/*.o
+src/*.mod
+src/*_*.mod
+src/starsmasher_limits.generated.h
+src/SPHgrav_lib2/*.cu_o
+src/SPHgrav_lib2/libSPHgrav.a
+src/SPHgrav_lib_metal/*.o
+src/SPHgrav_lib_metal/libSPHgrav.a
+bin/starsmasher_cpu
+bin/starsmasher_gpu

@@ -100,17 +100,8 @@ c            endif
 
 c     make sure all processors know the most recent rho values for all particles
       mylength=n_upper-n_lower+1
-      do irank=0,nprocs-1
-         if(myrank.ne.irank)then
-            call mpi_gatherv(rho(n_lower), mylength, mpi_double_precision,
-     $           rho, recvcounts, displs, mpi_double_precision, irank,
-     $           mpi_comm_world, ierr) 
-         else
-            call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $           rho, recvcounts, displs, mpi_double_precision, irank,
-     $           mpi_comm_world, ierr) 
-         endif
-      enddo
+      call allgatherv_real8(rho(n_lower), rho, mylength,
+     $     recvcounts, displs, mpi_comm_world)
          
       amtiny=1.d30
       do i=1,n

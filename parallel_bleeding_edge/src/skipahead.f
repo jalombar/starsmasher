@@ -75,15 +75,8 @@ c     Initializing bhcomp
             call get_gravity_using_cpus
          endif
          mygravlength=ngrav_upper-ngrav_lower+1
-         if(myrank.ne.0)then
-            call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
-     $           grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $           comm_worker, ierr)
-         else
-            call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $           grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $           comm_worker, ierr)
-         endif
+         call gatherv_real8_to_root(grpot(ngrav_lower), grpot,
+     $        mygravlength, gravrecvcounts, gravdispls, 0, comm_worker)
       endif
       call enout(.false.)
       if(myrank.eq.0)write(69,*)
@@ -568,15 +561,8 @@ c     would have happened:
             call get_gravity_using_cpus
          endif
          mygravlength=ngrav_upper-ngrav_lower+1
-         if(myrank.ne.0)then
-            call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
-     $           grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $           comm_worker, ierr)
-         else
-            call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $           grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $           comm_worker, ierr) 
-         endif
+         call gatherv_real8_to_root(grpot(ngrav_lower), grpot,
+     $        mygravlength, gravrecvcounts, gravdispls, 0, comm_worker)
       endif
       call enout(.false.)
       if(myrank.eq.0) write(69,*)
@@ -652,15 +638,9 @@ c     would have happened:
                call get_gravity_using_cpus
             endif
             mygravlength=ngrav_upper-ngrav_lower+1
-            if(myrank.ne.0)then
-               call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
-     $              grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $              comm_worker, ierr)
-            else
-               call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $              grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $              comm_worker, ierr)
-            endif
+            call gatherv_real8_to_root(grpot(ngrav_lower), grpot,
+     $           mygravlength, gravrecvcounts, gravdispls, 0,
+     $           comm_worker)
          endif
          call enout(.false.)
          if(myrank.eq.0)write(69,*)

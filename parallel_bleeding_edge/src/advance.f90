@@ -611,17 +611,8 @@
 ! make mpi call to insure all processors doing gravity have the same
 ! hp values (only nodes doing gravity need the hp values):
       mylength=n_upper-n_lower+1
-      do irank=0,ngravprocs-1
-         if(myrank.ne.irank) then
-            call mpi_gatherv(hp(n_lower), mylength, mpi_double_precision,&
-                 hp, recvcounts, displs, mpi_double_precision, irank,&
-                 mpi_comm_world, ierr)
-         else
-            call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,&
-                 hp, recvcounts, displs, mpi_double_precision, irank,&
-                 mpi_comm_world, ierr)
-         endif
-      enddo
+      call allgatherv_real8(hp(n_lower), hp, mylength, &
+           recvcounts, displs, mpi_comm_world)
 
       call pressure
       if(myrank.eq.nprocs-1) then
@@ -880,4 +871,3 @@
 
       return
       end
-

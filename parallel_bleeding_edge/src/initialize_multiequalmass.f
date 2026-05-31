@@ -490,15 +490,9 @@ c     do loop to get total gravitational potential energy:
                endif
                if(ngravprocs.gt.1) then
                   mygravlength=ngrav_upper-ngrav_lower+1
-                  if(myrank.ne.0)then
-                     call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
-     $                    grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                    comm_worker, ierr)
-                  else
-                     call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                    grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                    comm_worker, ierr)
-                  endif
+                  call gatherv_real8_to_root(grpot(ngrav_lower), grpot,
+     $                 mygravlength, gravrecvcounts, gravdispls, 0,
+     $                 comm_worker)
                endif
             endif
 
