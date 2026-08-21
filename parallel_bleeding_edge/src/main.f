@@ -298,53 +298,43 @@ c     hydro), while myrank=2,3,4,5,6,7 do hydro (and no gravity):
                                            ! the '+' is because particle interacts with self
 
             if(myrank.eq.0) then
-               write(69,*)'n,totnuminteractions,ngravporcs=',n,totnuminteractions,ngravprocs
-               write(6,*)'n,totnuminteractions,ngravporcs=',n,totnuminteractions,ngravprocs
+               write(69,*)'n,totnuminteractions,ngravprocs=',n,totnuminteractions,ngravprocs
+               write(6,*)'n,totnuminteractions,ngravprocs=',n,totnuminteractions,ngravprocs
             endif
+
+c     Particle i interacts with particles i through n, so the work per
+c     particle falls off steadily and the processes are given unequal
+c     numbers of particles chosen to even out the interaction count.
+c     irank only advances while there is a further process to start, so
+c     the last one takes whatever remains.  That also makes ngravprocs=1
+c     an ordinary case rather than one needing separate treatment.
             irank=0
-            gravdispls(irank+1)=0 ! one less than smallest particle index treated by gravproc irank=0
+            gravdispls(1)=0     ! one less than smallest particle index treated by gravproc 0
             numinteractions=0   ! initialize counter
             do i=1,n
-               numinteractions=numinteractions+ n-i+1  ! particle i interacts iwth n-i+1 particles
-               if(numinteractions+(n-i)/2.ge.(irank+1d0)*totnuminteractions/ngravprocs)then
-                  ngravlow=gravdispls(irank+1)+1 ! smallest particle index treated by gravproc irank
-                  ngravup=i     ! largest particle index treated by gravproc irank
-                  if(myrank.eq.irank)then
-                     ngrav_lower=ngravlow
-                     ngrav_upper=ngravup
-                  endif
-                  gravrecvcounts(irank+1)=ngravup-ngravlow+1 ! number of particles treated by gravproc irank
-                  if(myrank.eq.0) then
-                     write(69,*)
-     $                 'cpurank,gravdispl,gravrecvcount=',
-     $                 irank,gravdispls(irank+1),gravrecvcounts(irank+1),numinteractions
-                     write(6,*)
-     $                 'cpurank,gravdispl,gravrecvcount=',
-     $                 irank,gravdispls(irank+1),gravrecvcounts(irank+1),numinteractions
-                  endif
+               numinteractions=numinteractions+ n-i+1 ! particle i interacts with n-i+1 particles
+               if(irank.lt.ngravprocs-1 .and.
+     $              numinteractions+(n-i)/2.ge.
+     $              (irank+1d0)*totnuminteractions/ngravprocs)then
+                  gravrecvcounts(irank+1)=i-gravdispls(irank+1)
                   irank=irank+1
-                  gravdispls(irank+1)=ngravup
-                  if(irank.eq.ngravprocs-1) goto 1235
+                  gravdispls(irank+1)=i
                endif
             enddo
- 1235       if(irank.ne.ngravprocs-1) then
-               print *,'problem assigning particles to grav processes'
-               stop
+            gravrecvcounts(ngravprocs)=n-gravdispls(ngravprocs)
+
+            if(myrank.lt.ngravprocs)then
+               ngrav_lower=gravdispls(myrank+1)+1
+               ngrav_upper=gravdispls(myrank+1)+gravrecvcounts(myrank+1)
             endif
-            ngravlow=gravdispls(irank+1)+1 ! smallest particle index treated by gravproc irank=ngravprocs-1
-            ngravup=n           ! largest particle index treated by gravproc irank=ngravprocs-1
-            if(myrank.eq.irank)then
-               ngrav_lower=ngravlow
-               ngrav_upper=ngravup
-            endif
-            gravrecvcounts(irank+1)=ngravup-ngravlow+1 ! number of particles treated by gravproc irank
+
             if(myrank.eq.0) then
-               write(69,*)
-     $              'cpurank,gravdispl,gravrecvcount=',
-     $              irank,gravdispls(irank+1),gravrecvcounts(irank+1),totnuminteractions
-               write(6,*)
-     $              'cpurank,gravdispl,gravrecvcount=',
-     $              irank,gravdispls(irank+1),gravrecvcounts(irank+1),totnuminteractions
+               do irank=0,ngravprocs-1
+                  write(69,*)'cpurank,gravdispl,gravrecvcount=',
+     $                 irank,gravdispls(irank+1),gravrecvcounts(irank+1)
+                  write(6,*)'cpurank,gravdispl,gravrecvcount=',
+     $                 irank,gravdispls(irank+1),gravrecvcounts(irank+1)
+               enddo
             endif
          endif
          
