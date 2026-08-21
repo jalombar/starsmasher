@@ -9,7 +9,7 @@
  ngr=3, ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
  nrelax=1, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
  trelax=1d30, ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
- equalmass=0, ! particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
+ equalmass=0, ! 0=uniform number density, 1=equal mass particles; in general m_i ~ rho_i^(1-equalmass)
  treloff=0, ! time to end a relaxation and switch to a dynamical calculation
  nintvar=2, ! 1=integrate entropic variable a, 2=integrate internal energy u
  ngravprocs=-1, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
@@ -30,5 +30,4 @@
 ! the final timestep dt is the minimum of dt_sph and dt_co for all particles i
  ppn=16, ! set this to the number of cpu cores per node
  profilefile='m_8_t_5.7.last1.muse_s2mm'
- stellarevolutioncodetype=0 ! 0 for TWIN, 1 for MESA
  &end

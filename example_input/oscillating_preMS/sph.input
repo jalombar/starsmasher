@@ -10,8 +10,7 @@
  nrelax=0, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
  trelax=1d30, ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
  sep0=20000, ! initial separation of two stars in a binary or collision calculation
- vinf2=1.d30, ! the speed squared at infinity for a collision between two stars: 0 for parabolic, >0 for hyperbolic, <0 for elliptical.
- equalmass=0, ! particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
+ equalmass=0, ! 0=uniform number density, 1=equal mass particles; in general m_i ~ rho_i^(1-equalmass)
  treloff=0, ! time to end a relaxation and switch to a dynamical calculation
  tresplintmuoff=0., ! time to stop resplinting the mean molecular weight.  leave this at 0.
  nitpot=1, ! number of iterations between evaluation of the gravitational potential energy.
@@ -21,7 +20,6 @@
  ngravprocs=-2, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
  qthreads=0 ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
  gflag=1 ! set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes
- mbh=5.0 !mass of black hole
  runit=6.9599d10, ! number of cm in the unit of length.  use 6.9599d10 if want solar radius.
  munit=1.9891d33, ! number of g in unit of mass.  use 1.9891d33 if want solar mass.
 ! the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
