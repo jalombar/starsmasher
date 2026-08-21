@@ -2,6 +2,7 @@
 c     creates a star from the data file yrec output
       include 'starsmasher.h'
       include 'mpif.h'
+      real*8 grpottot(nmax)
       integer numlines,i
       integer idumb,ip,ix,iy,iz
       real*8 anumden,rhotry,rhoex,rtry,rhomax,hc,xcm,ycm,zcm,amtot,
@@ -476,6 +477,9 @@ c     do loop to get total gravitational potential energy:
                   call get_gravity_using_cpus
                endif
                if(ngravprocs.gt.1) then
+                  if(nusegpus.eq.1)then
+c     The gpu library returns a complete sum for every particle this rank
+c     owns, so gathering each rank's own slice is correct.
                   mygravlength=ngrav_upper-ngrav_lower+1
                   if(myrank.ne.0)then
                      call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
@@ -485,6 +489,20 @@ c     do loop to get total gravitational potential energy:
                      call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
      $                    grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
      $                    comm_worker, ierr)
+                  endif
+                  else
+c     get_gravity_using_cpus walks pairs with j>=i, so a rank writes into
+c     grpot(j) for particles j it does not own.  Those contributions are
+c     thrown away by a slice gather; the whole array has to be summed.
+c     This is what balAV3.f does for the same reason.
+                     call mpi_reduce(grpot, grpottot, ntot,
+     $                    mpi_double_precision, mpi_sum, 0,
+     $                    mpi_comm_world, ierr)
+                     if(myrank.eq.0) then
+                        do i=1,ntot
+                           grpot(i)=grpottot(i)
+                        enddo
+                     endif
                   endif
                endif
             endif

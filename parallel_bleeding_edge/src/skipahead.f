@@ -1,6 +1,7 @@
       subroutine jumpahead
       include 'starsmasher.h'
       include 'mpif.h'
+      real*8 grpottot(nmax)
       real*8 am1,am2
       integer icomp(nmax)
       real*8 x1,y1,z1,vx1,vy1,vz1,x2,y2,z2,vx2,vy2,vz2,
@@ -74,6 +75,7 @@ c     Initializing bhcomp
          else
             call get_gravity_using_cpus
          endif
+         if(nusegpus.eq.1)then
          mygravlength=ngrav_upper-ngrav_lower+1
          if(myrank.ne.0)then
             call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
@@ -83,6 +85,19 @@ c     Initializing bhcomp
             call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
      $           grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
      $           comm_worker, ierr)
+         endif
+         else
+c     get_gravity_using_cpus walks pairs with j>=i, so a rank writes
+c     into grpot(j) for particles it does not own.  A slice gather
+c     discards those; the whole array has to be summed instead.
+            call mpi_reduce(grpot, grpottot, ntot,
+     $        mpi_double_precision, mpi_sum, 0,
+     $        mpi_comm_world, ierr)
+            if(myrank.eq.0) then
+               do i=1,ntot
+                  grpot(i)=grpottot(i)
+               enddo
+            endif
          endif
       endif
       call enout(.false.)
@@ -567,6 +582,7 @@ c     would have happened:
          else
             call get_gravity_using_cpus
          endif
+         if(nusegpus.eq.1)then
          mygravlength=ngrav_upper-ngrav_lower+1
          if(myrank.ne.0)then
             call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
@@ -576,6 +592,19 @@ c     would have happened:
             call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
      $           grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
      $           comm_worker, ierr) 
+         endif
+         else
+c     get_gravity_using_cpus walks pairs with j>=i, so a rank writes
+c     into grpot(j) for particles it does not own.  A slice gather
+c     discards those; the whole array has to be summed instead.
+            call mpi_reduce(grpot, grpottot, ntot,
+     $        mpi_double_precision, mpi_sum, 0,
+     $        mpi_comm_world, ierr)
+            if(myrank.eq.0) then
+               do i=1,ntot
+                  grpot(i)=grpottot(i)
+               enddo
+            endif
          endif
       endif
       call enout(.false.)
@@ -651,6 +680,7 @@ c     would have happened:
             else
                call get_gravity_using_cpus
             endif
+            if(nusegpus.eq.1)then
             mygravlength=ngrav_upper-ngrav_lower+1
             if(myrank.ne.0)then
                call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
@@ -660,6 +690,19 @@ c     would have happened:
                call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
      $              grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
      $              comm_worker, ierr)
+            endif
+            else
+c     get_gravity_using_cpus walks pairs with j>=i, so a rank writes
+c     into grpot(j) for particles it does not own.  A slice gather
+c     discards those; the whole array has to be summed instead.
+               call mpi_reduce(grpot, grpottot, ntot,
+     $        mpi_double_precision, mpi_sum, 0,
+     $        mpi_comm_world, ierr)
+               if(myrank.eq.0) then
+                  do i=1,ntot
+                     grpot(i)=grpottot(i)
+                  enddo
+               endif
             endif
          endif
          call enout(.false.)
