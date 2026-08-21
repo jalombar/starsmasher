@@ -650,14 +650,14 @@ c     call execute_command_line('rm -f ' // trim(gpucfilename))
          endif
          call getenv('SLURM_GPUS_ON_NODE', slurm_gpu_count_str)
 !     Convert the string to an integer
-         read(slurm_gpu_count_str, '(I1)', IOSTAT=ierr) slurm_gpu_count
+         read(slurm_gpu_count_str, *, IOSTAT=ierr) slurm_gpu_count
 c         write(200+myrank,*) slurm_gpu_count, ierr
          if (ierr == 0 .and. slurm_gpu_count.gt.0) then
-            if(ngravprocs.eq.0 .or. ngravprocs.gt.slurm_gpu_count)then
+            if(ngravprocs.eq.0 .or. abs(ngravprocs).gt.slurm_gpu_count)then
                ngravprocs=-slurm_gpu_count
             endif
          else
-            if(ngravprocs.eq.0 .or. ngravprocs.gt.actual_gpu_count)then
+            if(ngravprocs.eq.0 .or. abs(ngravprocs).gt.actual_gpu_count)then
                ngravprocs=-actual_gpu_count
             endif
          endif
