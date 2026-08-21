@@ -1,3 +1,8 @@
+# Version-control and editor leftovers
+.svn/
+*.orig
+*.rej
+
 .un*
 *.log
 *.dvi
