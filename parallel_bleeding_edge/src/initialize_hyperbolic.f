@@ -16,9 +16,9 @@
       integer idumb
       real*8 costh1,sinth1,costh2,sinth2,ps1,ps2
       real*8 xold,yold,zold,vxold,vyold,vzold,ran1
-      real*8 am1,am2
-c      real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2,am1tot,am2tot
-c      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
+      real*8 xnew,ynew,znew,vxnew,vynew,vznew
+      real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
+      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       real*8 amass1,amass2
       common/forcompbest/ amass1,amass2
       real*8 eorb0,xx
@@ -33,9 +33,17 @@ c      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       real*8 divv(nmax)
       common/commdivv/divv
       common/orbitalelements/e0,semimajoraxis,impactparameter,vinf2
-      real*8 xcmparent,ycmparent,zcmparent,vxcmparent,vycmparent,vzcmparent
-      real*8 hprms
+      real*8 bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
+     $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,bbh_longitude
+      common/bbhinfo/bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
+     $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,bbh_longitude
+      real*8 xcmparent,ycmparent,zcmparent,
+     $     vxcmparent,vycmparent,vzcmparent
+      real*8 hprms,bbh_sep0
+      logical passivelyAdvected
 
+      nrelax=0
+      
       call cpu_time(time1)
 
       corepts=0
@@ -88,7 +96,6 @@ c      if(twofiles) then
       else
          costh1=1.d0
          sinth1=0.d0
-c         ps1=-0.645772d0        ! 37 degrees
          ps1=0d0
       endif
 
@@ -154,6 +161,7 @@ c     place velocities at same time as everything else:
          vy(i)=vy(i)-vycmparent
          vz(i)=vz(i)-vzcmparent
       enddo
+      passivelyAdvected = .false.
 
       if(twofiles) then
          if(myrank.eq.0) write (69,*)
@@ -262,51 +270,335 @@ c     place velocities at same time as everything else:
             vy(i)=vy(i)-vycmparent
             vz(i)=vz(i)-vzcmparent
          enddo
+
+         if(passivelyAdvected) then
+            if(myrank.eq.0) write(69,*)'Reading in aa and bb values...',ntot
+            open(99,file='sph.passivelyAdvected',status='old')
+            do i=1,ntot
+               read(99,*) aa(i),bb(i),dd(i)
+            enddo
+            close(99)
+         endif
+
       else
+c     There is only one start file, so the second object will be a single or
+c     binary compact object
+         if(passivelyAdvected) then
+            if(myrank.eq.0) write(69,*)'Reading in aa and bb values...',n1
+            open(99,file='sph.passivelyAdvected',status='old')
+            do i=1,n1
+               read(99,*) aa(i),bb(i),dd(i)
+            enddo
+            close(99)
+         endif
+            
+         hprms=0d0
+         do i=1,n1
+            hprms=hprms+hp(i)**2
+         enddo
+         hprms=sqrt(hprms/n1)
+         if(myrank.eq.0) then
+            write(69,*) 'rms smoothing length h in star=',hprms
+         endif
+         
          if(myrank.eq.0) write (69,*)
      $        'startfile2 ',
      $        trim(startfile2),
-     $        ' does not exist: will use compact object ',
-     $        'particle instead'
-         
-         n2=1
-         ntot=n1+n2
-         i=ntot
-         am2=mbh
-         am(i)=am2
-         x(i)=0.d0
-         y(i)=0.d0
-         z(i)=0.d0
-         vx(i)=0.d0
-         vy(i)=0.d0
-         vz(i)=0.d0
-         gx(i)=0.d0
-         gy(i)=0.d0
-         gz(i)=0.d0
-         vxdot(i)=0.d0
-         vydot(i)=0.d0
-         vzdot(i)=0.d0
-         u(i)=0.d0
-         udot(i)=0.d0
-         if(hco.gt.0.d0) then
-            hp(i)=hco
-         else
-            hprms=0d0
-            do i=1,n1
-               hprms=hprms+hp(i)**2
-            enddo
-            hprms=sqrt(hprms/n1)
-            if(myrank.eq.0) then
-               write(69,*) 'rms smoothing length h in star=',hprms
+     $        ' does not exist: will use'
+         if(.false.) then
+c     Second object will be a single compact object
+            if(myrank.eq.0) write (69,*)
+     $           'compact object particle instead'
+            
+            n2=1
+            ntot=n1+n2
+            i=ntot
+            am2=mbh
+            am(i)=am2
+            x(i)=0.d0
+            y(i)=0.d0
+            z(i)=0.d0
+            vx(i)=0.d0
+            vy(i)=0.d0
+            vz(i)=0.d0
+            gx(i)=0.d0
+            gy(i)=0.d0
+            gz(i)=0.d0
+            vxdot(i)=0.d0
+            vydot(i)=0.d0
+            vzdot(i)=0.d0
+            u(i)=0.d0
+            udot(i)=0.d0
+            if(hco.gt.0.d0) then
+               hp(i)=hco
+            else
+               hp(i)=hprms
             endif
-            hp(i)=hprms
+            if(passivelyAdvected) then
+               aa(i)=hp(i)
+               bb(i)=0
+               dd(i)=0
+            endif
+            cc(i)=0
+            if(myrank.eq.0) write(69,*)'compact_object_mass',am(i)
+            if(myrank.eq.0) write(69,*)'compact_object_smoothing_length',
+     $           hp(i)
+         else
+c     Second object will be a compact object binary such as a binary black hole
+            if(myrank.eq.0) write (69,*)
+     $           'binary compact object instead'
+            n2=2
+            ntot=n1+n2
+            am(ntot-1)=bbh_m1
+            am(ntot)=bbh_m2
+            am2=bbh_m1+bbh_m2
+            do i=ntot-1,ntot
+               x(i)=0.d0
+               y(i)=0.d0
+               z(i)=0.d0
+               vx(i)=0.d0
+               vy(i)=0.d0
+               vz(i)=0.d0
+               gx(i)=0.d0
+               gy(i)=0.d0
+               gz(i)=0.d0
+               vxdot(i)=0.d0
+               vydot(i)=0.d0
+               vzdot(i)=0.d0
+               u(i)=0.d0
+               udot(i)=0.d0
+               if(hco.gt.0.d0) then
+                  hp(i)=hco
+               else if (u(1).eq.0) then
+                  hp(i)=hp(1) ! If first point is core point, use same softening
+               else
+                  hp(i)=hprms
+               endif
+               if(passivelyAdvected) then
+                  aa(i)=hp(i)
+                  bb(i)=0
+                  dd(i)=0
+               endif
+               cc(i)=0
+               if(myrank.eq.0) write(69,*)'compact_object_mass',
+     $              am(i),'i=',i
+               if(myrank.eq.0) write(69,*)
+     $              'compact_object_smoothing_length',hp(i),
+     $              'i=',i
+            enddo
+
+            k=bbh_m1*bbh_m2
+            mu=k/(bbh_m1+bbh_m2)
+
+            if(bbh_rp.lt.0d0 .and. bbh_semimajoraxis.eq.0.d0)then
+c     presumably bbh_e0 and bbh_vinf2 have been set in sph.input:
+               eorb0=0.5d0*mu*bbh_vinf2
+               bbh_semimajoraxis=-0.5d0*k/eorb0
+               rp=bbh_semimajoraxis*(1.d0-bbh_e0)
+            else if(bbh_vinf2.ge.1d30 .and. bbh_semimajoraxis.eq.0.d0)then
+c     presumably bbh_e0 and bbh_rp have been set in sph.input:
+               bbh_semimajoraxis=bbh_rp/(1.d0-bbh_e0)
+               eorb0=-0.5d0*k/bbh_semimajoraxis
+               bbh_vinf2=2.d0*eorb0/mu
+            else if(bbh_vinf2.ge.1d30 .and. bbh_e0.lt.0.d0)then
+c     presumably bbh_semimajoraxis and bbh_rp have been set in sph.input:
+               eorb0=-0.5d0*k/bbh_semimajoraxis
+               bbh_vinf2=2.d0*eorb0/mu
+               bbh_e0=1.d0-bbh_rp/bbh_semimajoraxis
+            else if(bbh_rp.lt.0.d0 .and. bbh_vinf2.ge.1.d30)then
+c     presumably bbh_semimajoraxis and bbh_e0 have been set in sph.input:
+               bbh_rp=bbh_semimajoraxis*(1.d0-bbh_e0)
+               eorb0=-0.5d0*k/bbh_semimajoraxis
+               bbh_vinf2=2.d0*eorb0/mu
+            else
+c     presumably bbh_rp and bbh_vinf2 have been set in sph.input:
+               eorb0=0.5d0*mu*bbh_vinf2
+               bbh_semimajoraxis=-0.5d0*k/eorb0
+               bbh_e0=1.d0-bbh_rp/bbh_semimajoraxis
+            endif
+
+            if(myrank.eq.0) then
+               write(69,*) 'hyperbolic: bbh_rp=',
+     $              bbh_rp,'bbh_v_inf2=',bbh_vinf2,'bbh_semimajoraxis=',
+     $              bbh_semimajoraxis
+               write(69,*)'hyperbolic: bbh_e_orb=',eorb0
+               write(69,*)'hyperbolic: n=',n,'ntot=',ntot
+            endif
+            
+            semilatusrectum=bbh_rp*(1.d0+bbh_e0)
+            
+c     equation (8.41) of marion and thornton
+c            costheta = (semilatusrectum/bbh_sep0-1.d0)/bbh_e0
+            theta=bbh_trueanomaly ! true anomaly should be from -pi to +pi
+            costheta=cos(theta)
+            bbh_sep0=semilatusrectum/(1d0+bbh_e0*costheta)
+            
+c     equation (8.40) of marion and thornton
+            ltot = sqrt(semilatusrectum*mu*k)
+c     equation (8.10) of marion and thornton
+            thetadot = ltot/mu/bbh_sep0**2
+c     equation (8.40) of marion and thornton
+            eorb0check = (bbh_e0**2-1.d0)*mu*k*k/(ltot*ltot)*0.5d0
+            if(myrank.eq.0) write(69,*)'1st simple bbh check:',
+     $           eorb0,eorb0check
+            
+            sintheta = sin(theta)
+            sinthetacheck = sqrt(1.d0-costheta**2)
+            if( abs(abs(sintheta)-sinthetacheck ).gt.1.d-13) then
+               write(69,*)'2nd simple bbh check fails',sintheta,sinthetacheck
+               stop
+            endif
+            if(myrank.eq.0) write(69,*)'bbh semilatusrectum=',
+     $           semilatusrectum,' bbh mu=',mu,
+     $           ' bbh_sep0=',bbh_sep0,' bbh_e0=',bbh_e0
+            if(myrank.eq.0) write(69,*) 'bbh cos=',costheta,
+     $           ' sin=',sintheta
+c     the minus signs on the position and velocity component equations
+c     have been chosen so that the separation vector r equals r2-r1,
+c     *not* r1-r2 as in marion and thornton.  this was done so that the
+c     code would give the same initial conditions as twostars.f when the
+c     eccentricity is 1
+            deltax1 = -bbh_m2/(bbh_m1+bbh_m2)*bbh_sep0*costheta
+            deltay1 = -bbh_m2/(bbh_m1+bbh_m2)*bbh_sep0*sintheta
+            deltax2 = bbh_m1/(bbh_m1+bbh_m2)*bbh_sep0*costheta
+            deltay2 = bbh_m1/(bbh_m1+bbh_m2)*bbh_sep0*sintheta
+c     differentiating eqn. 8.41
+            rdot=semilatusrectum/
+     $           (1.d0+bbh_e0*costheta)**2*bbh_e0*sintheta*thetadot
+c     another expr. for rdot (using eqn. 8.14) and compare
+            rdotcheck=sqrt((eorb0-0.5d0*ltot**2/mu/bbh_sep0**2+k/bbh_sep0)/
+     $           0.5d0/mu)
+            if(myrank.eq.0) write(69,*)
+     $           'bbh rdot(from semilatusrectum): ',rdot,
+     $           '  magnitude of bbh rdot(from e): ',rdotcheck
+c            if(rdot.ne.rdot)rdot=rdotcheck
+            deltavx1=bbh_m2/(bbh_m1+bbh_m2)*
+     $           (bbh_sep0*sintheta*thetadot-rdot*costheta)
+            deltavy1=bbh_m2/(bbh_m1+bbh_m2)*
+     $           (-bbh_sep0*costheta*thetadot-rdot*sintheta)
+            deltavx2=bbh_m1/(bbh_m1+bbh_m2)*
+     $           (-bbh_sep0*sintheta*thetadot+rdot*costheta)
+            deltavy2=bbh_m1/(bbh_m1+bbh_m2)*
+     $           (bbh_sep0*costheta*thetadot+rdot*sintheta)
+            if(myrank.eq.0) then 
+               write(69,*) 'compact object 1 starts with:'
+               write(69,*) '                     x=',deltax1,
+     $              ', y=',deltay1
+               write(69,*) '                    vx=',deltavx1,
+     $              ',vy=',deltavy1
+               write(69,*) 'compact object 2 starts with:'
+               write(69,*) '                     x=',deltax2,
+     $              ', y=',deltay2
+               write(69,*) '                    vx=',deltavx2,
+     $              ',vy=',deltavy2
+            endif
+            xcm=(bbh_m1*deltax1+bbh_m2*deltax2)/(bbh_m1+bbh_m2)
+            ycm=(bbh_m1*deltay1+bbh_m2*deltay2)/(bbh_m1+bbh_m2)
+            vxcm=(bbh_m1*deltavx1+bbh_m2*deltavx2)/(bbh_m1+bbh_m2)
+            vycm=(bbh_m1*deltavy1+bbh_m2*deltavy2)/(bbh_m1+bbh_m2)
+            if(myrank.eq.0) write(69,*)'bbh center of mass position:',
+     $           xcm,ycm
+            if(myrank.eq.0) write(69,*)'bbh center of mass velocity:',
+     $           vxcm,vycm
+            ak=bbh_m1*bbh_m2
+            mu=bbh_m1*bbh_m2/(bbh_m1+bbh_m2)
+            r = sqrt((deltax1-deltax2)**2 + (deltay1-deltay2)**2)
+            eorb0check = 0.5d0*(bbh_m1*(deltavx1**2+deltavy1**2) +
+     $           bbh_m2*(deltavx2**2+deltavy2**2)) - bbh_m1*bbh_m2/r
+            altotint = bbh_m1*(deltax1*deltavy1 - deltay1*deltavx1) +
+     $           bbh_m2*(deltax2*deltavy2 - deltay2*deltavx2)
+            e0check = sqrt(1.d0 + 2.d0*eorb0check*altotint**2/mu/ak**2)
+            semilatusrectumprime = r+bbh_e0*(deltax2-deltax1)
+            if(abs(r/bbh_sep0-1.d0).gt.1.d-8) then
+               write(69,*)'hyperbolic: bbh_sep0 problem',r,bbh_sep0
+               stop
+            endif
+            if(abs(eorb0check-eorb0).gt.1.d-8) then
+               write(69,*)'hyperbolic: bbh eorb0 problem',
+     $              eorb0check,eorb0
+               write(69,*)'Be sure to set two of bbh_semimajoraxis,',
+     $              'bbh_e0,bbh_vinf2,bbh_rp in sph.input'
+               stop
+            endif
+            if(abs(altotint/ltot-1.d0).gt.1.d-8) then
+               write(69,*)'hyperbolic: bbh angular momentum problem',
+     $              altotint,ltot
+               stop
+            endif
+            if(abs(e0check-bbh_e0).gt.1.d-7) then
+               write(69,*)'hyperbolic: bbh eccentricity problem',
+     $              e0check,bbh_e0
+               stop
+            endif
+            if(abs(semilatusrectumprime/semilatusrectum-1.d0).gt.1.d-8)then
+               write(69,*)'hyperbolic: bbh semilatusrectum problem',
+     $              semilatusrectumprime,semilatusrectum
+               stop
+            endif
+            if(bbh_vinf2.ge.0.d0) then
+               vinf=bbh_vinf2**0.5d0
+               if(myrank.eq.0) write(69,*)'bbh v_infinity=',vinf,
+     $              '(code units)=',
+     $              vinf*(gravconst*munit/runit)**0.5d0/1.d5,'km/s'
+               if(myrank.eq.0) write(69,*)'converted with velocity unit',
+     $              (gravconst*munit/runit)**0.5d0/1.d5,'km/s'
+            endif
+
+            do i=ntot-1,ntot
+C     Rotations as described here https://youtu.be/N_njPJYaXaU?t=1983
+c     First rotate around z-axis by the argument of periapsis
+               if(i.eq.ntot-1) then
+                  xold=deltax1
+                  yold=deltay1
+                  vxold=deltavx1
+                  vyold=deltavy1
+               else
+                  xold=deltax2
+                  yold=deltay2
+                  vxold=deltavx2
+                  vyold=deltavy2
+               endif
+               zold=0
+               vzold=0
+               xnew=cos(bbh_argperi)*xold-sin(bbh_argperi)*yold
+               ynew=sin(bbh_argperi)*xold+cos(bbh_argperi)*yold
+               znew=zold
+               vxnew=cos(bbh_argperi)*vxold-sin(bbh_argperi)*vyold
+               vynew=sin(bbh_argperi)*vxold+cos(bbh_argperi)*vyold
+               vznew=vzold
+c     Next rotate around y-axis by the inclination angle
+               xold=xnew
+               yold=ynew
+               zold=znew
+               vxold=vxnew
+               vyold=vynew
+               vzold=vznew
+               xnew=cos(bbh_inclination)*xold-sin(bbh_inclination)*zold
+               ynew=yold
+               znew=sin(bbh_inclination)*xold+cos(bbh_inclination)*zold
+               vxnew=cos(bbh_inclination)*vxold-sin(bbh_inclination)*vzold
+               vynew=vyold
+               vznew=sin(bbh_inclination)*vxold+cos(bbh_inclination)*vzold
+c     Finally rotate around z-axis by the longitude of ascending node
+               xold=xnew
+               yold=ynew
+               zold=znew
+               vxold=vxnew
+               vyold=vynew
+               vzold=vznew
+               x(i)=cos(bbh_longitude)*xold-sin(bbh_longitude)*yold
+               y(i)=sin(bbh_longitude)*xold+cos(bbh_longitude)*yold
+               z(i)=zold
+               vx(i)=cos(bbh_longitude)*vxold-sin(bbh_longitude)*vyold
+               vy(i)=sin(bbh_longitude)*vxold+cos(bbh_longitude)*vyold
+               vz(i)=vzold
+            enddo
+            
          endif
-         cc(i)=0
-         if(myrank.eq.0) write(69,*)'compact_object_mass',am(i)
-         if(myrank.eq.0) write(69,*)'compact_object_smoothing_length',
-     $        hp(i)
+         corepts=corepts+n2
       endif
       amthree=am2
+
 
 c     From energy conservation 0.5*vinf^2=0.5*vp^2-G*M/rp
 c     -> vinf^2=vp^2-2*G*M/rp
@@ -356,15 +648,13 @@ c     presumably (rp or impactparameter) and vinf2 have been set in sph.input:
       if(myrank.eq.0) then
          write(69,*) 'hyperbolic: impactparameter (if set)=',
      $        impactparameter,'v_inf2=',vinf2,'semimajoraxis=',semimajoraxis
-         write(69,*) 'hyperbolic: e_orb=',eorb0
-         write(69,*) 'hyperbolic: n=',n,'ntot=',ntot,'rp=',rp
-         write(69,*) 'hyperbolic: sep0 = ',sep0
-         write(69,*) 'hyperbolic: masses = ',am1,am2
+         write(69,*)'hyperbolic: e_orb=',eorb0
+         write (69,*)'hyperbolic: n=',n,'ntot=',ntot,'rp=',rp
          open(30,file='m1m2rp.sph')
 c     make file m1m2rp.sph with masses and radius in solar units
          write(30,*) n1,n2,rp
-         write(30,*) am1*munit/1.98843d33,am2*munit/1.98843d33,
-     $        rp*runit/6.9599d10     
+         write(30,*) am1*munit/1.9884098706980504d33,am2*munit/1.9884098706980504d33,
+     $        rp*runit/6.957d10     
          close(30)
       endif
 
@@ -384,7 +674,8 @@ c     equation (8.41) of marion and thornton
                write(69,*)'sep0 cannot be larger than',
      $              semilatusrectum/(1-e0)
             endif
-            write(69,*)'reset sep0=',sep0
+            write(69,*)'suggestion: reset sep0<=',sep0
+            sToP
          endif
       endif
 
@@ -404,8 +695,8 @@ c     equation (8.40) of marion and thornton
      $        abs(sintheta-sinthetacheck)
          stop
       endif
-      if(myrank.eq.0) write(69,*)'semilatusrectum=',semilatusrectum,' mu=',mu,
-     $     ' sep0=',sep0,' e0=',e0
+      if(myrank.eq.0) write(69,*)'semilatusrectum=',semilatusrectum,
+     $     ' mu=',mu,' sep0=',sep0,' e0=',e0
       if(myrank.eq.0) write(69,*) 'cos=',costheta,' sin=',sintheta
 c     the minus signs on the position and velocity component equations
 c     have been chosen so that the separation vector r equals r2-r1,
@@ -423,7 +714,7 @@ c     another expr. for rdot (using eqn. 8.14) and compare
       rdotcheck=-sqrt((eorb0-0.5d0*ltot**2/mu/sep0**2+k/sep0)/0.5d0/mu)
       if(myrank.eq.0) write(69,*) 'rdot(from semilatusrectum): ',rdot,
      $     '  rdot(from e): ',rdotcheck
-      if(rdot.ne.rdot)rdot=rdotcheck
+      if(rp.eq.0)rdot=rdotcheck
       deltavx1=am2/(am1+am2)*(sep0*sintheta*thetadot-rdot*costheta)
       deltavy1=am2/(am1+am2)*(-sep0*costheta*thetadot-rdot*sintheta)
       deltavx2=am1/(am1+am2)*(-sep0*sintheta*thetadot+rdot*costheta)

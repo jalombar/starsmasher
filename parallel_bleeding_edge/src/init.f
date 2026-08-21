@@ -105,6 +105,15 @@ c     used in subroutine dump)
      $           ngrold,nrelaxold,trelaxold,dt,omega2
          endif
 
+         if(nnoptold.ne.nnopt) then
+            if(myrank.eq.0) then
+               write(69,*) 'NOTE: Currently nnopt=',nnopt
+               write(69,*) '      The NNOPT in restartrad.sph=',nnoptold
+               write(69,*) '      Changing NNOPT to be',nnoptold
+            endif
+            nnopt=nnoptold
+         endif
+
          if(dtoutold.ne.dtout) then
             if(myrank.eq.0)write(69,*)'nout from restartrad.sph is',nout
             nout = t/dtout-1
@@ -113,8 +122,12 @@ c     used in subroutine dump)
 
          if(tjumpahead.gt.0) tjumpahead=-tjumpahead ! negative tjumpahead is so that tjumpahead will not be changed by changetf just because old eint value is not known in changetf
 
-c         tf=sign(max(abs(tfold),abs(tf)),tf)
-
+         if(t.ge.abs(tf)) then
+c     In case the user is restarting but hasn't made the final time late enough for anything to happen:
+            tf=sign(max(abs(tfold),abs(tf)),tf)
+            if(myrank.eq.0) write(69,*) 'Reset final time to TF=',tf
+         endif
+         
          if(myrank.eq.0) then
             write(69,*) myrank,'tjumpahead=',tjumpahead,'tf=',tf
          endif
@@ -493,6 +506,10 @@ c      end
       logical autotf
       common/autotfblock/autotf
       common/orbitalelements/e0,semimajoraxis,impactparameter,vinf2
+      real*8 bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
+     $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,bbh_longitude
+      common/bbhinfo/bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
+     $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,bbh_longitude
       real*8 rhocgs,mucgs
       common/ueqstuff/rhocgs,teq,mucgs
       common /jumpcomm/ tjumpahead
@@ -509,7 +526,15 @@ c      end
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,throwaway,
-     $     stellarevolutioncodetype,rp
+     $     stellarevolutioncodetype,
+     $     bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
+     $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
+     $     bbh_longitude,rp
+      
+      character*9 slurm_gpu_count_str
+      integer slurm_gpu_count, actual_gpu_count,ios
+      character*20 gpucfilename
+      character*50 command
 
       ndisplace=0
       displacex=0d0
@@ -521,6 +546,17 @@ c      end
       rp=-1.d30
       e0=-1.d30
       vinf2=1.d30
+
+      bbh_m1=20d0
+      bbh_m2=10d0
+      bbh_semimajoraxis=0.d0
+      bbh_rp=-1.d30
+      bbh_e0=-1.d30
+      bbh_vinf2=1.d30
+      bbh_trueanomaly=0d0
+      bbh_argperi=0d0
+      bbh_inclination=0d0
+      bbh_longitude=0d0
 
 c     set some default values, so that they don't necessarily have to be set in the sph.input file:
       tf=50000                 ! desired final time to stop simulation
@@ -545,16 +581,16 @@ c     set some default values, so that they don't necessarily have to be set in 
       tscanon=0                ! time that the scan of a binary starts
       sepfinal=1.d30           ! final separation for the scan of a binary
       nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u
-      ngravprocs=-2            ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+      ngravprocs=0             ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
       qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
       mbh=10d0                 ! mass of black hole
-      runit=6.9599d10          ! number of cm in the unit of length.  use 6.9599d10 if want solar radius.
-      munit=1.9891d33          ! number of g in unit of mass.  use 1.9891d33 if want solar mass.
+      runit=6.957d10          ! number of cm in the unit of length.  use 6.957d10 if want MESA solar radius.
+      munit=1.9884098706980504d33          ! number of g in unit of mass.  use 1.9884098706980504E+033 if want MESA solar mass.
 !     the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
 !     dt_sph=1/(1/dt1 + 1/dt2 + 1/dt3 + 1/dt4)
-      cn1=.5d0                 ! dt1=cn1*h/v_signal
-      cn2=0.06d0               ! dt2=cn2*(h/|a-a_smoothed|)^0.5
-      cn3=0.06d0               ! dt3=cn3*u/|du/dt|
+      cn1=.3d0                 ! dt1=cn1*h/v_signal
+      cn2=1.d30                ! dt2=cn2*(h/|a-a_smoothed|)^0.5
+      cn3=0.1d0                ! dt3=cn3*u/|du/dt|
       cn4=1.d30                ! dt4=cn4*v_signal/|a-a_smoothed|
 !     the courant numbers cn5, cn6, and cn7 are for a particle i that is a compact object (co):
 !     dt_co=1/(1/dt5 + 1/dt6)
@@ -564,7 +600,7 @@ c     set some default values, so that they don't necessarily have to be set in 
 !     the final timestep dt is the minimum of dt_sph and dt_co for all particles i
       computeexclusivemode=0   ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
       omega_spin=0.d0 ! angular rotation rate of star, used in nrelax=1 relaxations to give a rigidly rotating model
-      ppn=12
+      ppn=16
       neos=1 ! 0 for polytropic equation of state (eos), 1 for ideal gas + radiation pressure, 2 for tabulated eos
       nselfgravity=1 ! 0 if just do gravity to point particles, 1 if self-gravitating
       gam=5.d0/3.d0 ! leave this set at a reasonable value even if using neos=1 or 2 (because the value of gam is used in estimating the local sound speed in balav3.f)
@@ -587,6 +623,48 @@ c     set some default values, so that they don't necessarily have to be set in 
       read(12,input)
       close(12)
 
+      call set_nusegpus         ! if using gpus, this sets nusegpus=1 *and* nselfgravity=1
+
+c      call system('env')
+
+      if(nusegpus.gt.0) then
+         write(gpucfilename, '(A,I2.2)') 'temp_gpu_count_', myrank
+         command = 'nvidia-smi -L | wc -l > ' // trim(gpucfilename)
+c         call execute_command_line(trim(command))
+         call system(trim(command))
+
+c     Read the result from the temporary file
+         open(unit=400+myrank, file=gpucfilename, status='old',
+     $        action='read', iostat=ios)
+         if (ios /= 0) then
+            print *, 'Error opening tempgpucount.txt'
+            actual_gpu_count = abs(ngravprocs)
+         else
+         
+            read(400+myrank, *) actual_gpu_count
+            close(400+myrank)
+c     write(100+myrank,*) actual_gpu_count,ios
+c     Clean up temporary file
+c     call execute_command_line('rm -f ' // trim(gpucfilename))
+            call system('rm -f ' // trim(gpucfilename))
+         endif
+         call getenv('SLURM_GPUS_ON_NODE', slurm_gpu_count_str)
+!     Convert the string to an integer
+         read(slurm_gpu_count_str, '(I1)', IOSTAT=ierr) slurm_gpu_count
+c         write(200+myrank,*) slurm_gpu_count, ierr
+         if (ierr == 0 .and. slurm_gpu_count.gt.0) then
+            if(ngravprocs.eq.0 .or. ngravprocs.gt.slurm_gpu_count)then
+               ngravprocs=-slurm_gpu_count
+            endif
+         else
+            if(ngravprocs.eq.0 .or. ngravprocs.gt.actual_gpu_count)then
+               ngravprocs=-actual_gpu_count
+            endif
+         endif
+      endif
+
+c      write(300+myrank,*)'ngravprocs=',ngravprocs
+
       if(nitpot.ne.1 .and. ngr.ne.0) then
          if(myrank.eq.0) then
             write(69,*)'Gravitational potential energy is calculated at'
@@ -607,8 +685,6 @@ c     set some default values, so that they don't necessarily have to be set in 
 
       if(myrank.eq.0 .and. ncooling.gt.0) write(69,*)
      $     'background temperature teq=',teq
-
-      call set_nusegpus         ! if using gpus, this sets nusegpus=1 *and* nselfgravity=1
 
       if(cn1.lt.0.d0 .or. cn2.lt.0.d0 .or. cn3.lt.0.d0 .or.
      $     cn4.lt.0.d0 .or. cn5.lt.0.d0 .or. cn6.lt.0.d0 .or.
@@ -642,7 +718,12 @@ c      endif
          autotf=.true.
          tf=abs(tf)
          open(23,file='ecc.sph')
-         open(34,file='jumpahead.sph')
+         write(23,'(33a14)') 't    ','m1    ','m2    ',
+     $     'x1    ','y1    ','z1    ','x2    ','y2    ','z2    ',
+     $     'd12    ','am4/amtot    ','am4    ',
+     $     'a12    ','ecc12    ','mejecta    '
+
+c         open(34,file='jumpahead.sph')
       endif
 
       return
@@ -788,6 +869,16 @@ c     used in subroutine dump)
      $     tfold,dtoutold,noutold,nitold,told,navold,
      $     alphaold,betaold,tjumpahead,ngrold,nrelaxold,
      $     trelaxold,dt
+
+      if(nnoptold.ne.nnopt) then
+         if(myrank.eq.0) then
+            write(69,*) 'NOTE: Currently nnopt=',nnopt
+            write(69,*) '      The NNOPT in startu.sph=',nnoptold
+            write(69,*) '      Changing NNOPT to be',nnoptold
+         endif
+         nnopt=nnoptold
+      endif
+
       do i=1,ntot
          read (12) x(i),y(i),z(i),am(i),hp(i),rho(i),vx(i),vy(i),
      $        vz(i),vxdot(i),vydot(i),vzdot(i),u(i),udot(i),

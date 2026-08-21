@@ -36,7 +36,9 @@ c***********************************************************************
 
       do i=n_lower,n_upper
          if(u(i).ne.0.d0) then
-            dtivel=cn1*hp(i)/sqrt(uijmax(i))
+c            dtivel=cn1*hp(i)/sqrt(uijmax(i))
+            dtivel=cn1*hp(i)/sqrt(max(uijmax(i),
+     $           (vx(i)**2+vy(i)**2+vz(i)**2)/16))
             dtiacc=cn2*hp(i)**0.5d0/((vxdot(i)-vxdotsm(i))**2
      $           +(vydot(i)-vydotsm(i))**2
      $           +(vzdot(i)-vzdotsm(i))**2)**0.25d0

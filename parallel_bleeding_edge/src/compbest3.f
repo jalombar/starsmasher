@@ -27,6 +27,7 @@ c     numbers for a summary table
       logical db,pp
       character*18 fname
       integer ncomp1,ncomp2,ncomp3,ncomp4,corepts,corepts1
+      integer ncompsph1,ncompsph2
       real*8 amtiny
       integer irhomax4,irhomax1,irhomax2,irhomax3
       save irhomax4,irhomax1,irhomax2,irhomax3
@@ -476,9 +477,12 @@ c               write(69,*)x(i),y(i),z(i)
          if(myrank.eq.0)write(69,*)'let us try again'
          checkifswapped=.true.
          firstt=.false.
+         return
          goto 123
       endif
 
+      ncompsph1=0
+      ncompsph2=0
       ncomp1=0
       ncomp2=0
       ncomp3=0
@@ -487,8 +491,10 @@ c               write(69,*)x(i),y(i),z(i)
       do i=1,n
          if (icomp(i).eq.1) then
             ncomp1=ncomp1+1
+            if(u(i).ne.0) ncompsph1=ncompsph1+1
          else if (icomp(i).eq.2) then
             ncomp2=ncomp2+1
+            if(u(i).ne.0) ncompsph2=ncompsph2+1
          else if (icomp(i).eq.3) then
             ncomp3=ncomp3+1
          else if (icomp(i).eq.4) then
@@ -496,6 +502,40 @@ c               write(69,*)x(i),y(i),z(i)
             ncomp4=ncomp4+1
          endif
       enddo
+
+c     A component will need at least 5 SPH particles to count
+      if(ncompsph1.ge.1 .and. ncompsph1.le.4) then
+         do i=1,n
+            if (icomp(i).eq.1) then
+               icomp(i)=4
+               am4=am4+am(i)
+            endif
+         enddo
+         am1=0
+         ncomp1=0
+         x1=0
+         y1=0
+         z1=0
+         vx1=0
+         vy1=0
+         vz1=0
+      endif
+      if(ncompsph2.ge.1 .and. ncompsph2.le.4) then
+         do i=1,n
+            if (icomp(i).eq.2) then
+               icomp(i)=4
+               am4=am4+am(i)
+            endif
+         enddo
+         am2=0
+         ncomp2=0
+         x2=0
+         y2=0
+         z2=0
+         vx2=0
+         vy2=0
+         vz2=0
+      endif
 
       numstars=min(ncomp1,1)+min(ncomp2,1)+min(ncomp3,1)
 
@@ -511,7 +551,7 @@ c               write(69,*)x(i),y(i),z(i)
             firstt=.true.
             goto 123
          else
-            stop
+            return
          endif
       else
          firstt=.false.

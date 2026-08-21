@@ -55,7 +55,7 @@ c break.  and that doesn't seem to be happening fortunately!
       real*8 deltax2,deltay2,deltaz2,deltavx2,deltavy2,deltavz2
       real*8 deltax3,deltay3,deltaz3,deltavx3,deltavy3,deltavz3
       real*8 egsol,solrad
-      parameter(egsol=1.9891d+33,solrad=6.9599d10)
+      parameter(egsol=1.9884098706980504d33,solrad=6.957d10)
       real*8 xcombin,ycombin,zcombin
       real*8 vxcombin,vycombin,vzcombin
       real*8 amtot

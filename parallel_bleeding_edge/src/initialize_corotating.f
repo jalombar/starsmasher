@@ -20,7 +20,7 @@ c     calls gravquant,lfstart
       real*8 am1chk,am2chk,realdummy1,realdummy2,realdummy3
       real*8 deltax1,deltay1,deltaz1,deltax2,deltay2,deltaz2
       real*8 egsol,solrad
-      parameter(egsol=1.9891d+33,solrad=6.9599d10)
+      parameter(egsol=1.9884098706980504d33,solrad=6.957d10)
       real*8 deltaxbin,deltaybin,deltazbin
       character*7 dummy
 

@@ -15,7 +15,7 @@
       character*7 dummy
       real*8 am1chk,am2chk,am3chk
       real*8 egsol,solrad
-      parameter(egsol=1.9891d+33,solrad=6.9599d10)
+      parameter(egsol=1.9884098706980504d33,solrad=6.957d10)
       
       corepts=0
       write (69,*) 'triple: reading start files ...'

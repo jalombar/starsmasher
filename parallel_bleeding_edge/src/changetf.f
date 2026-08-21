@@ -63,7 +63,7 @@ c      character*1 stara,starb,starc
       character*9 starname(3)
       save starname
       integer numstars,lastnumstars
-      data lastnumstars /3/
+      data lastnumstars /2/
       save lastnumstars
       real*8 lastamb,lastamg,lastamr
       save lastamb,lastamg,lastamr
@@ -104,6 +104,9 @@ c      character*1 stara,starb,starc
       integer idumb
       save idumb
       data idumb /-2391/
+      real*8 orbital_period
+      
+      state=''
 
 c synchronize all variables:
       do i=1,n
@@ -379,6 +382,7 @@ c         if(myrank.eq.0)write(69,*)'timelast being set to',timelast
       compinabinary(3)=.false.
       compinabinary(4)=.false.
       a12=1.d30
+      ecc12=0d0
 
       tfold=tf
       tjumpaheadold=tjumpahead
@@ -672,16 +676,26 @@ c               endif
          eccbg=-1.d0
       endif
 
+      if(numstars.eq.2 .and. ecc12.ge.0 .and. ecc12.lt.1) then
+         orbital_period=2*pi*a12**1.5d0*(mass1+mass2)**(-0.5d0)
+         if(myrank.eq.0)write(69,*)'bound orbit with orbital period=',
+     $        orbital_period
+         if(t+orbital_period.lt.10000*DTOUT) then
+            tf=min(10000*DTOUT,max(tfold,t+30.d0*DTOUT))
+         endif
+         tjumpahead=1.d30
+      endif         
+
       timelast=t
       if(numstars.ne.lastnumstars) then
          if(myrank.eq.0)write(69,*)lastnumstars-numstars+1,'stars have merged'
-         if(t.gt.1 .and. tjumpahead.ge.0.d0) then
-            tf=min(tfold,dble(nint(t+4000.d0)))
+         if(t.gt.DTOUT .and. tjumpahead.ge.0.d0) then
+            tf=max(tfold,t+30.d0*DTOUT)
             tjumpahead=1.d30
          endif
          if(lastnumstars-numstars.gt.1) then
             if(myrank.eq.0)write(69,*)'two stars disappeared at once?'
-            tf=max(tfold,dble(nint(t+4000.d0)))
+            tf=max(tfold,t+30.d0*DTOUT)
             tjumpahead=1.d30
 c            stop
          endif
@@ -704,7 +718,7 @@ c            stop
          else
             if(myrank.eq.0)write(69,*)'cannot determine absorber',
      $           deltaamb,deltaamg,deltaamr
-            stop
+            absorber=absorbee
          endif
          lastnumstars=numstars
          if(myrank.eq.0)write(69,*)'star ',trim(starname(absorber)),
@@ -713,33 +727,39 @@ c            stop
          starname(absorber)=
      $        '{'//trim(starname(absorber))//','
      $        //trim(starname(absorbee))//'}'
-      else if(numstars.gt.1 .and. ecc12.ge.1.d0 .and.
+      else if(numstars.gt.1 .and. ecc12.gt.0.99d0 .and.
      $        dotproduct12.gt.0) then
-         if(myrank.eq.0)write(69,*)
-     $        'the stars have not merged, and they never will: ecc=',ecc12
-         tf=min(tfold,dble(nint(t+4000.d0)))
+         if(ecc12.ge.1.d0) then
+            if(myrank.eq.0)write(69,*)
+     $           'the stars have not merged, and they never will: ecc=',ecc12
+            tf=min(tfold,t+30.d0*DTOUT)
+         else
+            if(myrank.eq.0)write(69,*)
+     $           'the stars will take a long time to orbit, we might give up: ecc=',ecc12
+         endif
          tjumpahead=1.d30
       else if(numstars.gt.1) then
          if(ecc12.gt.1.d0) then
             if(myrank.eq.0)write(69,*)
-     $           'the stars have not merged, but they may still'
+     $           'the stars have not merged, but they may still: ecc=',ecc12
             tjumpahead=1.d30
          else
             if(myrank.eq.0)write(69,*)
-     $           'the stars have not merged, but they will'
+     $           'the stars have not merged, but they will: ecc=',ecc12
             if(dotproduct12.gt.0 .and. a12*(1.d0+ecc12).gt.
      $           1000.d0) then
-c               tjumpahead=1d30
-               tjumpahead=min(tjumpahead,dble(nint(t+4000.d0)))
+               tjumpahead=1d30
+c               tjumpahead=min(tjumpahead,dble(nint(t+4000.d0)))
 c               tjumpahead=min(tjumpahead,dble(nint(t+75.d0+25*ran1(idumb))))
-               tf=max(dble(nint(tjumpahead+4000.d0)),tf)
+               if(myrank.eq.0)write(69,*)'FUTURE CANDIDATE FOR JUMPING AHEAD'
+               tf=max(tjumpahead+30.d0*DTOUT,tf)
             else
                if(myrank.eq.0)write(69,*)'not going to jump ahead (',dotproduct12,
      $              a12*(1.d0+ecc12),')!'
                tjumpahead=1.d30
             endif
          endif
-         tf=dble(nint(t+4000.d0))
+         tf=max(tfold,t+30.d0*DTOUT)
       endif
       tjumpahead=abs(tjumpahead)
       lastamb=amb
@@ -756,9 +776,9 @@ c     p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1)
                eint=eint+am(i)*u(i)
             endif
          enddo
-         if(abs(1.d0-eint/eintsave).gt.0.01d0) then
+         if(abs(1.d0-eint/eintsave).gt.0.01d0 .and. numstars.gt.0) then
             if(myrank.eq.0)write(69,*)'u is changing a lot: will integrate longer'
-            tf=max(tfold,dble(nint(t+1000.d0)))
+            tf=max(tfold,t+30.d0*DTOUT)
 c            tjumpahead=1.d30
          endif
       endif
@@ -1054,7 +1074,7 @@ c            if(myrank.eq.0)write(69,*)'debug r12=',r12,ambin,a12,a12*(1.d0-ecc1
                state='(1,2,3)'
             endif
 
-            tf=max(tfold,dble(nint(t+4000.d0)))
+            tf=max(tfold,t+30.d0*DTOUT)
             tjumpahead=1.d30
 
          else
@@ -1064,8 +1084,9 @@ c     there is a binary and a third star that is both not bound and not headed c
      $           trim(starname(istarc))
  102        format('(',a,',',a,'),',a)
 
-            tjumpahead=min(tjumpahead,dble(nint(t+100.d0)))
-            tf=max(dble(nint(tjumpahead+4000.d0)),tf)
+c            tjumpahead=min(tjumpahead,dble(nint(t+100.d0)))
+            tjumpahead=1.d30
+            tf=max(tjumpahead+30.d0*DTOUT,tf)
 
          endif
          
@@ -1428,11 +1449,15 @@ c     shift back to original inertial reference frame:
 
 ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
-      write(23,'(d12.5,3d16.8,33d12.4)') t,amb,amg,amr,
-     $     xb,yb,zb,xg,yg,zg,xr,yr,zr,
-     $     dbg,dbr,dgr,am4/amtot,am4,
-     $     abg,eccbg,abr,eccbr,agr,eccgr,abin3,eccbin3,
-     $     ebin3ebin,mejecta
+c      write(23,'(d12.5,3d16.8,33d12.4)') t,amb,amg,amr,
+c     $     xb,yb,zb,xg,yg,zg,xr,yr,zr,
+c     $     dbg,dbr,dgr,am4/amtot,am4,
+c     $     abg,eccbg,abr,eccbr,agr,eccgr,abin3,eccbin3,
+c     $     ebin3ebin,mejecta
+      write(23,'(33g14.6)') t,amb,amg,
+     $     xb,yb,zb,xg,yg,zg,
+     $     dbg,am4/amtot,am4,
+     $     abg,eccbg,mejecta
 
 c asynchronize all variables:
       do i=1,n
