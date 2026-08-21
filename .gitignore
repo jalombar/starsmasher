@@ -1,0 +1,7 @@
+# Subversion metadata left over from the pre-git history
+.svn/
+
+# Editor and merge leftovers
+*.orig
+*.rej
+*~
