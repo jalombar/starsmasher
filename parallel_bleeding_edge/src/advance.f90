@@ -396,6 +396,7 @@
          call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
               r2=r2,nfound=cnt,nalloc=n,results=results)
          nn(i)=cnt
+         call check_neighbor_capacity(i)
          list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
          
          call bonetfuncd(i,fl,df)
@@ -434,6 +435,7 @@
                  correltime=-1,&
                  r2=r2,nfound=cnt,nalloc=n,results=results)
             nn(i)=cnt
+            call check_neighbor_capacity(i)
             list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
          endif
          r2last=r2
@@ -502,6 +504,7 @@
                     correltime=-1,r2=r2,nfound=cnt,nalloc=n,&
                     results=results)
                nn(i)=cnt
+               call check_neighbor_capacity(i)
                list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
             endif
             r2last=r2
@@ -559,6 +562,7 @@
                  correltime=-1,&
                  r2=r2,nfound=cnt,nalloc=n,results=results)
             nn(i)=cnt
+            call check_neighbor_capacity(i)
             list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
          endif
          
@@ -881,3 +885,40 @@
       return
       end
 
+
+!***********************************************************************
+      subroutine check_neighbor_capacity(i)
+!     The neighbour lists of all local particles are packed end to end into
+!     list(), which starsmasher.h dimensions as nnmax*nmax. Nothing in the
+!     kd-tree search bounds how many neighbours one particle may have, so a
+!     large nnopt or an unusually clustered configuration can run off the end
+!     of the array. Stop with an explanation instead of corrupting memory.
+      include 'starsmasher.h'
+      include 'mpif.h'
+      integer i,ierr
+
+      if(first(i)+nn(i).gt.nnmax*nmax) then
+         write(6,*)
+         write(6,*)'StarSmasher: neighbour list storage exhausted.'
+         write(6,*)'  rank                    =',myrank
+         write(6,*)'  particle                =',i
+         write(6,*)'  slots needed so far     =',first(i)+nn(i)
+         write(6,*)'  capacity (nnmax*nmax)   =',nnmax*nmax
+         write(6,*)'  nnopt                   =',nnopt
+         write(6,*)'  neighbours of this particle =',nn(i)
+         write(6,*)'Reduce nnopt in sph.input, or raise nnmax in'
+         write(6,*)'starsmasher.h and rebuild.'
+         write(6,*)
+         if(myrank.eq.0) then
+            write(69,*)'neighbour list storage exhausted:'
+            write(69,*)'  needed',first(i)+nn(i),' capacity',nnmax*nmax
+            write(69,*)'  at particle',i,' with nnopt=',nnopt
+            write(69,*)'  reduce nnopt, or raise nnmax and rebuild'
+         endif
+         call flush(6)
+         call mpi_abort(mpi_comm_world,1,ierr)
+         stop
+      endif
+
+      return
+      end
