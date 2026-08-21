@@ -10,7 +10,6 @@
  nrelax=0, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
  trelax=1d30, ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
  sep0=20000, ! initial separation of two stars in a binary or collision calculation
- bimpact=1.d30, ! the impact parameter for collisions
  vinf2=1.d30, ! the speed squared at infinity for a collision between two stars: 0 for parabolic, >0 for hyperbolic, <0 for elliptical.
  equalmass=0, ! particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
  treloff=0, ! time to end a relaxation and switch to a dynamical calculation
