@@ -855,18 +855,23 @@ c     profilefile comes from MESA
      $        c_core_mass,o_core_mass,si_core_mass,fe_core_mass,             
      $        neutron_rich_core_mass
      
-         if((num_zones .gt. kdm).and.(myrank .eq. 0)) then
-              print *, "Too many zones in the MESA profile!"
-              print *, "Edit the value of 'kdm' in starsmasher.h to use"//
-     $             " more."
-              print *, "num_zones = ",num_zones
-              print *, "Max allowed zones kdm = ", kdm
-              write(69,*) "Too many zones in the MESA profile!"
-              write(69,*) "Edit the value of 'kdm' in starsmasher.h to "//
-     $             "use more."
-              write(69,*) "num_zones = ",num_zones
-              write(69,*) "Max allowed zones kdm = ", kdm
-              error stop
+         if(num_zones .gt. kdm) then
+c     Every rank must take this branch: the read loop below is bounded by
+c     num_zones, not by kdm, so any rank that continues past this point
+c     writes past the end of the kdm-sized profile arrays.
+            if(myrank .eq. 0) then
+               print *, "Too many zones in the MESA profile!"
+               print *, "Edit the value of 'kdm' in starsmasher.h to "//
+     $              "use more, then rebuild."
+               print *, "num_zones = ",num_zones
+               print *, "Max allowed zones kdm = ", kdm
+               write(69,*) "Too many zones in the MESA profile!"
+               write(69,*) "Edit the value of 'kdm' in starsmasher.h "//
+     $              "to use more, then rebuild."
+               write(69,*) "num_zones = ",num_zones
+               write(69,*) "Max allowed zones kdm = ", kdm
+            end if
+            error stop
          end if
      
          read(io,*)             ! blank line
