@@ -524,10 +524,12 @@ struct SPHgrav_direct
     {
       cudaDeviceProp p;
       assert(cudaGetDeviceProperties(&p, dev) == cudaSuccess);
+      int computeMode = -1;
+      cudaDeviceGetAttribute(&computeMode, cudaDevAttrComputeMode, dev);
       const bool supported = p.major > 1 || (p.major == 1 && p.minor >= 3);
       if (rank == 0)
         fprintf(stderr,"  Device= %d: %s computeMode= %d computeCapability= %d_%d  supported= %s\n", 
-            dev, p.name, p.computeMode, p.major, p.minor, supported ? "YES" : "NO");
+            dev, p.name, computeMode, p.major, p.minor, supported ? "YES" : "NO");
       no_supported += supported ? 1 : 0;
       can_use_device[dev] = true;
     }

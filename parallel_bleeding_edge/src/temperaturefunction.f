@@ -1,5 +1,6 @@
       double precision function temperaturefunction(temi)
-
+c     temperaturefunction will equal zero when the input temperature T=temi
+c     satisfies P=rho*k*T/mu + 1/3 aT^4
       include 'starsmasher.h'
       real*8 rhoarray(kdm),uarray(kdm),rarray(kdm),
      $     muarray(kdm),pres(kdm)
@@ -10,6 +11,23 @@
 
       temperaturefunction=1.d0-(rhoarray(i)*boltz*temi/muarray(i)
      $     +arad*temi**4/3.d0)/pres(i)
+
+      return
+      end
+ccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
+      double precision function temperaturefunction2(temi)
+c     temperaturefunction2 will equal zero when the input temperature T=temi
+c     satisfies u=3/2 k*T/mu + aT^4/rho
+      include 'starsmasher.h'
+      real*8 rhoarray(kdm),uarray(kdm),rarray(kdm),
+     $     muarray(kdm),pres(kdm)
+      integer i
+      real*8 temi
+      common/splinestuff/rarray,uarray,muarray,rhoarray
+      common/presarray/ pres,i
+
+      temperaturefunction2=1.d0-(1.5d0*boltz*temi/muarray(i)
+     $     +arad*temi**4/rhoarray(i))/uarray(i)
 
       return
       end

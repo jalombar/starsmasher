@@ -14,7 +14,7 @@ c     creates a star from the data file yrec output
      $     muarray(kdm),muarray2(kdm)
       real*8 egsol
 c     astronomical constants:
-      parameter(egsol=1.9891d+33)
+      parameter(egsol=1.9884098706980504d33)
 c     derived constants:
       real*8 integratednum
       common/splinestuff/rarray,uarray,muarray,rhoarray,
@@ -50,7 +50,7 @@ c     derived constants:
       rhomax=rhoarray(1)
       if(myrank.eq.0)write(69,*)'maximum central density=',rhomax
 
-      if(myrank.eq.0)write(69,*)'85 percent radius redge1=',redge1
+      if(myrank.eq.0)write(69,*)'99 percent radius redge1=',redge1
 
       if(n.lt.0) then
             n=abs(n)*masscgs/egsol
@@ -61,8 +61,8 @@ c     derived constants:
          hc=0.5d0*radius*(1.3d0*nnopt/n)**(1.d0/3.d0) !trying to better estimate the nearest neighbor number... about 1.3*nnopt
       endif
 
-      redge2=radius-2.d0*hc
-      if(myrank.eq.0)write(69,*)'2h away from surface is redge2=',redge2
+      redge2=radius-1.5d0*hc
+      if(myrank.eq.0)write(69,*)'1.5h away from surface is redge2=',redge2
 
       redge=max(redge1,redge2)
       if(myrank.eq.0)write(69,*)'redge=max(redge1,redge2)=',redge
@@ -612,7 +612,7 @@ c     Read in a stellar evolution code file
      $     muarray(kdm),muarray2(kdm)
       real*8 egsol,solrad
 c     astronomical constants:
-      parameter(egsol=1.9891d+33,solrad=6.9599d10)
+      parameter(egsol=1.9884098706980504d33,solrad=6.957d10)
 c     derived constants:
       integer ndim
       parameter(ndim=9)
@@ -628,8 +628,8 @@ c     derived constants:
       real*8 redge1
       real*8 amass1,amass2
       common/forcompbest/ amass1,amass2
-      real*8 temperaturefunction
-      external temperaturefunction
+      real*8 temperaturefunction,temperaturefunction2
+      external temperaturefunction,temperaturefunction2
       real*8 ufunction,useeostable,temupperlimit,uupperlimit
       external ufunction
       common/presarray/ pres,i
@@ -657,15 +657,28 @@ c     derived constants:
      $     ilogRho,ilogP,ix_mass_fraction_H,iy_mass_fraction_He,
      $     iz_mass_fraction_metals,ih1,ihe3,ihe4
       real*8 mesadata(2:maxnumcol)
+      integer lenp
+
+      lenp = len(trim(profilefile))
+      if (lenp .ge. 4) then
+         if (profilefile(lenp-3:lenp) .eq. '.asc') then
+            stellarevolutioncodetype = 2 ! Freitag and Benz
+         elseif (profilefile(lenp-3:lenp) .eq. 'data') then
+            stellarevolutioncodetype = 1 ! MESA
+         elseif (profilefile(lenp-3:lenp) .eq. 's2mm') then
+            stellarevolutioncodetype = 0 ! TWIN
+         endif
+      endif
 
       if(myrank.eq.0) then
          write(69,*) 'splinesetup: stellarevolutioncodetype=',
      $        stellarevolutioncodetype
          write(69,*) '             about to read file ',trim(profilefile)
       endif
+
  10   open(io,file=profilefile,status='old')
       if(stellarevolutioncodetype.eq.0) then
-c     This is a *.s2mm file made by TWIN on starsmasher.allegheny.edu
+c     This is a *s2mm file made by TWIN on starsmasher.allegheny.edu
 c     h, he4 , c12, n14, o16, ne20
          ln(1)=0
          ln(2)=2
@@ -750,6 +763,48 @@ c     get profiles:
             maxmu=max(maxmu,muarray(i))
             minmu=min(minmu,muarray(i))
          enddo
+      else if(stellarevolutioncodetype.eq.2) then
+c     This is a *si.asc file used by Freitag and Benz
+
+c     skip over the first 6 lines of header information:
+         do k=1,6
+            read(io,*)
+         enddo
+c     get profiles:
+         i=0
+         do k=1,kdm
+            i=i+1
+            read(io,*, end=23) rarray(i),uarray(i),rhoarray(i),muarray(i),xm(i)
+            rarray(i)=rarray(i)*solrad
+            uarray(i)=uarray(i)*gravconst*egsol/solrad
+            rhoarray(i)=rhoarray(i)*egsol/solrad**3
+            muarray(i)=muarray(i)*1.67262158d-24
+            xm(i)=xm(i)*egsol
+            tem(i)=zeroin(0.d0,uarray(i)*muarray(i)/boltz,
+     $           temperaturefunction2,1.d-11)
+            pres(i)=rhoarray(i)*boltz*tem(i)/muarray(i)+1d0/3*arad*tem(i)**4
+c            if(myrank.eq.0) then
+c               write(69,*) 'check',i,tem(i)
+c               tem(i)=zeroin(0.d0,pres(i)*muarray(i)/(rhoarray(i)*boltz),
+c     $              temperaturefunction,1.d-11)
+c               write(69,*) tem(i)
+c            endif
+            if(i.gt.1 .and. rarray(i).le.rarray(i-1)) then
+               if(myrank.eq.0) write(69,*)'ignoring shell',k
+               i=i-1
+            endif
+
+         enddo
+         if(myrank.eq.0)write(69,*)'need to increase kdm'
+         stop
+ 23      close(io)
+
+         numlines=i-1
+         xm(numlines+1)=xm(numlines)
+         rarray(numlines+1)=rarray(numlines)
+         pres(numlines+1)=0.d0
+         rhoarray(numlines+1)=0.d0
+         if(myrank.eq.0)write(69,*)'number of shells=',numlines
       else if(stellarevolutioncodetype.eq.1) then
 c     profilefile comes from MESA
          read(io,*,err=22) one  ! It's safe to ignore a compiler warning here
@@ -768,13 +823,6 @@ c     profilefile comes from MESA
          read(io,*)             ! read past all the global data... we'll read this in later
          read(io,*)             ! blank line
          
-         
-
-
-
-
-
-
          do i=1,maxnumcol
             in(i)=0
          enddo
@@ -868,7 +916,6 @@ c     profilefile comes from MESA
             write(69,*) ihe4,' : X_He4'
          endif
 
-
          if(myrank.eq.0) then
             write(69,*)'model_number=',model_number            
             write(69,*)'num_zones=',num_zones                  
@@ -916,21 +963,21 @@ c     $           z_mass_fraction_metals, (dummy, ii=1,26),xm(i)
                stop
             endif
 
-            xm(i)=xm(i)*1.9892d33
+            xm(i)=xm(i)*1.9884098706980504d33
 
 c            read(io,*) zone, qq, logR, logRho, logT, logP, logPgas,             
 c     $           luminosity,x_mass_fraction_H,y_mass_fraction_He,             
 c     $           z_mass_fraction_metals,gamma1,opacity,pp,cno,gradr,
 c     $           gradT,grada,actual_gradT,total_energy,
 c     $           total_energy_integral,scale_height,mu           
-c            xm(i)=star_mass*qq*1.9892d33     
+c            xm(i)=star_mass*qq*1.9884098706980504d33     
 
             if(k.eq.1 .and. myrank.eq.0) then
                write(69,*) 'Surface x,y,z=',x_mass_fraction_H,
      $              y_mass_fraction_He,z_mass_fraction_metals
             endif
 
-            rarray(i)=10d0**logR*6.9598d10
+            rarray(i)=10d0**logR*6.957d10
             if(i.lt.num_zones .and. rarray(i+1).le.rarray(i)) then             
                write(69,*)'ignoring shell',k
                stop      
@@ -1069,7 +1116,7 @@ c            write(102,*) i,uarray(i),tem(i)
      $     write(69,*)'total mass=',xm(numlines),xm(numlines)/egsol
 
       do i=1,numlines
-         if(xm(i).gt.0.85d0*masscgs) then
+         if(xm(i).gt.0.99d0*masscgs) then
             redge1=rarray(i)/runit
             goto 143
          endif

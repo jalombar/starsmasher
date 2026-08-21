@@ -248,6 +248,10 @@ c             else
 c              epot=epot+am(i)**2*42.d0/30.d0/hp(i) ! undo self-energy of point mass
 c             endif
             enddo
+            if (epot.eq.0) then
+               write(69,*) 'Problem calculating gravity: epot=0'
+               stop
+            endif
             epot=0.5d0*epot
          endif
       endif
@@ -469,11 +473,11 @@ c     so updating the entropy calculation is a low priority.
          
 c     append results of iteration to file:
          if(printingenergytofile)then
-            if (einit == 128.0) einit = etot
-            if (einit .eq. 0.0) then
-               print *, etot
-               stop 'error: einit = 0'
-            end if
+c            if (einit == 128.0) einit = etot
+c            if (einit .eq. 0.0) then
+c               print *, etot
+c               stop 'error: einit = 0'
+c            end if
             if(nrelax.ge.2)then
                call getcoms
                write(69,*)'separation=',

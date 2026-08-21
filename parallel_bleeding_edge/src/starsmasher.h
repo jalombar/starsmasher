@@ -22,7 +22,7 @@
       real*8 wtab(ntab),dwtab(ntab),ctab,dwdhtab(ntab),dphidhtab(ntab)
       real*8 x(nmax),y(nmax),z(nmax),vx(nmax),vy(nmax),vz(nmax)  
       real*8 am(nmax),hp(nmax),u(nmax),rho(nmax),por2(nmax)
-      real*8 grpot(nmax),meanmolecular(nmax)
+      real*8 grpot(nmax),meanmolecular(nmax),bb(nmax),aa(nmax),dd(nmax)
       real*8 zeta(nmax),bonet_omega(nmax), bonet_0mega(nmax) 
       real*8 bonet_psi(nmax), bonet_wn(nmax), max_vsig(nmax)
       real*8 vxdot(nmax),vydot(nmax),vzdot(nmax),udot(nmax)
@@ -42,7 +42,7 @@
       parameter(sigma=pi**2*boltz*(boltz*2d0*pi/planck)**3/60d0/crad2)
       parameter(arad=4.0d0*sigma/crad,qconst=1.5d0*boltz/arad)
       real*8 munit,runit,punit,gravconst,redge
-      parameter(gravconst = 6.67390d-08)
+      parameter(gravconst = 6.67430d-08)
       common/units/munit,runit,punit
       common/artvis/ alpha,beta,nav
       integer computeexclusivemode,ppn

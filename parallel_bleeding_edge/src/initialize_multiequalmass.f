@@ -14,7 +14,7 @@ c     creates a star with varying equalmass values, spanning from +1 along the +
      $     muarray(kdm),muarray2(kdm)
       real*8 egsol
 c     astronomical constants:
-      parameter(egsol=1.9891d+33)
+      parameter(egsol=1.9884098706980504d33)
 c     derived constants:
       real*8 integratednum
       common/splinestuff/rarray,uarray,muarray,rhoarray,

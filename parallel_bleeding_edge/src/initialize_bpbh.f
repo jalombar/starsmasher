@@ -107,7 +107,7 @@ c     place velocities at same time as everything else:
       vx(i)=0.d0
       vy(i)=0.d0
       vz(i)=0.d0
-      am(i)=bhmass*1.98843d33/munit
+      am(i)=bhmass*1.9884098706980504d33/munit
       am2=am(i)
       hp(i)=-999.d0
       rho(i)=0.d0
@@ -131,8 +131,8 @@ c     place velocities at same time as everything else:
       open(30,file='m1m2rp.sph')
 c     make file m1m2rp.sph with masses and radius in solar units
       write(30,*) n1,n2,rp
-      write(30,*) am1*munit/1.98843d33,am2*munit/1.98843d33,
-     $     rp*runit/6.9599d10     
+      write(30,*) am1*munit/1.9884098706980504d33,am2*munit/1.9884098706980504d33,
+     $     rp*runit/6.957d10     
       close(30)
 
       k=am1*am2
