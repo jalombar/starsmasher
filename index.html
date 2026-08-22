@@ -28,276 +28,77 @@
     <div id="content-wrapper">
       <div class="inner clearfix">
         <section id="main-content">
-          <p>Please contact Jamie Lombardi (<a href="mailto:jamie.lombardi@allegheny.edu">jamie.lombardi@allegheny.edu</a>) with any
-questions.</p>
+          <p>StarSmasher is a smoothed particle hydrodynamics (SPH) code for modelling
+collisions and close interactions between stars and planets. It is parallelised with
+MPI, and computes self-gravity either on NVIDIA GPUs or, if you have no such card, on
+the CPU. It descends from StarCrash, written by Joshua Faber, James Lombardi and
+Frederic Rasio.</p>
+
+<p>Please contact Jamie Lombardi (<a href="mailto:jamie.lombardi@allegheny.edu">jamie.lombardi@allegheny.edu</a>)
+with any questions.</p>
 
 <h2>
-<a id="obtaining-and-compiling" class="anchor" href="#obtaining-and-compiling" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>OBTAINING AND COMPILING</h2>
+<a id="getting-the-code" class="anchor" href="#getting-the-code" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Getting the code</h2>
 
-<p>Get the code from the repository at <a href="https://github.com/jalombar/starsmasher/">https://github.com/jalombar/starsmasher/</a>.</p>
+<pre><code>git clone https://github.com/jalombar/starsmasher.git</code></pre>
 
-<p>The main directory contains at least three subdirectories:</p>
-
-<p><font face="Consolas">example_input</font>:          contains example input files for various cases
-<br><font face="Consolas">misc</font>:           miscellaneous files such as assorted makefiles and the StarCrash manual
-<br><font face="Consolas">parallel_bleeding_edge</font>: latest version of code (this is probably what you want)</p>
-
-<p>For runs on a gpu-enabled cluster, the directory you care about is
-<font face="Consolas">parallel_bleeding_edge</font>.  Let's try to compile the code in there:</p>
-
-<p style="font-family:Consolas">cd parallel_bleeding_edge/src/SPHgrav_lib</p>
-
-<p>The <font face="Consolas">SPHgrav_lib</font> subdirectory contains code written by Evghenii Gaburov
-(and somewhat modified by Jamie Lombardi and Sam Knarr) for
-calculating softened gravitational forces and potentials on NVIDIA
-GPUs.  If you are running on something other than keeneland, you will
-need to customize the Makefile for your system: any path that contains
-"cuda" or "CUDA" probably needs to be changed.  To make the library,
-simply issue the following command:</p>
-
-<p style="font-family:Consolas">make</p>
-
-<p>(The final thing that <font face="Consolas">make</font> does is <font face="Consolas">./makelib.sh</font>
-which is what will make the library.)  If it doesn't work, and you want to have a fresh start,
-  first use <font face="Consolas">make clean</font>.  If all goes well, the library by the name
-  <font face="Consolas">libGPUsph_gatherscatter.a</font> will be generated.</p>
-
-<p>If you type the command below, you will be moved up a level in the directory structure. 
-  The SPH source code is in the ".." directory.  This is a parallel code.
-Execute the following command to move into the src subdirectory.</p>
-
-<p style="font-family:Consolas">cd ..</p>
-
-<p>Now, make a copy of the makefile.</p>
-
-<p style="font-family:Consolas">cp makefile.keeneland makefile</p>
-
-<p>To compile, type the command below.</p>
-
-<p style="font-family:Consolas">make</p>
-
-<p>You will likely need to customize the makefile for your computer.  For
-example, you may need to change the compiler or update paths to point
-  to the appropriate locations.  The executable name will end with <font face="Consolas">_sph</font>
-and will depend on the name of the directory that src appears within.
-The executable will automatically be moved up a level in the directory
-  structure (that is, to the "<font face="Consolas">..</font>"  directory).  You probably want to
-remove the executable for now so that you don't later copy it to other
-places where you don't want it:</p>
-
-<p style="font-family:Consolas">cd ..<br>
-   rm *_sph</p>
-
-<p>Although this Starsmasher code is not well documented, there is
-documentation for Starcrash, which is a previous version of this code
-(see <a href="http://ciera.northwestern.edu/StarCrash/">http://ciera.northwestern.edu/StarCrash/</a>).  Although Starcrash is
-not the same as Starsmasher, the variable names, input files, output
-files, and parallelization strategy are very similar.  The Starcrash
-documentation is available as the file <font face="Consolas">usersmanual.pdf</font> in the
-<font face="Consolas">misc</font> subdirectory and may be somewhat helpful to peruse.  You will
-be most interested in pages 31 - 36, which talks about input and
-output.  Remember, however, that this Starsmasher SPH code is different in
-many ways.  The algorithms of Starsmasher are mostly described in
-<a href="http://adsabs.harvard.edu/abs/2010MNRAS.402..105G">http://adsabs.harvard.edu/abs/2010MNRAS.402..105G</a>.  The AV scheme is
-described in Ponce et al. (2011).</p>
+<p>StarSmasher is compiled against whatever MPI and CUDA your machine has, so clone the
+repository rather than downloading an archive: that way you can pull later fixes without
+starting again.</p>
 
 <h2>
-<a id="example-runs" class="anchor" href="#example-runs" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>EXAMPLE RUNS</h2>
+<a id="documentation" class="anchor" href="#documentation" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Documentation</h2>
 
-<p>There are two steps to modelling a collision or fly-by of two stars.
-First, you have to model the individual star: a relaxation run.
-Second, you simulate the interaction: a dynamical calculation.</p>
+<p>The documentation lives in the repository, where it is kept current. Start here:</p>
 
-<h2>
-<a id="step-1-relaxation-runs" class="anchor" href="#step-1-relaxation-runs" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Step 1: Relaxation runs</h2>
-
-<h2>
-<a id="step-1a-relaxing-a-n15-polytrope" class="anchor" href="#step-1a-relaxing-a-n15-polytrope" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Step 1(a): Relaxing a n=1.5 polytrope</h2>
-
-<p>Let's have you do your own simulation for practice.  We'll use a small number of particles N
-so that the code runs very quickly.  Let's try an equation of state
-governed by the adiabatic index gamma=5/3, and a structure specified
-by the polytropic index n=1.5.</p>
-
-<p>First, let's get the directories ready.  We'll be using parallel_bleeding_edge as a template directory that can be duplicated as
-  needed.  So assuming you are still in the directory parallel_bleeding_edge, do a
-  <br><font face="Consolas"> cd .. </font>   
-  <br>(or maybe <font face="Consolas">cd ~/starsmasher</font> depending on where your installation is).
-  <br><font face="Consolas">cp -r parallel_bleeding_edge GAM1.667_n1.5
-  <br>cd GAM1.667_n1.5
-  <br>cp ../example_input/relaxation_preMS/sph.init .
-  <br>cp ../example_input/relaxation_preMS/sph.input .</font></p>
-         
-<p>The file <font face="Consolas">sph.init</font> controls what type of calculation we will do.
-<br>Confirm that the three letter code word inside <font face="Consolas">sph.init</font> is '<font face="Consolas">1es</font>' for
- this polytrope relaxation (and update the text if necessary):
-   <br><font face="Consolas">emacs -nw sph.init</font></p>
-
-<p>You should look at sph.input:
-  <br><font face="Consolas">emacs -nw sph.input</font> 
-  <br>[or use some other editor]</p>
-
-<p>Change <b>line 4</b> of <font face="Consolas">sph.input</font> to be <b>N=2000</b> and save the file.  There are
-several other variables that could be changed, but the defaults should
-be fine for now.  See the Starcrash documentation for an explanation
-of what some of the other variables are.</p>
-
-<p>Now let's compile the source code:
-  <br>   <font face="Consolas">cd src
-  <br>   cat starsmasher.h</font>
-  <br>Confirm that the last line sets the adiabatic index GAM=5.d0/3.d0.
-  <br>  <font face="Consolas">emacs -nw initialize_polyes.f</font></p>
-<p>Confirm that the lines right after the declaration section will set the
- polytropic constant <font face="Consolas">npoly</font> to be <b>1.5</b>.
-<br>The radius and mass are set on near here.  These values are
- in physical units of <i>runit</i> and <i>munit</i>, which are set at the end of <font face="Consolas">sph.input</font>
- and are typically the radius and mass of the sun in <i>cgs</i> units.  Save <font face="Consolas">initialize_polyes.f</font>
-when you are done and then try to compile:
-  <br>  <font face="Consolas">make</font></p>
-<p>Once everything goes well with the
-compilation, the last line you should see is "<font face="Consolas">mv GAM1.667_n1.5_sph
-  ..</font>". 
-  <br>Get positioned to run the code:
-  <br>   <font face="Consolas">cd ..</font></p>
-  
-<p>And get a good batch script if you don't have one:
-  <br>   <font face="Consolas">cp ../sph.pbs.kfs sph.pbs</font></p>
-
-<p>The default <font face="Consolas">sph.pbs</font> file asks for only 1 minute, so you'll need to
-change that for a real run.  To run the code,
-  <br>   <font face="Consolas">qsub -q debug sph.pbs ###</font> or, for long jobs, "<font face="Consolas">qsub sph.pbs</font>"</p>
-<p>This creates, among other things, a file <font face="Consolas">log0.sph</font> that collects
-ascii tex about the run.</p>
+<ul>
+<li><a href="https://github.com/jalombar/starsmasher/blob/master/documentation/installation.md">Installation guide</a>
+&mdash; what you need, compiling the gravity library, and building the code</li>
+<li><a href="https://github.com/jalombar/starsmasher/blob/master/documentation/walkthroughs/star_star_flyby.md">Star&ndash;star fly-by walkthrough</a>
+&mdash; a worked example, from relaxing a single star to running the encounter</li>
+<li><a href="https://github.com/jalombar/starsmasher/tree/master/example_input">Example input files</a>
+&mdash; ready-made setups for relaxations, collisions and binaries</li>
+<li><a href="https://github.com/jalombar/starsmasher/blob/master/example_input/Tips_and_tricks.md">Tips and tricks</a>
+&mdash; advice on getting a simulation to behave</li>
+<li><a href="https://github.com/jalombar/starsmasher/tree/master/Data_visualization">Data visualization</a>
+&mdash; reading and displaying the output snapshots</li>
+<li><a href="https://github.com/jalombar/starsmasher/blob/master/documentation/usersguide.md">User's guide</a>
+&mdash; a draft covering the SPH background and the code's structure</li>
+</ul>
 
 <h2>
-<a id="step-1b-relaxing-a-twin-model" class="anchor" href="#step-1b-relaxing-a-twin-model" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Step 1(b): Relaxing a TWIN model</h2>
+<a id="what-is-in-the-repository" class="anchor" href="#what-is-in-the-repository" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>What is in the repository</h2>
 
-<p>Get the directories ready:
-  <br><font face="Consolas">   cd ~/starsmasher   ###</font> or <font face="Consolas">cd</font> to wherever your main installation is
-  <br><font face="Consolas">   cp -r parallel_bleeding_edge TWIN
-  <br>   cd TWIN
-  <br>   cp ../example_input/relaxation_TWIN_model/* .</font></p>
-
-<p>To relax a TWIN model instead, the three letter code word in <font face="Consolas">sph.init</font>
- should be '<font face="Consolas">erg</font>'.  The SPH code will look for a model named
- '<font face="Consolas">eg.last1.muse_s2mm</font>'.  
-  <br>You can create a symbolic link from an appropriate output file of TWIN if you like 
-  <br>(e.g., "<font face="Consolas">cp -s m_8_t_5.7.last1.muse_s2mm eg.last1.muse_s2mm</font>").  
-  <br>The file <font face="Consolas">m_8_t_5.7.last1.muse_s2mm</font> is the default in
-  <font face="Consolas">example_input/relaxation_TWIN_model</font>.  It represents an <font face="Consolas">8M_sun</font> MS
-star at t=5.7Myr.</p>
-
-<p>The <font face="Consolas">sph.input</font> file, also available within
-  <font face="Consolas">example_input/relaxation_TWIN_model/</font>, should be similar to the
-  <font face="Consolas">sph.input</font> file used above for the polytrope (probably just change N
-and nothing else unless necessary).  The file on the svn site does
-have TRELOFF to 200 in this case, to make sure there was enough time
-for oscillations to die off, and TF is 300 so the star could be
-monitored for 100 time units after the relaxation was turned off.</p>
-
-<p>Run the code like before:
-  <br><font face="Consolas">   cd src
-  <br>   make
-  <br>   cd ..
-  <br>   cp ../sph.pbs.kfs ./sph.pbs
-  <br>  qsub -q debug sph.pbs</font></p>
+<ul>
+<li><code>parallel_bleeding_edge</code> &mdash; the current version of the code, and the one most
+people want</li>
+<li><code>Blackollider</code> &mdash; a variant for collisions involving compact objects treated as
+point masses</li>
+<li><code>example_input</code> &mdash; example input files</li>
+<li><code>documentation</code> &mdash; installation guide, walkthroughs and user's guide</li>
+<li><code>Data_visualization</code> and <code>splot_routines</code> &mdash; tools for looking at output</li>
+<li><code>misc</code> &mdash; assorted makefiles and the StarCrash manual</li>
+</ul>
 
 <h2>
-<a id="step-2-dynamical-calculation" class="anchor" href="#step-2-dynamical-calculation" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Step 2: Dynamical calculation</h2>
+<a id="papers-and-citation" class="anchor" href="#papers-and-citation" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>Papers and citation</h2>
 
-<p>If the model from the relaxation run at t=TRELOFF looks good, then you
-can use that to start a dynamical calculation.  Start by get the
-directories ready:
-  <br><font face="Consolas">  cd ~/starsmasher   ###</font> or <font face="Consolas">cd</font> to wherever your main installation is
-  <br><font face="Consolas">  cp -r parallel_bleeding_edge/ collision_rp3.9_a119
-  <br>  cd collision_rp3.9_a119
-  <br>  cp ../example_input/collision/sph.in* .
-  <br>  emacs -nw sph.init</font></p>
+<p>The algorithms are described mainly in
+<a href="http://adsabs.harvard.edu/abs/2010MNRAS.402..105G">Gaburov, Lombardi &amp; Portegies Zwart (2010)</a>,
+with the artificial viscosity scheme following Balsara (1995) and Ponce et al. (2011).
+A fuller list, including papers that have used the code, is kept in
+<a href="https://github.com/jalombar/starsmasher/blob/master/documentation/papers.md">papers.md</a>
+and <a href="https://github.com/jalombar/starsmasher/blob/master/documentation/publications.md">publications.md</a>.</p>
 
-<p>Make sure <b>line 2</b> of <font face="Consolas">sph.init</font> says <b>INAME='hyp'</b>.</p>
-
-<p>The new <font face="Consolas">sph.input</font> file is set up for doing dynamical calculations.
-Take a look at it:
-  <br><font face="Consolas">  emacs -nw sph.input</font></p>
-
-<p>While you're in the file, check that <b>DTOUT=1</b> on <b>line 3</b>, which
-means that an <font face="Consolas">out*.sph</font> file will be dumped every 1 time unit.  Also,
-on line 16 or so, make <b>BIMPACT=3.9d0</b>, which means the periastron separation
-of the initial orbit is 3.9 stellar radii.</p>
-
-<p>In sph.input you can use any of the following pairs of data to initialize a collision in 
-  <font face="Consolas">hyperbolic.f: (e0,vinf2), (e0,bimpact), (semimajoraxis,bimpact), (semimajoraxis,e0), (bimpact,vinf2).</font>
-  Here, <i>e0</i> is the eccentricity of the initial orbit, and bimpact is the periastron separation 
-  (not really the impact parameter).  For example, <font face="Consolas">sph.input</font> could contain the following.</p>
-
-<p><font face="Consolas">BIMPACT=4.d0,
-  <br>semimajoraxis=118.57d0,</font></p>
-
-<p>and <i>e0</i> and <i>vinf2</i> could be unspecified.  Or you could specify <i>BIMPACT</i> and <i>e0</i>, and 
-the same code works, etc.  The code in <font face="Consolas">initialize_hyperbolic.f</font> figures out what 
-it needs to solve for.</p>
-
-<p>Whether the encounter is hyperbolic, parabolic, or elliptical is
-  controlled by the velocity at infinity squared, <i>vinf2</i>, or the semi-major axis <i>a</i>.
-  The value of <i>vinf2</i> is negative for elliptical encounters, zero for
-parabolic encounters, and positive for hyperbolic encounters.  Note
-  that the orbital energy G<em>M</em>mu/(-2a) just equals mu<em>vinf2</em>/2.
-  <br>Therefore, there is a simple relation between the semi-major axis <i>a</i> and
-  <i>vinf2</i>, namely.  a=-G<em>M</em>/vinf2, where <em>M</em> is the total mass of the two
-stars.  For example, if you are colliding a 0.3 Msun and 8 Msun star
-and if vinf2=-0.07, then the semi-major axis a=(0.3+8)/0.07=118.57,
-where I assume the units chosen are the usual G=Msun=Rsun=1.</p>
-
-<p>Note that <font face="Consolas">ngravprocs=-6</font> and <font face="Consolas">ppn=16...</font> this means there are
-<font face="Consolas">abs(ngravprocs)=6</font> GPU units per 16 CPU cores, as on one node of the
-supercomputer forge.  You should change these values to be appropriate
-for your machine.  For example, on Keeneland KFS, there are 3 gpus and
-12 cores per node.</p>
-
-<p>Let's get the star models:
-  <br><font face="Consolas">  cp ../TWIN/<em>/out0200.sph ./sph.start1u
-  <br>  cp ../GAM1.667_n1.5/</em>/out0100.sph ./sph.start2u</font></p>
-
-<p>Where we assume the 8 solar mass ZAMS star was relaxed in the directory <font face="Consolas">../TWIN/.</font></p>
-
-<p>Now let's compile the code:
-  <br><font face="Consolas">  cd src
-  <br>  make</font></p>
-
-<p>To run the code, get to the same directory as the executable:
-  <br><font face="Consolas">  cd ..</font></p>
-
-<p>Then,
-  <br><font face="Consolas">  cp ../sph.pbs.kfs ./sph.pbs
-  <br>  qsub -q debug sph.pbs</font></p>
-
-<h2>
-<a id="restarting-runs" class="anchor" href="#restarting-runs" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>RESTARTING RUNS</h2>
-
-<p>Every few iterations, a restartrad.sph file is dumped (overwriting any
-  previously existing restartrad.sph file).  If a <font face="Consolas">restartrad.sph</font> file
-exists in the directory when a new run is launched, then the code will
-automatically use that file to initiate the calculation.  This is
-useful for restarting in the middle of a long simulation.  You can
-  also restart from any <font face="Consolas">out*.sph</font> file simply by renaming it to
-  <font face="Consolas">restartrad.sph</font>.</p>
-
-<h2>
-<a id="data-visualization" class="anchor" href="#data-visualization" aria-hidden="true"><span aria-hidden="true" class="octicon octicon-link"></span></a>DATA VISUALIZATION</h2>
-
-<p>I recommend Price's SPLASH software.  It will need to be customized to
-read in our output file type.</p>
+<p>If you publish work done with StarSmasher, please cite the relevant papers above.
+The code is released under the
+<a href="https://github.com/jalombar/starsmasher/blob/master/LICENSE">GNU General Public License v3</a>.</p>
         </section>
 
         <aside id="sidebar">
-          <a href="https://github.com/jalombar/starsmasher/zipball/master" class="button">
-            <small>Download</small>
-            .zip file
-          </a>
-          <a href="https://github.com/jalombar/starsmasher/tarball/master" class="button">
-            <small>Download</small>
-            .tar.gz file
-          </a>
+          <p><strong>Get the code</strong></p>
+          <pre><code>git clone
+https://github.com/jalombar/starsmasher.git</code></pre>
 
           <p class="repo-owner"><a href="https://github.com/jalombar/starsmasher"></a> is maintained by <a href="https://github.com/jalombar">jalombar</a>.</p>
 
