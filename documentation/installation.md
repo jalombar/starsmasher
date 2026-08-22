@@ -3,9 +3,9 @@ Welcome to the installation guide for StarSmasher!  Please feel free to contact 
 # [0] What you'll need to install StarSmasher
 You'll need a few things to prepare for a clean installation of StarSmasher.
 
-## [0.1] A Linux computer with an NVIDIA graphics card
+## [0.1] A Linux computer, ideally with an NVIDIA graphics card
 
-First, you should have a computer running Linux with at least one NVIDIA graphics card.  The instructions in this section [0] below assume that you'll be setting up your computer *without* using modules.  If you are working on a research cluster of a university, for example, then you may be able to set up the necessary software with ``module load`` commands.  For example ``module load cuda/cuda-10.1.2`` would load version 10.1.2 of cuda, while ``module load mpi/openmpi-1.10.5-gcc-6.4.0`` would load version 1.10.5 of openmpi (compiled with version 6.4.0 of gcc), if available.  To see what modules are available on your system, type ``module avail``.  **If you are using modules, then load up cuda and openmpi, and move on to section [1] of this installation guide!**
+First, you should have a computer running Linux.  An NVIDIA graphics card is worth having, since the GPU takes over the gravity calculation, but it is not essential: ``make cpu`` builds a version that runs anywhere, and sections [0.2] and [0.3] below can then be skipped.  The instructions in this section [0] below assume that you'll be setting up your computer *without* using modules.  If you are working on a research cluster of a university, for example, then you may be able to set up the necessary software with ``module load`` commands.  For example ``module load cuda/cuda-10.1.2`` would load version 10.1.2 of cuda, while ``module load mpi/openmpi-1.10.5-gcc-6.4.0`` would load version 1.10.5 of openmpi (compiled with version 6.4.0 of gcc), if available.  To see what modules are available on your system, type ``module avail``.  **If you are using modules, then load up cuda and openmpi, and move on to section [1] of this installation guide!**
 
 ## [0.2] nvcc (the NVIDIA cuda compiler)
 
@@ -111,28 +111,32 @@ This main directory contains seven subdirectories:
 
 # [2] Compiling StarSmasher
 
-For the code itself, the directory you care about is either parallel_bleeding_edge or Blackollider.  These two version of the code differ primarly in how smoothing lengths are dynamically evolved.  If you plan to run simulations involving compact objects treated as point masses, then Blackollider is the better choice.  For the commands in this section [2] below, we'll assume that you're working with the Blackollider version of the code; however, "Blackollider" can be replaced with "parallel_bleeding_edge" if desired.
+For the code itself, the directory you care about is parallel_bleeding_edge, and that is what section [2] below uses throughout.  There is a second version, Blackollider, which differs mainly in how smoothing lengths are dynamically evolved and is the better choice if you plan to run simulations involving compact objects treated as point masses.  Build parallel_bleeding_edge first; section [2.3] explains what changes for Blackollider.
 
 ## [2.1] Compile the gravity library
 
-To compile the gravity library, cuda will need to be installed.  You can find the gravity library in both parallel_bleeding_edge/src/SPHgrav_lib2 and Blackollider/src/SPHgrav_lib2/.  The SPHgrav_lib2 subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs. From within the main starsmasher folder,
+To compile the gravity library, cuda will need to be installed.  If you have no NVIDIA card, skip this section entirely and go to [2.2], where ``make cpu`` builds a version that does not use the GPU.  You can find the gravity library in both parallel_bleeding_edge/src/SPHgrav_lib2 and Blackollider/src/SPHgrav_lib2/.  The SPHgrav_lib2 subdirectory contains code written by Evghenii Gaburov (and somewhat modified by Jamie Lombardi and Sam Knarr) for calculating softened gravitational forces and potentials on NVIDIA GPUs. From within the main starsmasher folder,
 ```
-cd Blackollider/src/SPHgrav_lib2
+cd parallel_bleeding_edge/src/SPHgrav_lib2
 ```
-will navigate you to this directory, where the library will be built.  In the SPHgrav_lib2 subdirectory, there are few files including a Makefile.  This Makefile should hopefully be sufficient after making one change, as we now describe.
+will navigate you to this directory, where the library will be built.  In the SPHgrav_lib2 subdirectory, there are few files including a Makefile.  This Makefile works out which GPU you have, so normally there is nothing in it to edit.
 
-Look for the following string to edit in the Makefile:
+Your card's compute capability decides which machine code nvcc generates, and the Makefile asks the driver for it directly:
 ```
-NVCCFLAGS := -arch=sm_61
+COMPUTE_CAPABILITY := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader | head -1 | tr -d '.')
 ```
-As written, this string is for an NVIDIA graphics card with compute capability (version) 6.1, such as an NVIDIA GTX 1070. Figure out what GPU you have (for example, by using ``nvidia-smi``) and then look up its compute capability here:
+You can see what it will find by running the same query yourself:
+```
+nvidia-smi --query-gpu=name,compute_cap --format=csv,noheader
+NVIDIA GeForce RTX 5080, 12.0
+```
+A compute capability of 12.0 means the library is built with ``-arch=sm_120``.
 
-https://en.wikipedia.org/wiki/CUDA
-
-If your graphics card has a different compute capability, then you would want to change the "61" portion of this line accordingly.  For example, if you have an NVIDIA TITAN RTX, which has a compute capability of 7.5, then write
+If ``nvidia-smi`` is not available, on a login node without a GPU for instance, the Makefile falls back to ``-arch=sm_89``. Rather than editing the file, pass the two digits on the command line:
 ```
-NVCCFLAGS := -arch=sm_75
+make COMPUTE_CAPABILITY=75
 ```
+Do not override ``NVCCFLAGS`` directly for this. A value given on the command line replaces the whole variable, so ``make NVCCFLAGS="-arch=sm_75"`` quietly drops the optimisation level and the include paths along with it.
 
 You can test the compilation of the gravity library by typing
 ```
@@ -158,11 +162,18 @@ Now that your SPHgrav_lib2 is ready, go back a level to the src folder:
 ```
 cd ..
 ```
+If you skipped [2.1] because you have no NVIDIA card, go to that same src folder directly, with ``cd parallel_bleeding_edge/src`` from the main starsmasher folder.
+
 The StarSmasher code lives here, along with several example makefiles. To find out if the default Makefile will work for you, type
 
 ```
 make
 ```
+for the GPU version, or
+```
+make cpu
+```
+for the version that does not need one.
 If StarSmasher compiles properly, in your terminal will appear this phrase:
 ```
 ***MADE VERSION THAT USES GPUS***
@@ -179,9 +190,36 @@ StarSmasher is ready to use!
 
 If the compilation is unsuccessful, then your setup is either missing or unable to find at least one library or executable.  A few other makefiles exist in the src directory.  They're unlikely to work, but you can try them with ``make -f filename``, and they may provide some inspiration as for what to change.
 
-* If you had to hard-code in a CUDAPATH in SPHgrav_lib2/Makefile to get the gravity library to compile (see the end of section [2.1] above), then you may need to make the same change in the main makefile in the src directory.
-* If the mpif90 command is not found but has been installed as described in subsection [0.4], then MPIPATH may need set explicity.  For example, if you want to use /usr/lib64/openmpi/bin/mpif90, then set MPIPATH to /usr/lib64/openmpi in the makefile.
-* If the desired compiler is not being used, then you may want to change FC to point directly to the desired compiler.  For example, if you wish to use ifort located in  /cm/shared/apps/intel/Compiler/11.1/046/bin/intel64/, then try setting FC to  ``/cm/shared/apps/intel/Compiler/11.1/046/bin/intel64/ifort -132`` in the makefile.
+Start by asking the Makefile what it found:
+```
+make config
+```
+which on the machine these instructions were written on reports
+```
+MPI
+  mpif90          /usr/lib64/openmpi/bin/mpif90
+  wrapping        GNU
+  fixed-form flag -ffixed-line-length-132 -fallow-argument-mismatch
+CUDA
+  nvcc            /usr/local/cuda/bin/nvcc
+  CUDAPATH        /usr/local/cuda
+  runtime libdir  /usr/local/cuda/lib64
+Compilation
+  FFLAGS          -O4 -mcmodel=medium
+  code model      -mcmodel=medium
+Output
+  GPU executable  ../parallel_bleeding_edge_gpu_sph
+  CPU executable  ../parallel_bleeding_edge_cpu_sph
+```
+Compare that against your own installation. Whichever line is wrong tells you which variable to set, and you set it on the command line rather than by editing the Makefile:
+
+| If this is wrong | Set |
+|---|---|
+| the mpif90 path, or the compiler it wraps | ``make MPIF90=/full/path/to/mpif90`` |
+| CUDAPATH, or the runtime libdir | ``make CUDAPATH=/opt/cuda`` |
+| the optimisation flags | ``make OLEVEL=-O2`` |
+
+If ``nvcc`` is reported as not found, the GPU build will stop and say so before it reaches the link. That is the expected result on a machine with no CUDA, and ``make cpu`` will build a working, slower executable instead.
 
 Another possible compilation issue can occur if you've ported the source code from one system to another without removing or recreating the .o object files created on the previous system.  In this scenario, start the compilation process fresh by first doing
 ```
@@ -190,6 +228,12 @@ make clean
 to remove any .o and other similar object files.
 
 If you find a way to make the main makefile more robust, please consider sharing it with me (jamie.lombardi at allegheny.edu).
+
+### [2.3] Building Blackollider instead
+
+Blackollider is built exactly as above, with ``Blackollider`` in place of ``parallel_bleeding_edge`` in every path.  Its gravity library lives in ``Blackollider/src/SPHgrav_lib2`` and its source in ``Blackollider/src``, and the same ``make``, ``make cpu`` and ``make config`` commands apply.
+
+Use it if you are running collisions involving compact objects treated as point masses.  Otherwise parallel_bleeding_edge is the one to build.
 
 # [3] Installing SPLASH for visualization (optional but encouraged)
 

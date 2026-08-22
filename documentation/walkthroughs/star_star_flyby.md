@@ -49,10 +49,15 @@ Now let's compile the source code:
 cd src
 make
 ```
-Should you want to try a slow cpu-only version for test purposes, use "make cpu" instead.
-Once everything goes well with the
-compilation, the last line you should see is "mv GAM1.667_n1.5_sph
-..".  Get positioned to run the code:
+For a version that needs no GPU, use "make cpu" instead.  Its obvious advantage is that it runs on any machine, not only one with an NVIDIA card, and it is not as slow as you might expect: the GPU takes over only the gravity, while the neighbour finding and the SPH sums stay on the CPU either way.
+
+On the machine these notes were written on, using 4 MPI ranks and scaling nnopt as the square root of N, the cpu build was within 10% of the gpu build up to N=32000, 21% slower at N=64000, and 33% slower at N=128000.  Below about N=4000 it was actually the faster of the two.  Extrapolating, it would take roughly N=600000 before the cpu build was twice as slow.  That crossover is hardware dependent, and more cores push it higher rather than lower, because a single GPU serves the whole job no matter how many ranks you run.
+
+Once the compilation goes through, the last line you should see is
+```
+***MADE VERSION THAT USES GPUS***  ->  ../GAM1.667_n1.5_gpu_sph
+```
+The executable is named after the directory you are building in, and it is copied one level up.  Get positioned to run the code:
 ```
 cd ..
 ```
@@ -64,6 +69,9 @@ Otherwise, use this command:
 ```
 mpirun -np 8 ./*_sph 
 ```
+If you have built both versions, ``./*_sph`` matches both files and the shell picks the alphabetically first, which is the cpu build.  It runs, just more slowly, and nothing tells you.  Check the first lines of output: the gpu build reports ``SPHgrav found 1 CUDA devices`` and ``is running on ... with gpu 0``, and the cpu build says neither.  Name the executable explicitly if you have both.
+
+How many ranks to use is worth testing on your own machine.  Sixteen is often a good number; much beyond that, communication costs eat into the gains, and leaving cores free lets you run several simulations at once.
 Where '8' can me changed to the number of parallel processes (often equal to the number of cores on your machine).
 
 This creates, among other things, a file log0.sph that collects
