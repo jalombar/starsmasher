@@ -524,10 +524,12 @@ struct SPHgrav_direct
     {
       cudaDeviceProp p;
       assert(cudaGetDeviceProperties(&p, dev) == cudaSuccess);
+      int computeMode = -1;
+      cudaDeviceGetAttribute(&computeMode, cudaDevAttrComputeMode, dev);
       const bool supported = p.major > 1 || (p.major == 1 && p.minor >= 3);
       if (rank == 0)
         fprintf(stderr,"  Device= %d: %s computeMode= %d computeCapability= %d_%d  supported= %s\n", 
-            dev, p.name, p.computeMode, p.major, p.minor, supported ? "YES" : "NO");
+            dev, p.name, computeMode, p.major, p.minor, supported ? "YES" : "NO");
       no_supported += supported ? 1 : 0;
       can_use_device[dev] = true;
     }
@@ -536,9 +538,30 @@ struct SPHgrav_direct
 
   void setDevice(const int device)
   {
-    assert(device < ndevice);
-    assert(can_use_device[device]);
-    assert(cudaSetDevice(device) == cudaSuccess);
+    /* Report this rather than assert on it: an assertion here produces a bare
+       stack trace that gives no hint that the cause is a setting in sph.input,
+       and assertions vanish entirely if NDEBUG is ever defined. */
+    if (device < 0 || device >= ndevice)
+    {
+      fprintf(stderr,
+          "\n"
+          "StarSmasher: a process asked for GPU %d, but this node has only %d CUDA device%s.\n"
+          "  This almost always means ngravprocs in sph.input is larger than the number\n"
+          "  of GPUs available. Set ngravprocs to at most %d, or to -%d to request that\n"
+          "  many GPUs per node, or leave it at 0 to have it detected automatically.\n"
+          "\n",
+          device, ndevice, ndevice == 1 ? "" : "s", ndevice, ndevice);
+      fflush(stderr);
+      exit(EXIT_FAILURE);
+    }
+    const cudaError_t err = cudaSetDevice(device);
+    if (err != cudaSuccess)
+    {
+      fprintf(stderr, "\nStarSmasher: cudaSetDevice(%d) failed: %s\n\n",
+              device, cudaGetErrorString(err));
+      fflush(stderr);
+      exit(EXIT_FAILURE);
+    }
   }
 
   void first_half(const int nibeg, const int ni, const int nkernel)

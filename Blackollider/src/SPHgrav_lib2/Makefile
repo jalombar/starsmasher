@@ -5,18 +5,23 @@ CC   := gcc
 AR   := ar ruv
 RANLIB := ranlib
 
-# path to your CUDA installation: CUDAPATH should contain the directory lib64 that contains libcudart.so as well as the bin directory that contains nvcc
+# Path to your CUDA installation: CUDAPATH should contain the directory lib64 that contains libcudart.so as well as the bin directory that contains nvcc
 CUDAPATH       := $(shell dirname $(shell dirname $(shell which nvcc)))
 CUDAINCLUDE    := -I$(CUDAPATH)/include
 NVCC           := $(CUDAPATH)/bin/nvcc
 
-# The 61 in the following line corresponds to a compute capability (version) of 6.1.  This value is specific to the
-# type of GPU to be used and likely will need to be changed.  Look at https://en.wikipedia.org/wiki/CUDA to find the
-# compute capability of your GPU.
-NVCCFLAGS := -arch=sm_61
-NVCCFLAGS += -O4 -g  $(CUDAINCLUDE)  -I./ -Xptxas -v ##########,-abi=no 
+# Automatically determine the compute capability of the GPU
+COMPUTE_CAPABILITY := $(shell nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null | head -1 | tr -d '.')
 
-# NVCCFLAGS += -maxrregcount=32
+
+# Check if the capability is empty (no GPU detected) and set default value to 90 if so
+ifneq ($(COMPUTE_CAPABILITY),)
+    NVCCFLAGS := -arch=sm_$(COMPUTE_CAPABILITY)
+else
+    NVCCFLAGS := -arch=sm_89  # 5.2 for carrv122, 2.0 for gonzales, 6.1 for physics, 8.0 for a100, 9.0 for h100
+endif
+
+NVCCFLAGS += -O4 -g  $(CUDAINCLUDE)  -I./ -Xptxas -v ##########,-abi=no 
 NVCCFLAGS += -Xcompiler="-Wall"
 CUDA_LIBS = -L$(CUDAPATH)/lib64 -lcudart
 
@@ -30,17 +35,16 @@ GRAVLIB = libSPHgrav.a
 all: $(GRAVLIB)
 
 $(GRAVLIB): $(OBJS)
-	/bin/rm -f $@
-	$(AR) $@ $(OBJS)
+	    /bin/rm -f $@
+	    $(AR) $@ $(OBJS)
 
 .cpp.o: 
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 %.cu_o:  %.cu
-	$(NVCC) $(NVCCFLAGS) -c $< -o $@
+	 $(NVCC) $(NVCCFLAGS) -c $< -o $@
 
 clean:
 	/bin/rm -rf *.cu_o $(GRAVLIB)
 
 $(GRAVLIB): cutil.h cuVec3.h cuVector.h
-
