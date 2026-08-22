@@ -14,8 +14,6 @@
  nintvar=2, ! 1=integrate entropic variable a, 2=integrate internal energy u
  ngravprocs=-1, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
  gflag=1 ! set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes
- runit=6.9599d10, ! number of cm in the unit of length.  use 6.9599d10 if want solar radius.
- munit=1.9891d33, ! number of g in unit of mass.  use 1.9891d33 if want solar mass.
 ! the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
 ! dt_sph=1/(1/dt1 + 1/dt2 + 1/dt3 + 1/dt4)
  cn1=.4d0,   ! dt1=cn1*h/v_signal
