@@ -219,6 +219,25 @@ c         endif
          if(omega2.eq.0.d0 .or. (nrelax.eq.3 .and. treloff.le.0))
      $        gonedynamic=.true.
          if(myrank.eq.0) write(69,*)'gonedynamic=',gonedynamic
+
+c     A run resumed from a restart dump has gonedynamic set just above, before
+c     the main loop ever runs.  The branch in main.f that ends a relaxation is
+c     guarded by .not.gonedynamic, so on a restart it never fires and therefore
+c     never sets trelax=1.d30.  Meanwhile relax.f is called unconditionally
+c     whenever nrelax.ne.0, and applies the drag using the trelax read from
+c     sph.input.  The result is that a run resumed past treloff is silently
+c     damped for the rest of its life: the kinetic energy decays as
+c     exp(-2t/trelax) instead of evolving freely.  Switch the drag off here,
+c     exactly as main.f would have done on crossing treloff.
+         if(gonedynamic .and. nrelax.ne.0 .and. t.ge.treloff
+     $        .and. trelax.lt.1.d29) then
+            if(myrank.eq.0) then
+               write(69,*)'init: resuming at t=',t,' past treloff=',treloff
+               write(69,*)'init: the relaxation is over, so the drag is off:'
+               write(69,*)'init: trelax',trelax,'-> 1.d30'
+            endif
+            trelax=1.d30
+         endif
          if(myrank.eq.0) write(69,*)'n=',n,'ntot=',ntot
          
          if(nchk.ne.ntot) stop 'init: problem with dump file ???'
