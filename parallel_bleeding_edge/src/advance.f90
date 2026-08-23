@@ -342,6 +342,7 @@
       integer in, jn
       real*8 dist2
       integer mylength,irank,ierr
+      real*8 dxfrac
 
       if(myrank.eq.nprocs-1) call cpu_time(time1)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -360,6 +361,22 @@
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
       allocate(results(n)) 
+
+!     Floor on the drift step used to bracket the smoothing-length root, as a
+!     fraction of hp(i).  Normally 2e-5 (this is exactly the old 10*xacc, since
+!     xacc=2e-6*hp).  On the first call of a run the initial guess could be far
+!     off, and divv=0 so that floor is all there is: the bracketing loop at
+!     label 10 is unbounded and does a kd-tree neighbour search per pass, so
+!     drifting h the tens of percent it needs would cost ~1e4 searches per
+!     particle.  Allow a full step then -- 0.5 is the cap the same expression
+!     already imposes.  Accuracy is unaffected; the root solve still converges
+!     to xacc.  Set outside the loop so the hot path keeps no extra branch.
+      if(dt.le.0.d0) then
+         dxfrac=0.5d0
+      else
+         dxfrac=2.d-5
+      endif
+
       do i=n_lower,n_upper
 
          if(i.eq.n_lower) then
@@ -379,7 +396,7 @@
 
          xacc=2.d-6*hp(i)
          hpguess=max(hp(i)*(1.d0+divv(i)*dt/3.d0),xacc)
-         dxmax=min(max(10*xacc,abs(hp(i)*divv(i)*dt)),0.5d0*hpguess)
+         dxmax=min(max(dxfrac*hp(i),abs(hp(i)*divv(i)*dt)),0.5d0*hpguess)
 
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 !         hp(i) = ezrtsafe(hpguess,xacc,i,dxmax)
