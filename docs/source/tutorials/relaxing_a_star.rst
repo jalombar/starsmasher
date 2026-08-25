@@ -103,6 +103,27 @@ Increasing ``N`` while leaving ``nnopt`` at a value inherited from a smaller run
 is a common mistake.  The symptom is a model that overestimates pressure and
 density in the centre and underestimates them through the bulk of the star.
 
+Do not carry ``gam`` between stars
+-----------------------------------
+
+``gam`` is easy to mistake for a switch that only matters when the equation of
+state is polytropic.  It is not.  Even with ``neos=1`` or ``neos=2`` it sets the
+sound speed used by the artificial viscosity, in ``balAV3.f``:
+
+.. math::
+
+   c_i^2 = \mathrm{gam}\;\frac{P_i}{\rho_i^2}\;\rho_i,
+
+and the sound speed sets the timestep.  So ``gam`` should reflect the star's
+actual adiabatic index, not be inherited from whatever file you copied.
+
+The value to use is a pressure-weighted :math:`\Gamma_1` for the star in
+question.  A partially ionised giant envelope and a fully convective low-mass
+star are different: values near 1.56 and 1.667 respectively are representative.
+Copying one star's ``sph.input`` to another and leaving ``gam`` alone can be a
+several per cent error in the sound speed, which will not announce itself --
+the run proceeds, with a slightly wrong timestep and slightly wrong viscosity.
+
 Cores and compact objects
 -------------------------
 
