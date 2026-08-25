@@ -41,15 +41,39 @@ columns are always present:
      - :math:`J`
      - Total angular momentum.
 
-Three further columns appear conditionally, which is worth knowing before
-writing a parser:
+Further columns appear conditionally, and it is worth knowing which before
+writing a parser.  Three separate settings decide the layout:
 
-* with radiative cooling (``ncooling`` non-zero), the radiated energy follows;
-* for a binary, the orbital angular frequency and the separation of the two
-  centres of mass follow.
+.. list-table::
+   :header-rows: 1
+   :widths: 34 14 52
 
-So a single-star run without cooling has seven columns and a cooling binary has
-ten.  Count them rather than assuming.
+   * - Condition
+     - Columns
+     - Extra fields, in order
+   * - the common case
+     - 7
+     - none
+   * - ``ncooling`` non-zero
+     - 8
+     - radiated energy
+   * - ``reat`` positive
+     - 10
+     - the potential, kinetic and internal energy of eaten material
+   * - both of the above
+     - 11
+     - radiated energy, then the three eaten-material energies
+   * - ``nrelax`` >= 2
+     - 9
+     - orbital angular frequency, then the separation of the two centres of mass
+
+The last of these is the one that catches people.  The angular frequency and
+separation are written for a *corotating-frame relaxation*, which is what
+``nrelax >= 2`` selects -- not for a dynamical collision.  A collision run has
+``nrelax=0`` and gets the ordinary seven columns even though there are plainly
+two stars in it.
+
+Count the columns rather than assuming.
 
 Reading a relaxation from this file
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
