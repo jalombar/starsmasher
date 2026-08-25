@@ -15,8 +15,8 @@ begins with ``&input`` and ends with ``&end``::
 .. note::
 
    The variables, defaults and descriptions on this page are read directly
-   from ``parallel_bleeding_edge/src/init.f`` (lines 540-621).  There are
-   **69** settings in the namelist.
+   from the namelist declaration and the default-initialisation block in
+   ``parallel_bleeding_edge/src/init.f``.  There are **69** settings.
 
 Time and output
 ---------------

@@ -21,15 +21,22 @@ def sh(cmd, cwd=None, timeout=1800, check=True):
         raise Fail('command failed: %s\n%s' % (cmd, (p.stderr or p.stdout)[-1500:]))
     return p
 
-def build(target='gpu', srcdir=None, extra=''):
-    srcdir = srcdir or SRC
-    sh('make clean', cwd=srcdir, check=False)
-    p = sh('make %s %s' % ('' if target == 'gpu' else target, extra),
-           cwd=srcdir, check=False)
-    exe = [os.path.join(srcdir, '..', f) for f in os.listdir(os.path.join(srcdir, '..'))
+def build(target='gpu', base=None):
+    """Build in a copy of the source tree, never in the repository itself.
+
+    Building in place would leave object files, .mod files and executables
+    scattered through parallel_bleeding_edge/, which is both untidy and a
+    trap for anyone who then runs `git add -A`.
+    """
+    work = os.path.join(base, 'build-%s' % target, 'src')
+    shutil.copytree(SRC, work)
+    p = sh('make %s' % ('' if target == 'gpu' else target), cwd=work, check=False)
+    parent = os.path.dirname(work)
+    exe = [os.path.join(parent, f) for f in os.listdir(parent)
            if f.endswith('_%s_sph' % target)]
     if not exe:
-        raise Fail('build produced no _%s_sph executable\n%s' % (target, p.stdout[-1200:]))
+        raise Fail('build produced no _%s_sph executable\n%s'
+                   % (target, (p.stdout + p.stderr)[-1500:]))
     return exe[0]
 
 def sph_input(**kw):
@@ -180,8 +187,8 @@ def main():
     base = tempfile.mkdtemp(prefix='starsmasher-tests-')
     print('scratch: %s' % base)
     try:
-        exe = a.exe or build('gpu')
-        cpu = a.cpu_exe or (build('cpu') if a.with_cpu else None)
+        exe = a.exe or build('gpu', base)
+        cpu = a.cpu_exe or (build('cpu', base) if a.with_cpu else None)
         ctx = Ctx(base, exe, cpu, a.np)
         print('executable: %s' % exe)
         print('ranks: %d\n' % a.np)

@@ -78,7 +78,7 @@ GROUPS = [
 ]
 
 def main():
-    members, defaults, lo, hi = parse(INIT)
+    members, defaults, _lo, _hi = parse(INIT)
     placed = {v for _, vs in GROUPS for v in vs}
     leftover = [v for v in members if v.lower() not in placed]
 
@@ -101,8 +101,9 @@ def main():
     w('.. note::')
     w('')
     w('   The variables, defaults and descriptions on this page are read directly')
-    w('   from ``parallel_bleeding_edge/src/init.f`` (lines %d-%d).  There are' % (lo, hi))
-    w('   **%d** settings in the namelist.' % len(members))
+    w('   from the namelist declaration and the default-initialisation block in')
+    w('   ``parallel_bleeding_edge/src/init.f``.  There are **%d** settings.'
+      % len(members))
     w('')
 
     def table(title, names):
