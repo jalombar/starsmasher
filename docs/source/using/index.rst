@@ -6,3 +6,4 @@ Using StarSmasher
 
    running
    output
+   visualisation
