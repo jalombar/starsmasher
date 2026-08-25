@@ -82,6 +82,10 @@ The factor depends on the model.  Two measurements, both on settled models:
      - 120
      - 166
      - 1.38
+   * - 0.4 :math:`M_\odot` MESA model, :math:`N=2\times10^4`
+     - 32
+     - 53
+     - 1.66
    * - 5.4 :math:`M_\odot` giant, :math:`N=10^5`
      - 60
      - 84
