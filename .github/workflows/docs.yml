@@ -1,0 +1,45 @@
+name: Build documentation
+
+# Builds the Sphinx documentation on every push and pull request so that a
+# broken page is caught immediately.  It does NOT publish anything: the
+# project page at jalombar.github.io/starsmasher is still served from the
+# gh-pages branch and is left untouched.  To publish from here later, add a
+# deploy step and switch the Pages source to GitHub Actions.
+
+on:
+  push:
+    paths: ['docs/**', 'parallel_bleeding_edge/src/init.f', '.github/workflows/docs.yml']
+  pull_request:
+    paths: ['docs/**', 'parallel_bleeding_edge/src/init.f', '.github/workflows/docs.yml']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Sphinx
+        run: pip install -r docs/requirements.txt
+
+      - name: Check the sph.input reference is up to date
+        run: |
+          python3 docs/generate_reference.py
+          if ! git diff --quiet -- docs/source/reference/sph_input.rst; then
+            echo "::error::docs/source/reference/sph_input.rst is out of date."
+            echo "init.f has changed; run 'python3 docs/generate_reference.py' and commit the result."
+            git diff -- docs/source/reference/sph_input.rst
+            exit 1
+          fi
+
+      - name: Build, treating warnings as errors
+        run: sphinx-build -W -b html docs/source docs/build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: documentation
+          path: docs/build
