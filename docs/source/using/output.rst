@@ -75,6 +75,21 @@ two stars in it.
 
 Count the columns rather than assuming.
 
+Parsing an energy trace
+~~~~~~~~~~~~~~~~~~~~~~~
+
+Two habits will save you a wrong answer.
+
+**Count the columns; do not assume an index.**  The first seven are fixed, but
+anything beyond them depends on ``ncooling``, ``reat`` and ``nrelax``, as above.
+Code that reaches for column 8 will read the radiated energy in one run and the
+orbital angular frequency in another, with nothing to announce the difference.
+
+**Look for later stages.**  A resumed run writes ``energy1.sph``, then
+``energy2.sph``, rather than appending to ``energy0.sph``.  Reading only
+``energy0.sph`` after a restart silently gives you the first stage and stops,
+which looks exactly like a run that ended early.
+
 Reading a relaxation from this file
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
