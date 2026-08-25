@@ -13,6 +13,17 @@ c     creates a star from the data file yrec output
      &     rhoarray(kdm),uarray(kdm),rarray(kdm),
      $     rhoarray2(kdm),uarray2(kdm),
      $     muarray(kdm),muarray2(kdm)
+      real*8 zarray(kdm)
+      common/zprofilecom/ zarray
+      integer maxtablesize
+      parameter(maxtablesize=1000)
+      integer numrho,numu,numx
+      real*8 eostable(maxtablesize,maxtablesize,maxnumx,3)
+      real*8 zzz,steprho,stepu,stepx,rhotable1,utable1,xtable1
+      common/eoscom/ zzz,rhotable1,utable1,xtable1,
+     $     steprho,stepu,stepx,eostable,numrho,numu,numx
+      integer jlo,jhi,jm,jnear
+      real*8 zfracdiff
       real*8 egsol
 c     astronomical constants:
       parameter(egsol=1.9884098706980504d33)
@@ -283,6 +294,39 @@ c     start following loop at the first sph particle (with index 2, not 1, if th
          call sph_splint(rarray,rhoarray,rhoarray2,numlines,ri,rhoi)
          if(rhoi.le.0.d0) then
             if(myrank.eq.0)write(69,*)'warning: rho(',i,')<=0 at r=',ri,'???'
+         endif
+c     A particle whose metallicity is not the one the EOS table was built for gets a
+c     wrong pressure, and useeostable back-derives X from mu assuming the table's Z,
+c     so it can even return X<0.  Nearest profile shell is accurate enough here.
+         if(neos.eq.2) then
+            jlo=1
+            jhi=numlines
+ 79         if(jhi-jlo.gt.1) then
+               jm=(jhi+jlo)/2
+               if(rarray(jm).gt.ri) then
+                  jhi=jm
+               else
+                  jlo=jm
+               endif
+               goto 79
+            endif
+            if(abs(rarray(jlo)-ri).le.abs(rarray(jhi)-ri)) then
+               jnear=jlo
+            else
+               jnear=jhi
+            endif
+            zfracdiff=abs(zarray(jnear)-zzz)/zzz
+            if(zfracdiff.gt.0.1d0) then
+               if(myrank.eq.0) then
+                  write(69,*)'particle',i,' at r=',ri,' has Z=',
+     $                 zarray(jnear),' from profile shell',jnear
+                  write(69,*)'but the EOS table is built for Z=',zzz
+                  write(69,*)'differing by',100.d0*zfracdiff,' percent'
+                  write(69,*)'use an EOS table matching the stellar model,'
+                  write(69,*)'or place the core point outside this radius'
+               endif
+               stop 'parent: particle Z does not match the EOS table'
+            endif
          endif
 c         am(i)=amass/n*(integral*rhoi/amass)**(1.d0-equalmass)
          am(i)=integral/n*rhoi**(1.d0-equalmass)*rhomax**equalmass
@@ -652,6 +696,19 @@ c     Read in a stellar evolution code file
      &     rhoarray(kdm),uarray(kdm),rarray(kdm),
      $     rhoarray2(kdm),uarray2(kdm),xm(kdm),
      $     muarray(kdm),muarray2(kdm)
+      real*8 zarray(kdm)
+      common/zprofilecom/ zarray
+      integer maxtablesize2
+      parameter(maxtablesize2=1000)
+      integer numrho,numu,numx
+      real*8 eostable(maxtablesize2,maxtablesize2,maxnumx,3)
+      real*8 zzz,steprho,stepu,stepx,rhotable1,utable1,xtable1
+      common/eoscom/ zzz,rhotable1,utable1,xtable1,
+     $     steprho,stepu,stepx,eostable,numrho,numu,numx
+      integer nzskip
+      logical zok
+      real*8 xback,xlast
+      integer nzclamp
       real*8 egsol,solrad
 c     astronomical constants:
       parameter(egsol=1.9884098706980504d33,solrad=6.957d10)
@@ -1048,6 +1105,9 @@ c            xm(i)=star_mass*qq*1.9884098706980504d33
             pres(i)=10d0**logP             
             muarray(i)=1/(2*x_mass_fraction_H+0.75d0*
      $              y_mass_fraction_He+0.5d0*z_mass_fraction_metals)*1.67262158d-24   
+c     remember this shell's metallicity so that parent can compare it against the
+c     metallicity the tabulated EOS was built for (neos=2).
+            zarray(i)=z_mass_fraction_metals
             maxmu=max(maxmu,muarray(i))    
             minmu=min(minmu,muarray(i))    
             if(abs(x_mass_fraction_H + y_mass_fraction_He +      
@@ -1093,7 +1153,38 @@ c     the gravitational potential depends only on density, that profile should b
 c     the same in the sph and stellar evolution models as well.
       
       i=1 ! this line is important because shell number i is shared in common block
-      if(neos.eq.1) then
+c     A tabulated EOS is built for one metallicity.  Shells whose Z differs from it
+c     (the C/O core of an evolved star, say) cannot be looked up: useeostable derives
+c     X from mu assuming the table's Z and would return X<0.  Fall back to ideal gas
+c     plus radiation for those shells and count them.  They lie inside the core point,
+c     so no SPH particle uses them; particles are checked separately in parent.
+      nzskip=0
+      nzclamp=0
+      zok=.true.
+      if(neos.eq.2) then
+         zok=abs(zarray(i)-zzz).le.0.1d0*zzz
+         if(zok) then
+c     useeostable back-derives X from mu assuming the table's Z, so what it sees is
+c     X_back = X_true + 0.2*(Z_table - Z_shell).  Once the 10% Z test above has passed
+c     that offset is at most 4e-4, but it is enough to push a pure-helium shell (true
+c     X=0) very slightly negative and off the bottom of the X grid.  Nudge mu so the
+c     lookup lands on the edge slab, which is the right composition, rather than
+c     abandoning the table for ideal gas.
+            xback=(1.67262158d-24/muarray(i)+0.25d0*zzz-0.75d0)/1.25d0
+            xlast=xtable1+(numx-1)*stepx
+            if(xback.lt.xtable1) then
+               muarray(i)=1.67262158d-24/
+     $              (1.25d0*(xtable1+1.d-6*stepx)+0.75d0-0.25d0*zzz)
+               nzclamp=nzclamp+1
+            else if(xback.gt.xlast) then
+               muarray(i)=1.67262158d-24/
+     $              (1.25d0*(xlast-1.d-6*stepx)+0.75d0-0.25d0*zzz)
+               nzclamp=nzclamp+1
+            endif
+         endif
+      endif
+      if(.not.zok) nzskip=nzskip+1
+      if(neos.eq.1 .or. .not.zok) then
          tem(i)=zeroin(0.d0,pres(i)*muarray(i)/(rhoarray(i)*boltz),
      $        temperaturefunction,1.d-11)
          uarray(i)=1.5d0*boltz*tem(i)/muarray(i)
@@ -1140,7 +1231,31 @@ c     rhoarray(i) is the average density in the vicinity of rarray(i)
      $        rarray(i)**2*0.5d0*(rarray(i+1)-rarray(i-1))
 
          temupperlimit=pres(i)*muarray(i)/(rhoarray(i)*boltz)
-         if(neos.eq.1) then
+         zok=.true.
+         if(neos.eq.2) then
+            zok=abs(zarray(i)-zzz).le.0.1d0*zzz
+            if(zok) then
+c     useeostable back-derives X from mu assuming the table's Z, so what it sees is
+c     X_back = X_true + 0.2*(Z_table - Z_shell).  Once the 10% Z test above has passed
+c     that offset is at most 4e-4, but it is enough to push a pure-helium shell (true
+c     X=0) very slightly negative and off the bottom of the X grid.  Nudge mu so the
+c     lookup lands on the edge slab, which is the right composition, rather than
+c     abandoning the table for ideal gas.
+               xback=(1.67262158d-24/muarray(i)+0.25d0*zzz-0.75d0)/1.25d0
+               xlast=xtable1+(numx-1)*stepx
+               if(xback.lt.xtable1) then
+                  muarray(i)=1.67262158d-24/
+     $                 (1.25d0*(xtable1+1.d-6*stepx)+0.75d0-0.25d0*zzz)
+                  nzclamp=nzclamp+1
+               else if(xback.gt.xlast) then
+                  muarray(i)=1.67262158d-24/
+     $                 (1.25d0*(xlast-1.d-6*stepx)+0.75d0-0.25d0*zzz)
+                  nzclamp=nzclamp+1
+               endif
+            endif
+         endif
+         if(.not.zok) nzskip=nzskip+1
+         if(neos.eq.1 .or. .not.zok) then
             tem(i)=zeroin(0.d0,temupperlimit,
      $           temperaturefunction,1.d-11)
             uarray(i)=1.5d0*boltz*tem(i)/muarray(i)
@@ -1163,6 +1278,22 @@ c            write(102,*) i,uarray(i),tem(i)
      $        rarray(i)**2*0.5d0*(rarray(i+1)-rarray(i-1))
       enddo
 
+      if(neos.eq.2 .and. nzskip.gt.0 .and. myrank.eq.0) then
+         write(69,*)'note:',nzskip,' of',numlines,' profile shells have a'
+         write(69,*)'note: composition the EOS table does not cover: their Z'
+         write(69,*)'note: differs by more than 10% from the table value Z=',zzz
+         write(69,*)'note: These are core shells of an evolved star, not a near'
+         write(69,*)'note: miss on the table edge, so there is no slab to nudge'
+         write(69,*)'note: them onto.  Ideal gas plus radiation was used to fill'
+         write(69,*)'note: in u and T for them.  Nothing reads those shells'
+         write(69,*)'note: unless an SPH particle sits at that radius, and that'
+         write(69,*)'note: is checked separately below, where it is fatal.'
+      endif
+      if(neos.eq.2 .and. nzclamp.gt.0 .and. myrank.eq.0) then
+         write(69,*)'note:',nzclamp,' shells had the back-derived X just'
+         write(69,*)'note: outside the table grid and were nudged onto the'
+         write(69,*)'note: edge slab (offset is at most 4e-4 in X).'
+      endif
       if(myrank.eq.0)then
          write(69,*)'mass from integrating rho profile=',
      $        integratedmass2/egsol,'msun'
