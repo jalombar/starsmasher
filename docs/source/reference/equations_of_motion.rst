@@ -56,58 +56,12 @@ How many neighbours you actually get
 number of particles actually inside the kernel is larger, by a factor of roughly
 1.4 to 1.7.
 
-The factor depends on the model.  Two measurements, both on settled models:
-
-.. list-table::
-   :header-rows: 1
-   :widths: 34 22 22 22
-
-   * - Model
-     - ``nnopt``
-     - Neighbours
-     - Ratio
-   * - :math:`n=1.5` polytrope, :math:`N=2\times10^4`
-     - 23
-     - 38
-     - 1.65
-   * -
-     - 45
-     - 67
-     - 1.49
-   * -
-     - 75
-     - 111
-     - 1.48
-   * -
-     - 120
-     - 166
-     - 1.38
-   * - 0.4 :math:`M_\odot` MESA model, :math:`N=2\times10^4`
-     - 32
-     - 53
-     - 1.66
-   * - 5.4 :math:`M_\odot` giant, :math:`N=10^5`
-     - 60
-     - 84
-     - 1.41
-   * -
-     - 75
-     - 107
-     - 1.43
-   * -
-     - 90
-     - 125
-     - 1.39
-   * -
-     - 160
-     - 225
-     - 1.41
-
-The giant's ratio is flat; the polytrope's falls with ``nnopt``.  Why they differ
-is not established -- particle number, the density structure, and the presence of
-a core point are all candidates, and a test across particle-mass spread ruled
-that out as the cause.  The published value is consistent with both: Gaburov et
-al. quote ``nnopt=22`` giving 35 to 40 neighbours, a ratio of 1.6 to 1.8.
+The factor is largest at small ``nnopt`` and settles to roughly 1.4 to 1.45
+above about ``nnopt=60``.  Measurements across a polytrope, a low-mass MESA
+model and a red giant span 1.38 to 1.66, and Gaburov et al. quote ``nnopt=22``
+giving 35 to 40 neighbours, a ratio of 1.6 to 1.8.  Treat 1.4 to 1.7 as the
+range and do not interpolate: the dependence is real but has been sampled on
+only a handful of models.
 
 .. note::
 
