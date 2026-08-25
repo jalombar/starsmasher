@@ -55,6 +55,8 @@ c     derived constants:
       real*8 rpreedge, rpost
       real*8 rprearray(kdm),rarray2(kdm)
       real*8 amtotal,rnearby
+      real*8 rtrans,rhotrans,wtrans,wmid,rmid,rhomid
+      integer itrans,jj
 
       call splinesetup
 
@@ -91,14 +93,61 @@ c     derived constants:
 
 
 
-      if(equalmass.ne.0.d0) then
+c     ---- two-zone particle-mass scheme -------------------------------------
+c     Particles are given equal masses outside a transition radius and the usual
+c     n ~ rho**equalmass distribution inside it.  The transition is placed at 90%
+c     of the innermost radius where A = P/rho**(5/3) begins to decrease outward.
+c     That criterion is emergent rather than tuned: beyond roughly that radius the
+c     particles are seen to exchange places once the drag is released, so mass
+c     segregation can operate there, and equal masses remove it at the source.
+c     (A is only the true entropy for an ideal monatomic gas of fixed composition,
+c     so this is a proxy; it is used because it locates the observed mixing
+c     boundary well, not because it is thermodynamically exact.)
+      itrans=0
+      do jj=3,numlines
+         if(rarray(jj).gt.redge) goto 77
+         if(pres(jj)/rhoarray(jj)**(5.d0/3.d0) .lt.
+     $        pres(jj-1)/rhoarray(jj-1)**(5.d0/3.d0)) then
+            itrans=jj
+            goto 77
+         endif
+      enddo
+ 77   continue
+      if(itrans.gt.0) then
+         rtrans=0.9d0*rarray(itrans)
+      else
+         rtrans=2.d0*redge
+      endif
+      call sph_splint(rarray,rhoarray,rhoarray2,numlines,rtrans,rhotrans)
+c     w must be continuous across the transition, so the outer branch carries the
+c     inner branch's value at r_trans as its normalisation.  With w ~ rho outside,
+c     the particle mass am = rho/n is then exactly constant there.
+      wtrans=(rhotrans/rhomax)**equalmass
+      if(myrank.eq.0) then
+         if(itrans.gt.0) then
+            write(69,*)'two-zone: A=P/rho^(5/3) first decreases at r=',
+     $           rarray(itrans)
+         else
+            write(69,*)'two-zone: A never decreases; no outer zone'
+         endif
+         write(69,*)'two-zone: r_transition=',rtrans
+         write(69,*)'two-zone: rho(r_transition)=',rhotrans
+         write(69,*)'two-zone: w(r_transition)=',wtrans
+      endif
+
+      if(equalmass.ne.0.d0 .or. rtrans.lt.redge) then
          i=2
          integral=0
          do while(rarray(i).lt.redge)
+            rmid=0.5d0*(rarray(i)+rarray(i-1))
+            rhomid=0.5d0*(rhoarray(i)+rhoarray(i-1))
+            if(rmid.le.rtrans) then
+               wmid=(rhomid/rhomax)**equalmass
+            else
+               wmid=wtrans*rhomid/rhotrans
+            endif
             integral=integral+pi*(rarray(i)+rarray(i-1))**2*
-     $           (rarray(i)-rarray(i-1))*
-     $           (0.5d0*(rhoarray(i)+rhoarray(i-1))/rhomax)
-     $           **equalmass
+     $           (rarray(i)-rarray(i-1))*wmid
             i=i+1
          enddo
          if(myrank.eq.0)write(69,*)'integral=',integral,4.d0/3.d0*pi*redge**3.d0
@@ -106,9 +155,15 @@ c     derived constants:
          rprearray(1)=rarray(1)
          rpreedge = rprearray(1)
          do i = 2, numlines
+            rmid=0.5d0*(rarray(i)+rarray(i-1))
+            rhomid=0.5d0*(rhoarray(i)+rhoarray(i-1))
+            if(rmid.le.rtrans) then
+               wmid=(rhomid/rhomax)**equalmass
+            else
+               wmid=wtrans*rhomid/rhotrans
+            endif
             rprearray(i) = rprearray(i-1) + 
-     $           (rarray(i)-rarray(i-1))*
-     $           (0.5d0*(rhoarray(i)+rhoarray(i-1))/rhomax)**equalmass*
+     $           (rarray(i)-rarray(i-1))*wmid*
      $           (rarray(i-1)/rprearray(i-1))**2
             if (rarray(i).le.redge) rpreedge = rprearray(i)
          enddo
@@ -329,7 +384,13 @@ c     so it can even return X<0.  Nearest profile shell is accurate enough here.
             endif
          endif
 c         am(i)=amass/n*(integral*rhoi/amass)**(1.d0-equalmass)
-         am(i)=integral/n*rhoi**(1.d0-equalmass)*rhomax**equalmass
+c     Outside the transition the particle mass is frozen at its value there, which
+c     is what makes the masses equal: am = rho/n and n ~ rho beyond r_trans.
+         if(ri.le.rtrans) then
+            am(i)=integral/n*rhoi**(1.d0-equalmass)*rhomax**equalmass
+         else
+            am(i)=integral/n*rhotrans**(1.d0-equalmass)*rhomax**equalmass
+         endif
          xcm=xcm+am(i)*x(i)
          ycm=ycm+am(i)*y(i)
          zcm=zcm+am(i)*z(i)
