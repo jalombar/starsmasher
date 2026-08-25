@@ -218,6 +218,15 @@ c         endif
 
          if(omega2.eq.0.d0 .or. (nrelax.eq.3 .and. treloff.le.0))
      $        gonedynamic=.true.
+c     ...but a relaxation that has not yet reached treloff is still a relaxation.
+c     Leaving gonedynamic set here would stop the branch in main.f from ever firing
+c     when t later crosses treloff, because that branch is guarded by
+c     .not.gonedynamic.  The drag would then stay on for the rest of the run.  This
+c     is the same failure as the one handled below, but for a run resumed *before*
+c     treloff rather than after it, and the fix below cannot catch it because at
+c     resume time t is still less than treloff.
+         if(nrelax.ne.0 .and. t.lt.treloff .and. trelax.lt.1.d29)
+     $        gonedynamic=.false.
          if(myrank.eq.0) write(69,*)'gonedynamic=',gonedynamic
 
 c     A run resumed from a restart dump has gonedynamic set just above, before
