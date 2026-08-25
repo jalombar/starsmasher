@@ -49,6 +49,81 @@ constraint is continuous, which is what makes it differentiable and so usable in
 a variational derivation.  The nominal value ``nnopt=22`` yields roughly 35 to
 40 particles actually inside the kernel.
 
+How many neighbours you actually get
+------------------------------------
+
+``nnopt`` is the target of the constraint, not the number of neighbours.  The
+number of particles actually inside the kernel is larger, by a factor of roughly
+1.4 to 1.7.
+
+The factor depends on the model.  Two measurements, both on settled models:
+
+.. list-table::
+   :header-rows: 1
+   :widths: 34 22 22 22
+
+   * - Model
+     - ``nnopt``
+     - Neighbours
+     - Ratio
+   * - :math:`n=1.5` polytrope, :math:`N=2\times10^4`
+     - 23
+     - 38
+     - 1.65
+   * -
+     - 45
+     - 67
+     - 1.49
+   * -
+     - 75
+     - 111
+     - 1.48
+   * -
+     - 120
+     - 166
+     - 1.38
+   * - 5.4 :math:`M_\odot` giant, :math:`N=10^5`
+     - 60
+     - 84
+     - 1.41
+   * -
+     - 75
+     - 107
+     - 1.43
+   * -
+     - 90
+     - 125
+     - 1.39
+   * -
+     - 160
+     - 225
+     - 1.41
+
+The giant's ratio is flat; the polytrope's falls with ``nnopt``.  Why they differ
+is not established -- particle number, the density structure, and the presence of
+a core point are all candidates, and a test across particle-mass spread ruled
+that out as the cause.  The published value is consistent with both: Gaburov et
+al. quote ``nnopt=22`` giving 35 to 40 neighbours, a ratio of 1.6 to 1.8.
+
+.. note::
+
+   This does not affect the answer.  Where a coefficient of this kind appears in
+   the code -- as in ``initialize_parent.f``, which seeds
+
+   .. math::
+
+      h_i = \left(\frac{3}{32\pi}\,\frac{1.41\,\mathrm{nnopt}}{n_i}\right)^{1/3}
+            + h_\mathrm{floor}
+
+   -- it is only the initial guess handed to the root solver that finds
+   :math:`h_i`.  The converged smoothing length is unaffected.  A poor guess
+   costs iterations in the first density-and-smoothing-length solve and nothing
+   else: an earlier coefficient of 1.9 overestimated :math:`h` by about 9.5 per
+   cent and made that first call roughly 5.7 times more expensive, with no
+   change to the physics.
+
+   So if your own model gives 1.6 where this page says 1.4, nothing is wrong.
+
 The density estimate is unchanged, and remains the ordinary kernel sum
 
 .. math::
