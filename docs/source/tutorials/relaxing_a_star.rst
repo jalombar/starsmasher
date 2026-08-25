@@ -112,9 +112,10 @@ sound speed used by the artificial viscosity, in ``balAV3.f``:
 
 .. math::
 
-   c_i^2 = \mathrm{gam}\;\frac{P_i}{\rho_i^2}\;\rho_i,
+   c_i^2 = \mathrm{gam}\,\frac{P_i}{\rho_i},
 
-and the sound speed sets the timestep.  So ``gam`` should reflect the star's
+written in the source as ``ci2 = gam*por2i*rho(i)``, since ``por2`` holds
+:math:`P/\rho^2`.  The sound speed then sets the timestep.  So ``gam`` should reflect the star's
 actual adiabatic index, not be inherited from whatever file you copied.
 
 The value to use is a pressure-weighted :math:`\Gamma_1` for the star in
