@@ -105,6 +105,17 @@ def main():
     w('   ``parallel_bleeding_edge/src/init.f``.  There are **%d** settings.'
       % len(members))
     w('')
+    undoc = sum(1 for v in members if not defaults.get(v.lower(), ('', ''))[1])
+    if undoc:
+        w('.. warning::')
+        w('')
+        w('   %d of these have no description yet, because the corresponding line'
+          % undoc)
+        w('   in ``init.f`` carries no trailing comment.  Adding one there is all')
+        w('   that is needed: it will appear here the next time this page is')
+        w('   generated.')
+        w('')
+    w('')
 
     def table(title, names):
         rows = [(n, defaults.get(n.lower(), ('--', ''))) for n in names
@@ -120,8 +131,7 @@ def main():
         for n, (d, c) in rows:
             w('   * - ``%s``' % n)
             w('     - ``%s``' % d)
-            w('     - %s' % (rst_escape(c) if c else
-                             'See the discussion in the relevant tutorial.'))
+            w('     - %s' % (rst_escape(c) if c else '*Not yet documented.*'))
         w('')
 
     for title, names in GROUPS:

@@ -18,6 +18,14 @@ begins with ``&input`` and ends with ``&end``::
    from the namelist declaration and the default-initialisation block in
    ``parallel_bleeding_edge/src/init.f``.  There are **69** settings.
 
+.. warning::
+
+   29 of these have no description yet, because the corresponding line
+   in ``init.f`` carries no trailing comment.  Adding one there is all
+   that is needed: it will appear here the next time this page is
+   generated.
+
+
 Time and output
 ---------------
 
@@ -39,7 +47,7 @@ Time and output
      - number of iterations between evaluation of the gravitational potential energy.
    * - ``tjumpahead``
      - ``1d30``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``tscanon``
      - ``0``
      - time that the scan of a binary starts
@@ -48,7 +56,7 @@ Time and output
      - final separation for the scan of a binary
    * - ``throwaway``
      - ``.false.``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
 
 The particles
 -------------
@@ -71,10 +79,10 @@ The particles
      - particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
    * - ``starmass``
      - ``1d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``starradius``
      - ``1d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``hco``
      - ``-1d30``
      - softening/smoothing length for compact object or core particle (<0 for auto-set)
@@ -118,16 +126,16 @@ Equation of state and physics
      - 0 if just do gravity to point particles, 1 if self-gravitating
    * - ``nkernel``
      - ``2``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``ncooling``
      - ``0``
      - 0 if no cooling, otherwise radiative cooling
    * - ``teq``
      - ``100d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``reat``
      - ``-1.d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
 
 Relaxation
 ----------
@@ -170,19 +178,19 @@ Orbit of the encounter
      - initial separation of two stars in a binary or collision calculation
    * - ``rp``
      - ``-1.d30``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``impactparameter``
      - ``-1.d30``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``e0``
      - ``-1.d30``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``semimajoraxis``
      - ``0.d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``vinf2``
      - ``1.d30``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
 
 Compact object and black hole
 -----------------------------
@@ -199,34 +207,34 @@ Compact object and black hole
      - mass of black hole
    * - ``bbh_m1``
      - ``20d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_m2``
      - ``10d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_rp``
      - ``-1.d30``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_semimajoraxis``
      - ``0.d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_vinf2``
      - ``1.d30``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_e0``
      - ``-1.d30``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_trueanomaly``
      - ``0d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_argperi``
      - ``0d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_inclination``
      - ``0d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``bbh_longitude``
      - ``0d0``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
 
 Timestep control
 ----------------
@@ -281,7 +289,7 @@ Parallelism and GPUs
      - number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
    * - ``ppn``
      - ``16``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``computeexclusivemode``
      - ``0``
      - set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
@@ -318,20 +326,20 @@ Input files
      - Meaning
    * - ``startfile1``
      - ``'sph.start1u'``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``startfile2``
      - ``'sph.start2u'``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``eosfile``
      - ``'sph.eos'``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``opacityfile``
      - ``'sph.opacity'``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``profilefile``
      - ``'eg.last1.muse_s2mm'``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
    * - ``stellarevolutioncodetype``
      - ``1``
-     - See the discussion in the relevant tutorial.
+     - *Not yet documented.*
 
