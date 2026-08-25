@@ -56,6 +56,39 @@ in equilibrium and the relaxation will have to fight it.
    still means computational effort is being spent on a region that is not being
    modelled properly.
 
+Judging a model after release
+-----------------------------
+
+Two mistakes are easy to make when deciding whether a relaxed model is settled,
+and both produce confident wrong answers.
+
+**Do not judge it while the drag is still on.**  Under drag everything looks
+quiet, because the drag is what is making it quiet.  Configurations that appear
+identical during relaxation can differ substantially once released.  Judge after
+``treloff``, and allow several oscillation periods before concluding anything:
+an effect that has not appeared yet is indistinguishable from one that does not
+exist.
+
+**Do not fit a trend through the first period after release.**  Switching the
+drag off is itself a disturbance, and the first period contains the excursion it
+produces.  Fitting through it measures the release, not the model.  This is not
+a small correction: on a real model, a fit of :math:`\ln v_\mathrm{rms}` started
+at the moment of release gave a *positive* slope, apparently a star coming
+apart, while the same fit started one period later gave a negative slope, a star
+settling down.  Same run, opposite conclusions.
+
+Discard the first period, or plot the trace before fitting anything to it.
+
+Comparing two models
+~~~~~~~~~~~~~~~~~~~~
+
+Residual velocity in km/s is not comparable between stars of different
+compactness.  A compact star has a much higher sound speed, so the same
+dimensionless disturbance shows up as a much larger absolute velocity.  Compare
+:math:`v_\mathrm{rms}/c_s` instead.  Two models differing by a factor of
+seventeen in km/s can differ by only a factor of two once scaled, which is the
+number that means anything.
+
 Particle masses and ``equalmass``
 ---------------------------------
 
