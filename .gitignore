@@ -5,3 +5,15 @@
 *.orig
 *.rej
 *~
+
+# Build output.  These were tracked once; keep them from coming back by way of
+# an absent-minded "git add ."  Compiled objects, Fortran module files, the
+# gravity library, and the executables, which are named after the directory
+# holding src and are also copied one level up.
+*.o
+*.cu_o
+*.mod
+*.a
+*__*.f90
+*_gpu_sph
+*_cpu_sph
