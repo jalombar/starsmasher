@@ -87,3 +87,10 @@
       common/adiabaticindex/ gam
       integer maxnumx
       parameter(maxnumx=16)
+
+!     Drag schedule derived from the model itself; see relax.f.  Set once, on the
+!     first call to relax, when trelax=0 in sph.input asks for it.
+!     Comments here must use "!" and not "c": this header is included by
+!     advance.f90, which is free form, where a "c" in column 1 is a syntax error.
+      real*8 trelax0auto,tdynauto
+      common/trelaxautocom/trelax0auto,tdynauto
