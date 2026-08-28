@@ -88,7 +88,7 @@ c     place velocities at same time as everything else:
       close(12)
       if (nchk.ne.n2) stop 'triple: problem with file'
 
-      open(12,file='sph.start3u',form='unformatted')
+      open(12,file=startfile3,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
       read(12) n3,nnoptold,hcoold,hfloorold,sep0old,
@@ -123,7 +123,7 @@ c     place velocities at same time as everything else:
       n=ntot-corepts
       write (69,*)'triple: n=',n,'ntot=',ntot
 
-      open(30,file='input.3s')
+      open(30,file=triplefile)
       read(30,*) dummy
       read(30,*) am1chk
       read(30,*) deltax1,deltay1,deltaz1

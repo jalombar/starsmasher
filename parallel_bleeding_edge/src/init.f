@@ -554,6 +554,8 @@ c      end
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,throwaway,
+     $     startfile3,binaryfile,triplefile,bpbhfile,
+     $     imagefile,advectedfile,
      $     stellarevolutioncodetype,
      $     bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
@@ -569,22 +571,22 @@ c      end
       displacey=0d0
       displacez=0d0
 
-      semimajoraxis=0.d0
-      impactparameter=-1.d30
-      rp=-1.d30
-      e0=-1.d30
-      vinf2=1.d30
+      semimajoraxis=0.d0 ! orbital semimajor axis.  0 means unset, so that it is deduced from the others
+      impactparameter=-1.d30 ! impact parameter at infinity, an alternative to rp, converted to it using angular momentum
+      rp=-1.d30 ! separation at closest approach.  Set any two of rp, vinf2, e0 and semimajoraxis and the rest follow
+      e0=-1.d30 ! orbital eccentricity: 1 is parabolic, above 1 hyperbolic, below 1 bound
+      vinf2=1.d30 ! square of the relative speed at infinity.  1d30 means unset, so it is deduced from the others
 
-      bbh_m1=20d0
-      bbh_m2=10d0
-      bbh_semimajoraxis=0.d0
-      bbh_rp=-1.d30
-      bbh_e0=-1.d30
-      bbh_vinf2=1.d30
-      bbh_trueanomaly=0d0
-      bbh_argperi=0d0
-      bbh_inclination=0d0
-      bbh_longitude=0d0
+      bbh_m1=-1d0 ! first mass of a compact-object binary.  Required, and only used, when bbh_m2 is positive
+      bbh_m2=-1d0 ! second mass of a compact-object binary.  Negative means unset, giving a single point mass of mass mbh
+      bbh_semimajoraxis=0.d0 ! semimajor axis of the compact-object binary.  0 means unset
+      bbh_rp=-1.d30 ! separation at closest approach for the compact-object binary
+      bbh_e0=-1.d30 ! eccentricity of the compact-object binary
+      bbh_vinf2=1.d30 ! square of the relative speed at infinity for the compact-object binary.  1d30 means unset
+      bbh_trueanomaly=0d0 ! true anomaly of the compact-object binary, in degrees
+      bbh_argperi=0d0 ! argument of periapsis of the compact-object binary, in degrees
+      bbh_inclination=0d0 ! inclination of the compact-object binary, in degrees
+      bbh_longitude=0d0 ! longitude of the ascending node of the compact-object binary, in degrees
 
 c     set some default values, so that they don't necessarily have to be set in the sph.input file:
       tf=50000                 ! desired final time to stop simulation
@@ -600,10 +602,10 @@ c     set some default values, so that they don't necessarily have to be set in 
       mco=-1d30                ! mass of compact object or core particle
       hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
-      trelax=1.d30             ! timescale for artificial drag force.  keep it very large to turn off the drag force, which seems best even in relaxation runs (as the av can do the relaxation).
+      trelax=1.d30             ! drag timescale.  0 derives both it and treloff from the model, a very large value disables the drag
       sep0=200                 ! initial separation of two stars in a binary or collision calculation
       equalmass=0              ! particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
-      treloff=0                ! time to end a relaxation and switch to a dynamical calculation
+      treloff=0                ! time the drag switches off and the run turns dynamical.  Overwritten when trelax=0
       tresplintmuoff=0.        ! time to stop resplinting the mean molecular weight.  leave this at 0.
       nitpot=1                 ! number of iterations between evaluation of the gravitational potential energy.
       tscanon=0                ! time that the scan of a binary starts
@@ -611,7 +613,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u
       ngravprocs=0             ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
       qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
-      mbh=10d0                 ! mass of black hole
+      mbh=10d0                 ! mass of the point mass used as the second object when startfile2 is absent
       runit=6.957d10          ! number of cm in the unit of length.  use 6.957d10 if want MESA solar radius.
       munit=1.9884098706980504d33          ! number of g in unit of mass.  use 1.9884098706980504E+033 if want MESA solar mass.
 !     the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
@@ -628,24 +630,30 @@ c     set some default values, so that they don't necessarily have to be set in 
 !     the final timestep dt is the minimum of dt_sph and dt_co for all particles i
       computeexclusivemode=0   ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
       omega_spin=0.d0 ! angular rotation rate of star, used in nrelax=1 relaxations to give a rigidly rotating model
-      ppn=16
+      ppn=16 ! cpu cores per node, used to spread the gravity processes over nodes
       neos=1 ! 0 for polytropic equation of state (eos), 1 for ideal gas + radiation pressure, 2 for tabulated eos
       nselfgravity=1 ! 0 if just do gravity to point particles, 1 if self-gravitating
       gam=5.d0/3.d0 ! leave this set at a reasonable value even if using neos=1 or 2 (because the value of gam is used in estimating the local sound speed in balav3.f)
-      reat=-1.d0
-      starmass=1d0
-      starradius=1d0
+      reat=-1.d0 ! radius within which a point mass swallows SPH particles.  Negative disables eating
+      starmass=1d0 ! mass of the polytrope to build, in solar masses
+      starradius=1d0 ! radius of the polytrope to build, in solar radii
       ncooling=0 ! 0 if no cooling, otherwise radiative cooling
-      nkernel=2
-      teq=100d0
-      tjumpahead=1d30
-      startfile1='sph.start1u'
-      startfile2='sph.start2u'
-      eosfile='sph.eos'
-      opacityfile='sph.opacity'
-      profilefile='eg.last1.muse_s2mm'
-      throwaway=.false.
-      stellarevolutioncodetype=1
+      nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
+      teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
+      tjumpahead=1d30 ! time after which a wide orbit may be skipped rather than integrated.  Only acts when tf is negative
+      startfile1='sph.start1u' ! first body of the encounter, in out*.sph format, usually the last snapshot of a relaxation
+      startfile2='sph.start2u' ! second body, same format as startfile1.  If absent, a single point mass of mass mbh is used
+      startfile3='sph.start3u' ! third body of a triple, same format as startfile1
+      binaryfile='input.bs'    ! text file describing the binary, read by bps and 2cr
+      triplefile='input.3s'    ! text file describing the third body, read by bhe and tri
+      bpbhfile='sph.bpbh'      ! text file giving the orientation angles and black hole mass, read by bph
+      imagefile='sph.image'    ! ASCII picture that txt turns into a particle layout
+      advectedfile='sph.passivelyAdvected' ! per-particle passively advected quantities, read by hyp when present
+      eosfile='sph.eos' ! tabulated equation of state, read when neos selects a table
+      opacityfile='sph.opacity' ! tabulated opacities, read when cooling needs them
+      profilefile='eg.last1.muse_s2mm' ! stellar-evolution profile that erg builds its star from
+      throwaway=.false. ! when skipping ahead, discard unbound ejecta rather than keeping all mass as two components
+      stellarevolutioncodetype=1 ! which code wrote profilefile, since the column layouts differ
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)

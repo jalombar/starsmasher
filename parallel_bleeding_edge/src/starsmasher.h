@@ -62,9 +62,12 @@
       integer neos,nusegpus,nselfgravity,ncooling,nkernel
       real*8 gam,teq,tjumpahead
       character*255 startfile1,startfile2,eosfile,opacityfile,profilefile
+      character*255 startfile3,binaryfile,triplefile,bpbhfile
+      character*255 imagefile,advectedfile
       logical throwaway
       integer stellarevolutioncodetype	
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
+      common/inputfilenames2/startfile3,binaryfile,triplefile,bpbhfile,imagefile,advectedfile
       common/courantnumbers/ cn1,cn2,cn3,cn4,cn5,cn6,cn7
       common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling,nkernel
       parameter(kdm=5000)
@@ -87,3 +90,10 @@
       common/adiabaticindex/ gam
       integer maxnumx
       parameter(maxnumx=16)
+
+!     Drag schedule derived from the model itself; see relax.f.  Set once, on the
+!     first call to relax, when trelax=0 in sph.input asks for it.
+!     Comments here must use "!" and not "c": this header is included by
+!     advance.f90, which is free form, where a "c" in column 1 is a syntax error.
+      real*8 trelax0auto,tdynauto
+      common/trelaxautocom/trelax0auto,tdynauto

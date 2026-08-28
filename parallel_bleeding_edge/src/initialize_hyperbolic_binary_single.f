@@ -1,6 +1,7 @@
       subroutine hyperbolic_binary_single
 c     hyperbolic collision with a neutron star
       include 'starsmasher.h'
+      logical startfileexists
       real*8 k,rdot,rdotcheck,costheta,sintheta,ltot,thetadot,
      $     semilatusrectum,mu,e0check,sinthetacheck,
      $     eorb0check,eorb0
@@ -36,8 +37,18 @@ c         write(69,*)'hns: rp=',rp
          write(69,*) 'hbs: impactparameter=',impactparameter,'v_inf2=',vinf2
       endif
          corepts=0
-         write (69,*) 'hbs: reading start files ...'
-         open(12,file='sph.startu',form='unformatted')
+         write (69,*) 'hbs: reading start file ',trim(startfile1)
+         inquire(file=startfile1,exist=startfileexists)
+         if(.not.startfileexists) then
+            if(myrank.eq.0) then
+               write(69,*)'hbs: cannot find start file ',trim(startfile1)
+               write(69,*)'hbs: set startfile1 in sph.input to the relaxed'
+               write(69,*)'hbs: star to use.  Earlier versions of this'
+               write(69,*)'hbs: routine always read sph.startu.'
+            endif
+            stop
+         endif
+         open(12,file=startfile1,form='unformatted')
 c     (the following read sequence must match exactly the write sequence
 c     used in subroutine dump)
          read(12) n1,nnoptold,hcoold,hfloorold,sep0old,

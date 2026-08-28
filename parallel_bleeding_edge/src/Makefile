@@ -157,7 +157,7 @@ config:
 	@echo "  CPU executable  ../$(CPUEXEC)"
 
 clean:
-	/bin/rm -rf *.o *__*.f90 *.mod
+	/bin/rm -rf *.o *__*.f90 *.mod $(GPUEXEC) $(CPUEXEC) ../$(GPUEXEC) ../$(CPUEXEC)
 	$(MAKE) clean -C $(GRAVLIB)
 
 .PHONY: gpu cpu clean config check-cuda
