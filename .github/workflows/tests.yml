@@ -1,0 +1,58 @@
+name: tests
+
+# The test suite asserts physics -- the virial theorem, energy conservation, a
+# settled star -- rather than comparing against stored output, so it is worth
+# running on every change to the Fortran.  It runs the CPU build: GitHub's
+# runners have no NVIDIA card, so the GPU path and the cpu_gpu comparison can
+# only be checked on a machine that has one.
+on:
+  push:
+    paths:
+      - 'parallel_bleeding_edge/src/**'
+      - 'tests/**'
+      - '.github/workflows/tests.yml'
+  pull_request:
+    paths:
+      - 'parallel_bleeding_edge/src/**'
+      - 'tests/**'
+  workflow_dispatch:
+
+jobs:
+  cpu:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install a Fortran compiler and MPI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gfortran openmpi-bin libopenmpi-dev
+
+      - name: Build the CPU version
+        run: make -C parallel_bleeding_edge/src cpu
+
+      # --quick shrinks the star from 10000 particles to 2000.  What is asserted
+      # is unchanged; the smaller model reproduces the virial theorem to the same
+      # four figures.  Without it a single test takes minutes on a shared runner.
+      #
+      # cpu_gpu needs a GPU, and guard_ngravprocs is about how GPUs are counted,
+      # so neither can say anything useful here.
+      # A table that claims to list the tests is worth no more than its
+      # accuracy, and it drifted the last time a test was added.
+      - name: Check the documented test list matches the suite
+        run: python3 tests/check_docs_match.py
+
+      - name: Run the suite
+        run: |
+          python3 tests/run_tests.py --quick --np 2 \
+            --exe "$PWD/$(ls parallel_bleeding_edge/*_cpu_sph | head -1)" \
+            virial energy quiet ranks startfiles
+
+      - name: Save the scratch output if something failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-output
+          path: /tmp/starsmasher-tests-*
+          retention-days: 7

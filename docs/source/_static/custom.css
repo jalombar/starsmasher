@@ -1,0 +1,50 @@
+/* StarSmasher documentation theme.
+   Colours are sampled from the project emblem: #8954a5 purple on #15101d. */
+
+:root {
+    --ss-purple:      #8954a5;
+    --ss-purple-dark: #6d4184;
+    --ss-ink:         #15101d;
+}
+
+/* Sidebar: the emblem sits on the same near-black the artwork uses. */
+.wy-nav-side            { background: var(--ss-ink); }
+.wy-side-nav-search     { background: var(--ss-ink); }
+.wy-side-nav-search > a img.logo { max-width: 190px; padding: 12px 0 4px; }
+.wy-side-nav-search input[type=text] {
+    border-color: var(--ss-purple);
+    border-radius: 6px;
+}
+.wy-menu-vertical a:hover        { background: var(--ss-purple-dark); color: #fff; }
+.wy-menu-vertical li.current > a { border-right: 3px solid var(--ss-purple); }
+.wy-nav-top                      { background: var(--ss-ink); }
+
+/* Links and accents pick up the brand purple. */
+a, a:visited                { color: var(--ss-purple); }
+a:hover                     { color: var(--ss-purple-dark); }
+.rst-content .note          { background: #f6f1fa; }
+.rst-content .note .admonition-title { background: var(--ss-purple); }
+
+/* Reference tables: the variable column should read as code, and long
+   default expressions must not force a horizontal scrollbar. */
+.rst-content table.docutils td  { vertical-align: top; }
+.rst-content table.docutils code.literal { white-space: nowrap; }
+.wy-table-responsive table td   { white-space: normal; }
+
+/* Inline code reads as code, not as a link.  The theme's default is a red that
+   sits close enough to a link colour to invite clicking, which is misleading
+   when most inline code -- file names especially -- is not a link at all. */
+.rst-content code.literal,
+.rst-content tt.literal {
+    color: #24292f;
+    background: #f4f2f7;
+    border: 1px solid #ded8e6;
+    border-radius: 3px;
+}
+
+/* Where inline code genuinely is a link, it keeps the link colour, so the
+   distinction runs the other way too. */
+.rst-content a code.literal,
+.rst-content a tt.literal        { color: var(--ss-purple); border-color: #d5c6e4; }
+.rst-content a:hover code.literal,
+.rst-content a:hover tt.literal  { color: var(--ss-purple-dark); }
