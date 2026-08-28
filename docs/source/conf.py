@@ -9,6 +9,7 @@ extensions = [
     'sphinx.ext.intersphinx',
     'sphinx.ext.mathjax',
     'sphinx_copybutton',
+    'sphinx_design',
 ]
 
 myst_enable_extensions = ['deflist', 'colon_fence', 'substitution']

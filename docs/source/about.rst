@@ -2,8 +2,8 @@ About StarSmasher
 =================
 
 StarSmasher is a smoothed particle hydrodynamics code for collisions and close
-interactions between stars and planets.  It descends from StarCrash, written by
-Joshua Faber, James Lombardi and Frederic Rasio, and is maintained by James
+interactions between stars and planets.  It descends from StarCrash, a parallel SPH code written by
+Joshua Faber, James Lombardi, and Frederic Rasio, which descends the SPH code written for Rasio's PhD thesis. StarSmasher is currently maintained by, primarily, James
 Lombardi at Allegheny College.
 
 Papers

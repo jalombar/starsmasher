@@ -45,7 +45,7 @@ star is not in equilibrium.  See :doc:`../tutorials/relaxing_a_star`.
 
 For a **collision**, the snapshots are the point.  Column density in the orbital
 plane over successive ``out`` files shows the encounter, and ``energy0.sph``
-tells you whether to trust it -- see :doc:`output`.
+tells you whether to trust it.  See :doc:`output`.
 
 .. note::
 

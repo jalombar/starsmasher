@@ -56,6 +56,17 @@ Copy the example into a working directory of its own::
      - 1
      - Write a snapshot every unit of time.
 
+.. note::
+
+   ``starmass`` and ``starradius`` are read as solar masses and solar radii here
+   because this example leaves ``neos`` at its default of 1, an ideal gas with
+   radiation pressure, which brings physical constants into the calculation.
+
+   Set ``neos=0`` for a true polytrope and nothing in the run refers to grams or
+   centimetres at all.  The same two numbers then mean one fifth of a mass unit
+   and one fifth of a radius unit, and the model can be scaled to whatever star
+   you like afterwards.  See :ref:`code units <code-units>`.
+
 Build and run
 -------------
 

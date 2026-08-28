@@ -83,6 +83,49 @@ relates to the semimajor axis by :math:`a = -GM/v_\infty^2` with :math:`M` the
 total mass, so an elliptical encounter of two stars totalling
 :math:`0.6\,M_\odot` with ``vinf2=-0.07`` has :math:`a = 0.6/0.07 = 8.6`.
 
+``impactparameter`` can stand in for ``rp``: given one, the code derives the
+other from conservation of angular momentum, so the pair
+``(impactparameter, vinf2)`` works like ``(rp, vinf2)``.
+
+.. dropdown:: How the code decides a setting was left unset
+   :icon: question
+
+   There is no separate flag.  Each of these settings has a value that means
+   "not given", and the defaults are those values:
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 26 20 54
+
+      * - Setting
+        - Means unset
+        - Default
+      * - ``rp``
+        - negative
+        - ``-1.d30``
+      * - ``impactparameter``
+        - negative
+        - ``-1.d30``
+      * - ``e0``
+        - negative
+        - ``-1.d30``
+      * - ``vinf2``
+        - at or above ``1d30``
+        - ``1.d30``
+      * - ``semimajoraxis``
+        - exactly zero
+        - ``0.d0``
+
+   Two consequences follow.  ``semimajoraxis=0`` is not a very small orbit, it
+   is no orbit at all, and the code will look elsewhere for the information.
+   And a negative ``vinf2`` is a real value, not an unset one, which is what
+   makes it usable for a bound encounter.
+
+   Give more than two and the extras are not checked for consistency: the
+   branch that fires is decided by which ones look unset, and the rest are
+   simply overwritten.  ``log0.sph`` prints the values it settled on, which is
+   the only place the arithmetic is visible.
+
 Run it
 ------
 
@@ -130,110 +173,111 @@ form
    R_\mathrm{acc} = \frac{2GM}{v_\mathrm{rel}^2 + c_s^2},
 
 and keep the sound speed.  Dropping it gives :math:`2GM/v^2`, which is only
-valid for supersonic motion; a giant envelope is often transonic, where
+valid for supersonic motion.  A giant envelope is often transonic, where
 :math:`c_s` is not a correction but half the denominator.
 
 If :math:`R_\mathrm{acc}` exceeds a smoothing length, the encounter is resolved
 even with a point-mass companion.  If it is *smaller*, no amount of resolving the
-companion will help -- the primary itself is too coarse, and that is what has to
+companion will help.  The primary itself is too coarse, and that is what has to
 be fixed.
 
-A worked example
-~~~~~~~~~~~~~~~~
+.. dropdown:: A worked example: accretion radius through a 5.4 solar-mass giant
+   :icon: table
 
-For a 0.4 :math:`M_\odot` companion inside a relaxed 5.4 :math:`M_\odot` giant,
-measured from the model rather than estimated, taking :math:`v_\mathrm{rel}` as
-the local circular velocity:
 
-.. list-table::
-   :header-rows: 1
-   :widths: 12 16 14 14 12 16 16
+   For a 0.4 :math:`M_\odot` companion inside a relaxed 5.4 :math:`M_\odot` giant,
+   measured from the model rather than estimated, taking :math:`v_\mathrm{rel}` as
+   the local circular velocity:
 
-   * - :math:`r`
-     - :math:`M_\mathrm{enc}`
-     - :math:`v_\mathrm{orb}`
-     - :math:`c_s`
-     - :math:`h`
-     - :math:`R_\mathrm{acc}`
-     - :math:`R_\mathrm{acc}/h`
-   * - 50
-     - 1.129
-     - 65.7
-     - 64.4
-     - 11.8
-     - 18.1
-     - 1.53
-   * - 100
-     - 1.776
-     - 58.2
-     - 51.4
-     - 12.9
-     - 25.3
-     - 1.96
-   * - 150
-     - 2.728
-     - 58.9
-     - 42.5
-     - 14.0
-     - 28.9
-     - 2.06
-   * - 200
-     - 3.741
-     - 59.7
-     - 34.6
-     - 15.3
-     - 32.0
-     - 2.09
-   * - 250
-     - 4.532
-     - 58.8
-     - 28.9
-     - 17.3
-     - 35.6
-     - 2.06
-   * - 300
-     - 5.009
-     - 56.4
-     - 22.3
-     - 22.6
-     - 41.4
-     - 1.83
-   * - 340
-     - 5.220
-     - 54.1
-     - 16.6
-     - 30.2
-     - 47.6
-     - 1.57
+   .. list-table::
+      :header-rows: 1
+      :widths: 12 16 14 14 12 16 16
 
-Radii and smoothing lengths in :math:`R_\odot`, masses in :math:`M_\odot`,
-velocities in km/s.
+      * - :math:`r`
+        - :math:`M_\mathrm{enc}`
+        - :math:`v_\mathrm{orb}`
+        - :math:`c_s`
+        - :math:`h`
+        - :math:`R_\mathrm{acc}`
+        - :math:`R_\mathrm{acc}/h`
+      * - 50
+        - 1.129
+        - 65.7
+        - 64.4
+        - 11.8
+        - 18.1
+        - 1.53
+      * - 100
+        - 1.776
+        - 58.2
+        - 51.4
+        - 12.9
+        - 25.3
+        - 1.96
+      * - 150
+        - 2.728
+        - 58.9
+        - 42.5
+        - 14.0
+        - 28.9
+        - 2.06
+      * - 200
+        - 3.741
+        - 59.7
+        - 34.6
+        - 15.3
+        - 32.0
+        - 2.09
+      * - 250
+        - 4.532
+        - 58.8
+        - 28.9
+        - 17.3
+        - 35.6
+        - 2.06
+      * - 300
+        - 5.009
+        - 56.4
+        - 22.3
+        - 22.6
+        - 41.4
+        - 1.83
+      * - 340
+        - 5.220
+        - 54.1
+        - 16.6
+        - 30.2
+        - 47.6
+        - 1.57
 
-Two things follow.  The companion's radius is 0.369 :math:`R_\odot`, between 29
-and 82 times smaller than the local smoothing length everywhere it can go, with a
-density contrast running from :math:`2.5\times10^6` at the base of the envelope
-to :math:`4\times10^8` at the surface.  Resolving it as fluid achieves nothing.
+   Radii and smoothing lengths in :math:`R_\odot`, masses in :math:`M_\odot`,
+   velocities in km/s.
 
-But the accretion radius exceeds the smoothing length everywhere, by a factor of
-1.5 to 2.  So the encounter *is* resolved -- marginally at depth.  A factor of
-1.5 is passing, not comfortable, and a coarser primary would fail this test.  A
-reader who runs the check and gets 1.5 should not conclude they have room to
-spare.
+   Two things follow.  The companion's radius is 0.369 :math:`R_\odot`, between 29
+   and 82 times smaller than the local smoothing length everywhere it can go, with a
+   density contrast running from :math:`2.5\times10^6` at the base of the envelope
+   to :math:`4\times10^8` at the surface.  Resolving it as fluid achieves nothing.
 
-.. warning::
+   But the accretion radius exceeds the smoothing length everywhere, by a factor of
+   1.5 to 2.  So the encounter *is* resolved, if marginally at depth.  A factor of
+   1.5 is passing, not comfortable, and a coarser primary would fail this test.  A
+   reader who runs the check and gets 1.5 should not conclude they have room to
+   spare.
 
-   Compute :math:`v_\mathrm{rel}` for your own encounter rather than copying a
-   number.  The table above assumes a roughly circular orbit through gas that is
-   not itself rotating much; a plunging or eccentric encounter is different.
-   Because :math:`v` and :math:`c_s` are comparable through most of this
-   envelope, the result is not sensitive to getting either slightly wrong, but it
-   is very sensitive to dropping either.
+   .. warning::
 
-   The Bondi-Hoyle-Lyttleton estimate is derived for a point mass in uniform gas.
-   Inside a stratified envelope the density scale height is a further relevant
-   length, and where :math:`R_\mathrm{acc}` approaches it the formula is being
-   used outside its derivation.  Treat this as the standard first check, not as a
-   sufficient condition.
+      Compute :math:`v_\mathrm{rel}` for your own encounter rather than copying a
+      number.  The table above assumes a roughly circular orbit through gas that is
+      not itself rotating much.  A plunging or eccentric encounter is different.
+      Because :math:`v` and :math:`c_s` are comparable through most of this
+      envelope, the result is not sensitive to getting either slightly wrong, but it
+      is very sensitive to dropping either.
+
+      The Bondi-Hoyle-Lyttleton estimate is derived for a point mass in uniform gas.
+      Inside a stratified envelope the density scale height is a further relevant
+      length, and where :math:`R_\mathrm{acc}` approaches it the formula is being
+      used outside its derivation.  Treat this as the standard first check, not as a
+      sufficient condition.
 
 Where to go next
 ----------------

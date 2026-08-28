@@ -7,7 +7,7 @@ Test suite
 
 The suite runs short calculations and checks them against things that must be
 true, rather than against stored output.  A golden-file test tells you that
-something changed; these tell you whether the answer is right.
+something changed.  These tell you whether the answer is right.
 
 .. list-table::
    :header-rows: 1

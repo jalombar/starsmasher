@@ -19,12 +19,65 @@ and ``treloff`` the time at which it is switched off.
 Choosing ``trelax``
 ~~~~~~~~~~~~~~~~~~~
 
-Set ``trelax`` to an oscillation period visible in the energy output at early
-times.  Run the relaxation once, plot the energies from ``energy0.sph``, measure
-the period of the oscillation you see, and use that.  The right value depends on
-the star's structure and radius, so there is no universal number: a compact
-main-sequence star and an extended giant will want values differing by orders of
-magnitude.
+Set ``trelax=0`` and let the code work it out::
+
+    trelax=0,
+
+The drag damps the star's fundamental radial oscillation fastest when its
+timescale is near that oscillation's period, and the period scales with the
+dynamical time :math:`t_\mathrm{dyn} = \sqrt{R^3/M}`.  So from the star's own
+radius and mass the code sets
+
+.. math::
+
+   t_\mathrm{relax} = 4\,t_\mathrm{dyn}, \qquad
+   t_\mathrm{reloff} = 10\,t_\mathrm{relax}.
+
+The coefficient 4 is measured, not assumed: on a 5.4 :math:`M_\odot` AGB giant
+the period comes out at 3.91 :math:`t_\mathrm{dyn}` and on a 0.4
+:math:`M_\odot` M dwarf 4.43, two stars a factor of a thousand apart in radius.
+A ten per cent error in ``trelax`` moves the relaxed model's residual motion by
+only two or three per cent, which is why one constant serves both.
+
+The ten is an e-folding count: the oscillation envelope decays with a time
+constant equal to ``trelax`` itself, so ten of them is ten e-foldings before the
+drag is switched off.
+
+``log0.sph`` records what it chose::
+
+    relax: trelax=0, so the drag schedule is derived:
+    relax:   radius  =   ...
+    relax:   mass    =   ...
+    relax:   t_dyn   =   ...
+    relax:   trelax  =   ...
+    relax:   treloff =   ...
+
+.. important::
+
+   ``trelax=0`` sets ``treloff`` as well, overwriting whatever you put there.
+   You cannot derive one and hand-set the other.  It is both or neither.
+
+When to override it
+~~~~~~~~~~~~~~~~~~~
+
+Setting ``trelax`` to a positive value keeps its old meaning exactly, and then
+``treloff`` is yours to set too.  Two reasons to do so:
+
+**A very soft envelope.**  Where :math:`\Gamma_1` approaches 4/3 the period
+lengthens sharply, and :math:`4\,t_\mathrm{dyn}` will underestimate it.  The
+symptom is a model still ringing when the drag comes off.
+
+**You want to measure the period yourself.**  Relax briefly with
+``trelax=1.d30``, which disables the drag, and take the dominant frequency of
+the kinetic energy.  It oscillates at *twice* the mode frequency, so the period
+is twice what you read off.  Then set ``trelax`` to that period and ``treloff``
+to ten times it.
+
+.. note::
+
+   On a resumed run the schedule is derived again from the star as it now is,
+   which has already relaxed and so is slightly smaller than the one it started
+   from.  ``log0.sph`` says so when this happens.
 
 Judging whether the model is any good
 -------------------------------------
@@ -101,18 +154,42 @@ mass is proportional to :math:`\rho^{1-\mathrm{equalmass}}`, so:
 * ``equalmass=1`` gives particles of equal mass, concentrating them where the
   mass is and largely ignoring the outermost layers.
 
-For a star spanning many orders of magnitude in density -- a giant, or a massive
-main-sequence star -- the default is often a poor choice.  It can produce outer
+For a star spanning many orders of magnitude in density, such as a giant or a
+massive main-sequence star, the default is often a poor choice.  It can produce outer
 particles of order :math:`10^{-10}\,M_\odot` alongside inner particles heavier
 than :math:`10^{-2}\,M_\odot`, a spread that no relaxation will fix.
 
-Values between 0.5 and 0.75 are a good starting point for such stars, and
-sometimes 1 is better still.  The trade-off is explicit: raising ``equalmass``
-abandons the outermost layers in exchange for a better model everywhere else,
-and it slightly reduces the timestep, so the simulation runs more slowly.
-Whether that is a good bargain depends on whether the outer envelope matters for
-the science.  Values such as 0.6 or 0.7 are worth trying if neither extreme
-looks right.
+Choosing a value
+~~~~~~~~~~~~~~~~
+
+There is no formula.  The choice follows from the density contrast of the star
+and from which part of it your science depends on, and it is settled by trying
+a value and looking at the result.
+
+**Main-sequence stars and polytropes: start at 0**, the default.  The density
+range is modest enough that constant number density resolves the outer layers as
+well as the core, which is what you want if the model is headed for a
+mass-transfer binary, where the envelope is the part that matters.
+
+**Giants: start at 0.5.**  A giant's core-to-envelope contrast is large enough
+that resolution has to be bought somewhere, and buying it in the core is usually
+right.  Values of about 0.4 and above are the useful range.
+
+The reason to avoid going low on a giant is a specific failure rather than a
+gradual loss of quality.  An under-resolved core cannot hold itself in
+equilibrium, and a shock then travels outwards from it: the relaxation does not
+settle and the model is unusable.
+
+.. note::
+
+   Some outward motion early on is normal, and is not the same thing.  What
+   distinguishes a failure is whether the gas comes back: a model that moves
+   out and settles is fine, one that keeps going has effectively exploded.
+   Judge this after ``treloff``, not during the drag.  See
+   `Judging a model after release`_.
+
+Raising ``equalmass`` also slightly reduces the timestep, so the run is slower.
+Values such as 0.6 or 0.7 are worth trying when neither 0.5 nor 1 looks right.
 
 .. note::
 
@@ -127,7 +204,7 @@ Neighbour number and ``nnopt``
 ``nnopt`` controls how many neighbours each particle has.  It must be an
 integer.
 
-As you increase the number of particles, increase ``nnopt`` as well -- but more
+As you increase the number of particles, increase ``nnopt`` as well, but more
 slowly, as :math:`\sqrt{N}`.  Doubling ``N`` means multiplying ``nnopt`` by
 :math:`\sqrt{2}`, so a run using ``nnopt=23`` at ``N=100000`` would use
 ``nnopt=33`` at ``N=200000``.
@@ -135,6 +212,31 @@ slowly, as :math:`\sqrt{N}`.  Doubling ``N`` means multiplying ``nnopt`` by
 Increasing ``N`` while leaving ``nnopt`` at a value inherited from a smaller run
 is a common mistake.  The symptom is a model that overestimates pressure and
 density in the centre and underestimates them through the bulk of the star.
+
+The rule does not extend downwards indefinitely.  Every SPH quantity is a sum
+over neighbours, and a sum over few neighbours carries shot noise that no amount
+of relaxing will remove, so there is a floor below which the scaling stops
+meaning anything.  Around ``nnopt = 22 + gflag`` is a reasonable one to treat as
+the minimum.
+
+.. note::
+
+   That floor is a rule of thumb rather than a measured threshold: it has not
+   been tested, and it is offered as a sensible place to stop scaling rather
+   than a value with evidence behind it.  If you have reason to go lower,
+   compare the resulting model against ``parent.sph`` before trusting it.
+
+Choose ``nnopt`` before you relax anything
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``nnopt`` is fixed at relaxation and travels with the model.  A collision reads
+it from ``startfile1`` and overrides whatever ``sph.input`` says, and it stops
+outright if the two stars disagree.
+
+The trap is a collision between very different stars, where it is natural to
+relax a giant and a dwarf at values suited to each, and then find they cannot
+be collided at all.  Decide the value you intend to collide at first, and relax
+every body at that value.  See :doc:`../using/input`.
 
 Do not carry ``gam`` between stars
 -----------------------------------
@@ -155,8 +257,8 @@ The value to use is a pressure-weighted :math:`\Gamma_1` for the star in
 question.  A partially ionised giant envelope and a fully convective low-mass
 star are different: values near 1.56 and 1.667 respectively are representative.
 Copying one star's ``sph.input`` to another and leaving ``gam`` alone can be a
-several per cent error in the sound speed, which will not announce itself --
-the run proceeds, with a slightly wrong timestep and slightly wrong viscosity.
+several per cent error in the sound speed, and it will not announce itself.
+The run proceeds, with a slightly wrong timestep and slightly wrong viscosity.
 
 Cores and compact objects
 -------------------------
@@ -165,16 +267,33 @@ A giant with a dense core is expensive to model particle by particle.  Two
 settings help:
 
 ``mco``
-   the mass of a core point particle.  Setting this forces a core of the mass
-   you want, rather than accepting whatever the particle layout produces.
+   the mass of the core point particle.  Setting it forces a core of the mass
+   you want.  Leaving it at zero has the code choose one.
 
 ``hco``
-   the softening length of that core particle.  Tuning it is a small but real
-   improvement to the model.
+   the gravitational softening length of that core particle.  Tuning it is a
+   small but real improvement to the model.
 
-Raising ``equalmass`` or ``N`` will generally make an automatically chosen core
-point *less* massive, so if a specific core mass is needed, set ``mco``
-explicitly.
+.. important::
+
+   An automatically chosen ``mco`` is **not** a core mass taken from the
+   stellar-evolution model.  The code lays down SPH particles, finds their total
+   falls short of the mass the star is supposed to have, and gives the core
+   point exactly the difference::
+
+       am(1) = amass - amtot
+
+   It is a bookkeeping value that makes the total come out right, given whatever
+   mass the lattice failed to place near the centre.  Read as a physical core
+   mass it will mislead you, and it has no reason to agree with the core mass
+   your MESA model reports.
+
+   This is also why raising ``equalmass`` or ``N`` makes the automatic core
+   *less* massive: both put more particle mass near the centre, so less is left
+   over.  If a specific core mass is what you need, set ``mco`` yourself.
+
+Choosing ``mco``, ``equalmass`` and ``N`` together is trial and error.  There is
+no settled procedure, and the three interact.
 
 A worked starting point
 -----------------------
@@ -185,14 +304,17 @@ For a giant read from a MESA profile, a reasonable first ``sph.input`` is::
      n=100000,
      nnopt=32,
      nrelax=1,
-     trelax=<one oscillation period, measured from a first run>,
-     treloff=<a few trelax>,
-     tf=<longer than treloff>,
+     trelax=0,
+     tf=<longer than the treloff the code reports>,
      dtout=<so that you get a few dozen out files>,
      equalmass=0.5,
      neos=1,
      profilefile='profile.data',
     &end
+
+``trelax=0`` sets ``treloff`` too, so it is left out.  Read the value the code
+chose out of ``log0.sph`` and make ``tf`` comfortably longer than it, or the run
+ends before the star has been released long enough to judge.
 
 Then iterate: relax, compare ``parent.sph`` against the ``col`` files, and adjust
 ``equalmass``, ``nnopt`` and ``N`` until the pressure and density profiles agree

@@ -5,5 +5,6 @@ Using StarSmasher
    :maxdepth: 2
 
    running
+   input
    output
    visualisation

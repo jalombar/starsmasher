@@ -5,11 +5,12 @@ StarSmasher does not use the textbook SPH equations.  The formulation it
 integrates was derived in Appendix A of `Gaburov, Lombardi & Portegies Zwart
 (2010), MNRAS 402, 105
 <https://ui.adsabs.harvard.edu/abs/2010MNRAS.402..105G/abstract>`_
-(`arXiv:0904.0997 <https://arxiv.org/abs/0904.0997>`_), and the difference
-matters for exactly the problems this code is built for.
+(`arXiv:0904.0997 <https://arxiv.org/abs/0904.0997>`_).  The difference matters
+for exactly the problems this code is built for: collisions and mergers, where
+particles of very different mass end up mixed together in the same fluid.
 
-The problem with the usual constraint
--------------------------------------
+The standard constraint
+-----------------------
 
 Standard SPH ties the smoothing length to the local density,
 
@@ -17,14 +18,15 @@ Standard SPH ties the smoothing length to the local density,
 
    h_i = f(\rho_i, C_i),
 
-where the constant :math:`C_i` necessarily carries dimensions of mass.  In
-effect each particle keeps a fixed *mass* inside its kernel.  That is
-unobjectionable when every particle has the same mass, and it is the wrong
-constraint as soon as they do not.
+where :math:`C_i` must carry dimensions of mass for :math:`h_i` to come out as
+a length.  Written the usual way, :math:`h_i = \eta\,(m_i/\rho_i)^{1/3}`, that
+mass is the particle's own.  In effect each particle keeps a fixed *mass*
+inside its kernel.  That is unobjectionable when every particle has the same
+mass, and it is arguably the wrong constraint as soon as they do not.
 
 In a stellar collision, particles from two parent stars mix.  If the stars were
-resolved differently -- or if ``equalmass`` was used, so that particle masses
-already span orders of magnitude within a single star -- then a particle
+resolved differently, or if ``equalmass`` was used so that particle masses
+already span orders of magnitude within a single star, then a particle
 drifting into a region where the mean particle mass differs will find itself
 with far too few neighbours, or far too many.  Neither is recoverable: too few
 and the density estimate is noise, too many and the resolution has quietly been
@@ -41,13 +43,31 @@ the *number of neighbours*.  Each particle carries
    N_i = \sum_j G\!\left(|\mathbf{r}_i - \mathbf{r}_j|,\, h_i\right),
 
 and :math:`h_i` is solved for so that :math:`N_i` equals a target value.  That
-target is the ``nnopt`` of :doc:`sph_input`: the code solves
-``bonetfunc = N_i - nnopt = 0`` for :math:`h_i` at every step.
+target is the ``nnopt`` of :doc:`sph_input`.
 
-Because :math:`G` is a weighting function rather than a sharp cutoff, the
-constraint is continuous, which is what makes it differentiable and so usable in
-a variational derivation.  The nominal value ``nnopt=22`` yields roughly 35 to
-40 particles actually inside the kernel.
+:math:`G` is best understood by imagining a cruder version of itself.  Suppose
+it were a step function, equal to 1 for a particle inside the kernel and 0
+outside.  Then :math:`N_i` would be nothing more than a count of particle
+:math:`i`'s neighbours, and the constraint would read "give every particle the
+same number of neighbours".
+
+:math:`G` is that count made smooth.  It falls off gradually instead of
+switching, so a particle drifting towards the kernel edge contributes a
+diminishing fraction rather than vanishing the instant it crosses.  That is
+what makes the constraint differentiable, and so usable in a variational
+derivation, at the cost of :math:`N_i` no longer being an integer count of
+anything.
+
+Which :math:`G` is used is set by ``gflag``.  ``gflag=0`` selects the function
+of equation (A2) and figure A1 of the paper.  ``gflag=1``, the default, is the
+same except that :math:`G=1` inside the inner half of the kernel, which works
+better when massive compact objects or core particles are present.  The
+namelist default ``nnopt=22+gflag`` follows ``gflag``, so changing one moves
+the other.
+
+Smoothing lengths are updated at every timestep, so this is a root find per
+particle per step.  Standard SPH solves for :math:`h_i` too, so the expense is
+not particular to this formulation.
 
 How many neighbours you actually get
 ------------------------------------
@@ -59,28 +79,7 @@ number of particles actually inside the kernel is larger, by a factor of roughly
 The factor is largest at small ``nnopt`` and settles to roughly 1.4 to 1.45
 above about ``nnopt=60``.  Measurements across a polytrope, a low-mass MESA
 model and a red giant span 1.38 to 1.66, and Gaburov et al. quote ``nnopt=22``
-giving 35 to 40 neighbours, a ratio of 1.6 to 1.8.  Treat 1.4 to 1.7 as the
-range and do not interpolate: the dependence is real but has been sampled on
-only a handful of models.
-
-.. note::
-
-   This does not affect the answer.  Where a coefficient of this kind appears in
-   the code -- as in ``initialize_parent.f``, which seeds
-
-   .. math::
-
-      h_i = \left(\frac{3}{32\pi}\,\frac{1.41\,\mathrm{nnopt}}{n_i}\right)^{1/3}
-            + h_\mathrm{floor}
-
-   -- it is only the initial guess handed to the root solver that finds
-   :math:`h_i`.  The converged smoothing length is unaffected.  A poor guess
-   costs iterations in the first density-and-smoothing-length solve and nothing
-   else: an earlier coefficient of 1.9 overestimated :math:`h` by about 9.5 per
-   cent and made that first call roughly 5.7 times more expensive, with no
-   change to the physics.
-
-   So if your own model gives 1.6 where this page says 1.4, nothing is wrong.
+giving 35 to 40 neighbours.
 
 The density estimate is unchanged, and remains the ordinary kernel sum
 
@@ -99,6 +98,14 @@ Alongside the usual gradient of :math:`W`, each pair contributes a gradient of
 paper) that measure how the density and neighbour-number sums respond to a
 change in smoothing length.  The result is still derived from a Lagrangian, so
 energy and momentum conservation are retained.
+
+The price is smaller than that description suggests.  Standard SPH already
+sweeps each particle's neighbours to build :math:`\rho_i`, and already carries
+a :math:`\nabla h` correction of its own.  This formulation adds two more
+running totals to that same sweep, one for :math:`G` and one for its derivative
+with respect to :math:`h`, together with a second table lookup for each pair
+because those two are evaluated on a slightly different length than the density
+is.  There is no additional pass over pairs and no second neighbour search.
 
 Why it is worth it
 ------------------
@@ -128,7 +135,16 @@ global ``nnopt``, it solves a per-particle relation of the form
    h_i = d_i + \left(\frac{1}{a_i} + b_i\, N_i^{1/3}\right)^{-1},
 
 where :math:`a_i`, :math:`b_i` and :math:`d_i` are properties of the individual
-particle.  This gives direct control over the smoothing length of particular
-particles -- useful when compact objects are treated as point masses, which is
-what Blackollider is for.  For everything else, ``parallel_bleeding_edge`` and
-the neighbour-number constraint above are the ones to use.
+particle.  Because :math:`d_i` is added on, it acts as a floor: particle
+:math:`i` can never have a smoothing length below it, whatever the neighbour
+count does.
+
+That is what the code is for.  In ``parallel_bleeding_edge`` it can be hard to
+stop particles piling up around a massive compact object, and the very small
+smoothing lengths that follow bring numerical trouble with them.  A per-particle
+lower limit on :math:`h` is a convenient way to prevent that, and this relation
+provides one.
+
+For everything else, ``parallel_bleeding_edge`` and the neighbour-number
+constraint above are the ones to use.  They are what these pages document and
+what the tutorials are written against.

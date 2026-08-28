@@ -19,21 +19,25 @@ Check what the build will use::
 
 That prints the ``mpif90`` it found, the compiler behind it, the CUDA
 installation and where the executables will go.  If a line is wrong, override it
-on the command line rather than editing the Makefile -- see :doc:`installation`.
+on the command line rather than editing the Makefile.  See :doc:`installation`.
 
-Build the gravity library and then the code::
+Then build::
 
-   $ make -C SPHgrav_lib2
    $ make
 
-The last line should be::
+That compiles the gravity library as well, so it is the only build command you
+need.  The last line should be::
 
    ***MADE VERSION THAT USES GPUS***  ->  ../parallel_bleeding_edge_gpu_sph
 
-Without an NVIDIA card, use ``make cpu`` instead, which produces
-``..._cpu_sph``.  It is not as slow as it sounds; see :doc:`using/running`.
+The executable is named after the directory holding ``src``, and is copied one
+level up.
 
-Now relax a star.  Work in a copy so the pristine source stays clean::
+Without an NVIDIA card, use ``make cpu`` instead, which produces
+``..._cpu_sph``.  See :doc:`using/running` for more on the cpu version of the code.
+
+Now relax a star.  Work in a copy, so the pristine source stays clean.  The copy
+brings the executable with it::
 
    $ cd ../..
    $ cp -r parallel_bleeding_edge my_first_star
@@ -42,7 +46,7 @@ Now relax a star.  Work in a copy so the pristine source stays clean::
 
 Edit ``sph.input`` to something small, say ``n=10000`` and ``tf=30``, then run::
 
-   $ mpirun -np 4 ./my_first_star_gpu_sph
+   $ mpirun -np 4 ./parallel_bleeding_edge_gpu_sph
 
 You should see iterations counting up, and ``out0000.sph``, ``out0001.sph`` ...
 appearing.  When it finishes, check ``energy0.sph``: the total energy in column 5

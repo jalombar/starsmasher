@@ -143,6 +143,58 @@ def t_guard_ngravprocs(ctx):
     energies(e)
     return 'ngravprocs=-8 was clamped and the run completed'
 
+
+def t_startfiles(ctx):
+    """Bodies must be read from the names sph.input gives, not from fixed ones.
+
+    Several setup routines used to open hardcoded file names, which meant a
+    directory could only ever hold one calculation.  This relaxes a star, hands
+    the same snapshot to `tri` three times under names that are deliberately not
+    the defaults, and checks all three were read.  If a routine falls back to a
+    hardcoded name the run cannot start, because no such file exists here.
+    """
+    import glob
+    d = ctx.dir('startfiles')
+    s = dict(POLY); s['tf'] = 2; s['dtout'] = 1; s['n'] = 2000
+    p, e = run(ctx.exe, d, np=ctx.np, **s)
+    snaps = sorted(glob.glob(os.path.join(d, 'out*.sph')))
+    if not snaps:
+        raise Fail('the relaxation produced no snapshot to use as a start file\n'
+                   + p.stdout[-800:])
+    # A fresh directory for the second run.  The relaxation leaves a
+    # restartrad.sph behind, and the code picks that up automatically, so
+    # reusing the directory would silently resume the relaxation instead of
+    # running tri at all.
+    d2 = ctx.dir('startfiles_tri')
+    os.makedirs(d2, exist_ok=True)
+    for name in ('body_one.sph', 'body_two.sph', 'body_three.sph'):
+        shutil.copy(snaps[-1], os.path.join(d2, name))
+
+    # tri checks each mass against the start file to one part in 1e8, and all
+    # three bodies here are the same relaxed POLY star.
+    m = POLY['starmass'].replace('d0', '')
+    open(os.path.join(d2, 'three_bodies.txt'), 'w').write(
+        'triple:\n%s\n0.0 0.0 0.0\n0.0 0.0 0.0\n'
+        '%s\n20.0 0.0 0.0\n0.0 0.3 0.0\n'
+        '%s\n0.0 60.0 0.0\n-0.2 0.0 0.0\n' % (m, m, m))
+
+    p2, _ = run(ctx.exe, d2, np=ctx.np, init="'tri'",
+                tf=0.1, dtout=0.1, nrelax=0,
+                startfile1="'body_one.sph'",
+                startfile2="'body_two.sph'",
+                startfile3="'body_three.sph'",
+                triplefile="'three_bodies.txt'")
+    log = os.path.join(d2, 'log0.sph')
+    text = open(log).read() if os.path.exists(log) else p2.stdout
+    m = re.search(r'triple:\s*n=\s*(\d+)\s*ntot=\s*(\d+)', text)
+    if not m:
+        raise Fail('tri did not report a particle count; it probably could not '
+                   'open one of the start files\n' + text[-800:])
+    ntot = int(m.group(2))
+    if ntot % 3 != 0:
+        raise Fail('tri read %d particles, which is not three equal bodies' % ntot)
+    return 'tri read three bodies (%d particles) from non-default file names' % ntot
+
 TESTS = {
     'virial':           t_virial,
     'energy':           t_energy,
@@ -150,6 +202,7 @@ TESTS = {
     'ranks':            t_ranks,
     'cpu_gpu':          t_cpu_gpu,
     'guard_ngravprocs': t_guard_ngravprocs,
+    'startfiles':       t_startfiles,
 }
 
 # ------------------------------------------------------------------- main ---
@@ -172,7 +225,17 @@ def main():
     ap.add_argument('--cpu-exe', help='CPU executable for the cpu_gpu test')
     ap.add_argument('--with-cpu', action='store_true', help='also build the CPU version')
     ap.add_argument('--keep', action='store_true', help='keep the scratch directory')
+    ap.add_argument('--quick', action='store_true',
+                    help='use a smaller star, for continuous integration')
     a = ap.parse_args()
+
+    # The assertions are unchanged by --quick; only the particle count is.
+    # A 2000-particle polytrope reproduces the virial theorem to the same
+    # four figures as a 10000-particle one and takes about a fifteenth of
+    # the time, which is the difference between a usable CI job and one
+    # nobody waits for.
+    if a.quick:
+        POLY['n'] = 2000
 
     if a.list:
         for n, f in TESTS.items():
