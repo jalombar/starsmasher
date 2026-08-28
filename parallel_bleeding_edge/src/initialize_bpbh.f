@@ -38,7 +38,7 @@ c     used in subroutine dump)
       write(69,*)'n1=',n1
       amass1=n1
 
-      open(30,file='sph.bpbh')
+      open(30,file=bpbhfile)
       read(30,*) ph1,th1,ps1
       read(30,*) bhmass
       close(30)

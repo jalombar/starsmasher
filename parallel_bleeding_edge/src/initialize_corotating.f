@@ -24,10 +24,10 @@ c     calls gravquant,lfstart
       real*8 deltaxbin,deltaybin,deltazbin
       character*7 dummy
 
-      inquire(file='input.bs',exist=resetsep0)
+      inquire(file=binaryfile,exist=resetsep0)
       if(resetsep0)then
          write(69,*) 'will read file input.bs'
-         open(30,file='input.bs')
+         open(30,file=binaryfile)
          read(30,*) dummy
          if(dummy.ne.'binary:')then
             write(69,*) 'input.bs should have binary first'

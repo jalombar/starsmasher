@@ -7,7 +7,7 @@ c      parameter(imax=900,jmax=229)
       real*8 density(imax,jmaxmax)
 
       ip=0
-      open(12,file='sph.image')
+      open(12,file=imagefile)
       do j=1,jmaxmax
          read(12,'(900a1)',end=20)(line(i), i=1,imax)
          do i=1,imax

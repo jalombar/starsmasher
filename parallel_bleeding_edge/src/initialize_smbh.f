@@ -95,7 +95,7 @@ c            stop
       close(12)
       if (nchk.ne.n2) stop 'smbh: problem with file'
 
-      open(30,file='input.3s')
+      open(30,file=triplefile)
       read(30,*) dummy
       read(30,*) am3chk
       read(30,*) deltax3,deltay3,deltaz3

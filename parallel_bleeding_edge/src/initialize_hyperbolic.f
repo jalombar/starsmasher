@@ -273,7 +273,7 @@ c     place velocities at same time as everything else:
 
          if(passivelyAdvected) then
             if(myrank.eq.0) write(69,*)'Reading in aa and bb values...',ntot
-            open(99,file='sph.passivelyAdvected',status='old')
+            open(99,file=advectedfile,status='old')
             do i=1,ntot
                read(99,*) aa(i),bb(i),dd(i)
             enddo
@@ -285,7 +285,7 @@ c     There is only one start file, so the second object will be a single or
 c     binary compact object
          if(passivelyAdvected) then
             if(myrank.eq.0) write(69,*)'Reading in aa and bb values...',n1
-            open(99,file='sph.passivelyAdvected',status='old')
+            open(99,file=advectedfile,status='old')
             do i=1,n1
                read(99,*) aa(i),bb(i),dd(i)
             enddo
@@ -305,8 +305,10 @@ c     binary compact object
      $        'startfile2 ',
      $        trim(startfile2),
      $        ' does not exist: will use'
-         if(.false.) then
-c     Second object will be a single compact object
+         if(bbh_m2.le.0.d0) then
+c     Second object will be a single compact object of mass mbh.  A binary is
+c     asked for by giving bbh_m2 a positive mass in sph.input.  The default is
+c     negative, so reaching the binary branch means the user set it deliberately.
             if(myrank.eq.0) write (69,*)
      $           'compact object particle instead'
             
@@ -344,7 +346,21 @@ c     Second object will be a single compact object
             if(myrank.eq.0) write(69,*)'compact_object_smoothing_length',
      $           hp(i)
          else
-c     Second object will be a compact object binary such as a binary black hole
+c     Second object will be a compact object binary such as a binary black hole.
+c     bbh_m2 being positive is what selected this branch, so bbh_m1 must have
+c     been set too.  Stopping here is better than proceeding with a primary mass
+c     the user never chose.
+            if(bbh_m1.le.0.d0) then
+               if(myrank.eq.0) then
+                  write(69,*)'hyperbolic: bbh_m2 is set, so the second'
+                  write(69,*)'hyperbolic: object is a compact-object binary,'
+                  write(69,*)'hyperbolic: but bbh_m1 has not been given a'
+                  write(69,*)'hyperbolic: positive mass.  Set bbh_m1 in'
+                  write(69,*)'hyperbolic: sph.input, or leave bbh_m2 unset'
+                  write(69,*)'hyperbolic: for a single point mass of mass mbh.'
+               endif
+               stop
+            endif
             if(myrank.eq.0) write (69,*)
      $           'binary compact object instead'
             n2=2
