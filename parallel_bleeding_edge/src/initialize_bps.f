@@ -71,7 +71,7 @@ c break.  and that doesn't seem to be happening fortunately!
       write(69,*)'bps: reading in input.bs'
       corepts=0
 
-      open(30,file='input.bs')
+      open(30,file=binaryfile)
       read(30,*) dummy
       if(dummy.ne.'binary:')then
          write(69,*) 'input.bs should have binary first'

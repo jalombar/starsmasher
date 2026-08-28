@@ -62,9 +62,12 @@
       integer neos,nusegpus,nselfgravity,ncooling,nkernel
       real*8 gam,teq,tjumpahead
       character*255 startfile1,startfile2,eosfile,opacityfile,profilefile
+      character*255 startfile3,binaryfile,triplefile,bpbhfile
+      character*255 imagefile,advectedfile
       logical throwaway
       integer stellarevolutioncodetype	
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
+      common/inputfilenames2/startfile3,binaryfile,triplefile,bpbhfile,imagefile,advectedfile
       common/courantnumbers/ cn1,cn2,cn3,cn4,cn5,cn6,cn7
       common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling,nkernel
       parameter(kdm=5000)
