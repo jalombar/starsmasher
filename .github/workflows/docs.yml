@@ -1,17 +1,35 @@
-name: Build documentation
+name: Documentation
 
-# Builds the Sphinx documentation on every push and pull request so that a
-# broken page is caught immediately.  It does NOT publish anything: the
-# project page at jalombar.github.io/starsmasher is still served from the
-# gh-pages branch and is left untouched.  To publish from here later, add a
-# deploy step and switch the Pages source to GitHub Actions.
+# Builds the Sphinx documentation on every push and pull request so a broken
+# page is caught immediately, and publishes it from master to GitHub Pages.
+#
+# Publishing needs the repository's Pages source set to "GitHub Actions"
+# (Settings, Pages, Source).  While it is set to a branch instead, the deploy
+# job fails and the build job still does its work.
 
 on:
   push:
-    paths: ['docs/**', 'parallel_bleeding_edge/src/init.f', '.github/workflows/docs.yml']
+    paths:
+      - 'docs/**'
+      - 'parallel_bleeding_edge/src/init.f'
+      - '.github/workflows/docs.yml'
   pull_request:
-    paths: ['docs/**', 'parallel_bleeding_edge/src/init.f', '.github/workflows/docs.yml']
+    paths:
+      - 'docs/**'
+      - 'parallel_bleeding_edge/src/init.f'
+      - '.github/workflows/docs.yml'
   workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Let a running deploy finish rather than cancelling it part way, so the site
+# is never left half published.
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build:
@@ -26,20 +44,41 @@ jobs:
       - name: Install Sphinx
         run: pip install -r docs/requirements.txt
 
-      - name: Check the sph.input reference is up to date
+      # Both reference pages are generated from init.f.  If either is stale the
+      # site would document settings the code no longer has.
+      - name: Check the generated reference pages are up to date
         run: |
           python3 docs/generate_reference.py
-          if ! git diff --quiet -- docs/source/reference/sph_input.rst; then
-            echo "::error::docs/source/reference/sph_input.rst is out of date."
-            echo "init.f has changed; run 'python3 docs/generate_reference.py' and commit the result."
-            git diff -- docs/source/reference/sph_input.rst
+          stale=$(git diff --name-only -- docs/source/reference/)
+          if [ -n "$stale" ]; then
+            echo "::error::generated reference pages are out of date: $stale"
+            echo "init.f has changed. Run 'python3 docs/generate_reference.py' and commit the result."
+            git diff -- docs/source/reference/
             exit 1
           fi
 
       - name: Build, treating warnings as errors
         run: sphinx-build -W -b html docs/source docs/build
 
-      - uses: actions/upload-artifact@v4
+      # Pages served from an Actions artifact are not run through Jekyll, but
+      # the marker costs nothing and protects the _static directories if the
+      # source is ever switched back to a branch.
+      - name: Add .nojekyll
+        run: touch docs/build/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
         with:
-          name: documentation
           path: docs/build
+
+  deploy:
+    # Only master is published.  A pull request builds and is checked, but does
+    # not replace the live site.
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
