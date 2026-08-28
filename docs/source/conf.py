@@ -43,3 +43,10 @@ html_context = {
     'github_version': 'master',
     'conf_py_path': '/docs/source/',
 }
+
+# Do not publish the reStructuredText sources alongside the HTML.  Sphinx
+# otherwise copies every page into _sources/ as plain text, which would serve
+# any address or identifier on the site in a form no amount of rendering-time
+# obfuscation can protect.
+html_copy_source = False
+html_show_sourcelink = False

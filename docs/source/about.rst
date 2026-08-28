@@ -40,6 +40,28 @@ Licence
 Contact
 -------
 
-Questions and feedback are welcome at jamie.lombardi@allegheny.edu, or as an
-issue at `github.com/jalombar/starsmasher
-<https://github.com/jalombar/starsmasher>`_.
+Questions and feedback are welcome as an issue at `github.com/jalombar/starsmasher
+<https://github.com/jalombar/starsmasher>`_, which is the best place for
+anything others might benefit from seeing.
+
+.. raw:: html
+
+   <p>By email:
+     <span id="ss-contact">jamie&#46;lombardi <em>at</em> allegheny <em>dot</em> edu</span>
+   </p>
+   <script>
+   // Assembled at display time so the address is never present as a single
+   // string in the served HTML.  Without scripting the reader still sees a
+   // human-readable form above.
+   (function () {
+     var el = document.getElementById('ss-contact');
+     if (!el) { return; }
+     var at = String.fromCharCode(64), dot = String.fromCharCode(46);
+     var who = ['jamie', 'lombardi'].join(dot);
+     var where = ['allegheny', 'edu'].join(dot);
+     var a = document.createElement('a');
+     a.href = 'mai' + 'lto:' + who + at + where;
+     a.textContent = who + at + where;
+     el.parentNode.replaceChild(a, el);
+   })();
+   </script>

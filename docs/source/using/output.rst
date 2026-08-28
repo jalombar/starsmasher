@@ -294,6 +294,35 @@ The two are written in the same units, and their first five columns hold the
 same quantities in the same order, so a relaxation can be checked by plotting
 one over the other.  ``parent.sph`` stops after column 6.
 
+Everything in both files is in code units, with two exceptions: temperature is
+in kelvin and mean molecular weight is in grams.
+
+.. _code-units:
+
+.. admonition:: Code units
+
+   StarSmasher works in units where
+
+   .. math::
+
+      G = M_\mathrm{unit} = R_\mathrm{unit} = 1.
+
+   ``munit`` and ``runit`` in :doc:`../reference/sph_input` say what those two
+   are in grams and centimetres.  They default to the mass and radius of the
+   Sun, so unless you change them a density of 1 means one solar mass per cubic
+   solar radius, and a time of 1 is the interval light would need to cross a
+   solar radius if :math:`GM_\odot/R_\odot` were unity.  Every other unit
+   follows from those three.
+
+   A polytrope is the exception, and only when ``neos=0``.  The polytropic
+   equation of state is :math:`P = A\rho^\gamma`, which brings in no physical
+   constant, so nothing in the calculation refers to grams or centimetres at
+   all.  A polytrope of ``starmass=1`` and ``starradius=1`` is a star of one
+   mass unit and one radius unit, not one solar mass and one solar radius, and
+   you may read those units as whatever you like.  Setting ``neos=1`` or
+   ``neos=2`` brings physical constants back in, and the model becomes a star of
+   a definite size again.
+
 .. list-table::
    :header-rows: 1
    :widths: 12 44 44
@@ -318,7 +347,7 @@ one over the other.  ``parent.sph`` stops after column 6.
      - mean molecular weight
    * - 6
      - particle mass
-     - internal energy
+     - specific internal energy
    * - 7
      - smoothing length
      -

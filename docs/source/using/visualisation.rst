@@ -49,11 +49,8 @@ tells you whether to trust it.  See :doc:`output`.
 
 .. note::
 
-   A picture can look convincing while the model is poor.  A relaxation whose
-   surface density plot is perfectly steady can still be flinging individual
-   particles out past twice the stellar radius, because those particles carry
-   almost no mass.  Check the profiles and the energy trace as well as the
-   image.
+   A picture can look convincing while the model is poor.  Check the profiles
+   and the energy trace as well as the image.
 
 Other tools
 -----------

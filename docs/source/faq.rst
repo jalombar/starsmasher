@@ -23,8 +23,7 @@ might expect, because the GPU only takes over the gravity.  See
 
 **The run stops immediately with** ``init: error reading input file sph.init``.
 
-A run needs ``sph.init`` as well as ``sph.input``.  It is three lines. See
-:doc:`reference/sph_init`.
+A run needs ``sph.init``.  It is three lines.  See :doc:`reference/sph_init`.
 
 **The run stops with** ``Cannot match namelist object name``.
 

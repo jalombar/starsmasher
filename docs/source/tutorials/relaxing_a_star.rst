@@ -238,28 +238,6 @@ relax a giant and a dwarf at values suited to each, and then find they cannot
 be collided at all.  Decide the value you intend to collide at first, and relax
 every body at that value.  See :doc:`../using/input`.
 
-Do not carry ``gam`` between stars
------------------------------------
-
-``gam`` is easy to mistake for a switch that only matters when the equation of
-state is polytropic.  It is not.  Even with ``neos=1`` or ``neos=2`` it sets the
-sound speed used by the artificial viscosity, in ``balAV3.f``:
-
-.. math::
-
-   c_i^2 = \mathrm{gam}\,\frac{P_i}{\rho_i},
-
-written in the source as ``ci2 = gam*por2i*rho(i)``, since ``por2`` holds
-:math:`P/\rho^2`.  The sound speed then sets the timestep.  So ``gam`` should reflect the star's
-actual adiabatic index, not be inherited from whatever file you copied.
-
-The value to use is a pressure-weighted :math:`\Gamma_1` for the star in
-question.  A partially ionised giant envelope and a fully convective low-mass
-star are different: values near 1.56 and 1.667 respectively are representative.
-Copying one star's ``sph.input`` to another and leaving ``gam`` alone can be a
-several per cent error in the sound speed, and it will not announce itself.
-The run proceeds, with a slightly wrong timestep and slightly wrong viscosity.
-
 Cores and compact objects
 -------------------------
 

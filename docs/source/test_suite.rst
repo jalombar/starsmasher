@@ -29,6 +29,9 @@ something changed.  These tell you whether the answer is right.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
+   * - ``startfiles``
+     - Bodies are read from the file names given in ``sph.input``, not from
+       names compiled into the code.
 
 Options::
 
@@ -37,32 +40,10 @@ Options::
    python3 tests/run_tests.py --np 2            # fewer ranks
    python3 tests/run_tests.py --exe /path/to/..._sph   # skip the build
    python3 tests/run_tests.py --with-cpu        # also build the CPU version
+   python3 tests/run_tests.py --quick           # smaller star, same assertions
 
 Each build happens in a copy of the source under the suite's own scratch
 directory, so a test run leaves the repository untouched.
-
-Why these tests
----------------
-
-The last three exist because each corresponds to a real defect.
-
-Results once depended on the number of MPI ranks: the CPU gravity kernel
-accumulates into particles a rank does not own, and several code paths combined
-that with a gather over each rank's own slice, which silently discarded the rest.
-The gravitational potential of a stellar model came out 30 per cent wrong on four
-ranks and correct on one.
-
-The CPU and GPU builds once disagreed for the same reason, since only the CPU
-path was affected.
-
-Asking for more gravity processes than there were GPUs produced a segmentation
-fault inside the CUDA library, with a stack trace that gave no indication the
-cause was a setting in ``sph.input``.
-
-None of these would have been caught by comparing against saved output, because
-there was no known-good output to compare against.  All three are caught by
-asking whether the answer is physically right, and whether it is the same answer
-under configurations that ought not to matter.
 
 Adding a test
 -------------

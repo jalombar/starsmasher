@@ -38,6 +38,11 @@ jobs:
       #
       # cpu_gpu needs a GPU, and guard_ngravprocs is about how GPUs are counted,
       # so neither can say anything useful here.
+      # A table that claims to list the tests is worth no more than its
+      # accuracy, and it drifted the last time a test was added.
+      - name: Check the documented test list matches the suite
+        run: python3 tests/check_docs_match.py
+
       - name: Run the suite
         run: |
           python3 tests/run_tests.py --quick --np 2 \

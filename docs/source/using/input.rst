@@ -36,6 +36,10 @@ A setting you do not name keeps its default, and a setting the chosen
 initialization script does not read is ignored without complaint.
 :doc:`../reference/sph_input` lists all of them with their defaults.
 
+Numbers in ``sph.input`` are in code units unless a setting says otherwise.
+``munit`` and ``runit`` fix what those are, and default to the mass and radius
+of the Sun.  See :ref:`code units <code-units>`.
+
 Depending on what you are setting up
 ------------------------------------
 
