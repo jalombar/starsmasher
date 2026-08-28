@@ -5,8 +5,7 @@
  starmass=0.2, ! The desired mass of your preMS star!
  starradius=0.2, ! The desired radius of your preMS star!
  nrelax=1, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
- treloff=0, ! time to end a relaxation and switch to a dynamical calculation
- ngravprocs=-2, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+ trelax=0, ! 0 asks for the drag schedule to be derived from the model, which also sets treloff
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like forge
  ppn=16, ! set this to the number of cpu cores per node
  &end
