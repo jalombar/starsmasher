@@ -1,10 +1,12 @@
  &input
- tf=200, ! desired final time to stop simulation; use negative values if want to have code potentially change tf and/or skipahead
+ tf=200, ! desired final time to stop simulation
  dtout=1, ! how often an out*.sph files should be dumped
  nrelax=2, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
- sep0=5, ! initial separation of two stars in a binary or collision calculation
- e0=1.25d0, ! You don't need this, but you have to leave it there in way that your simulation is able to start
+ trelax=0, ! 0 asks for the drag schedule to be derived from the model.  For a binary it is derived from star 1 alone, and treloff is left to you
+ treloff=80, ! time the drag switches off and the run turns dynamical.  About ten drag times here, matching what a single star gets
+ sep0=8, ! initial separation of two stars in a binary or collision calculation, and the separation a scan starts from and holds until tscanon
+ sepfinal=8, ! equal to sep0, which is how a corotating run is asked not to scan
  ngravprocs=-1, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
- ppn=4, ! set this to the number of cpu cores per node
+ ppn=16, ! set this to the number of cpu cores per node
  &end
