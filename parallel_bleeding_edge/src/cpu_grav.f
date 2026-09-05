@@ -382,9 +382,17 @@ c     nkernel=2 is the Wendland C4 kernel
 
       subroutine set_nusegpus
       implicit none
-      integer nintvar,neos,nusegpus,nselfgravity,ncooling
-      common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling
+      integer nintvar,neos,nusegpus,nselfgravity,ncooling,nkernel
+      common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling,
+     $     nkernel
       nusegpus=0
+      return
+      end
+
+      subroutine get_gpu_count(actual_gpu_count,myrank_in)
+      implicit none
+      integer actual_gpu_count,myrank_in
+      actual_gpu_count=0
       return
       end
 

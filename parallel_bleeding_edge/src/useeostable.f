@@ -1,16 +1,11 @@
       subroutine readineostable
+      use eos_table_data
       include 'starsmasher.h'
-      integer numrho,numu,numx,iu,irho,ix
-      integer maxtablesize
-      parameter(maxtablesize=1000)
-      real*8 rhotable(maxtablesize),
-     $     utable(maxtablesize)
-      real*8 eostable(maxtablesize,maxtablesize,maxnumx,3)
-      real*8 steprho,stepu,stepx,rhotable1,utable1,xtable1,
-     $     rhotablelast,utablelast,xtablelast
-      real*8 xxx,yyy,zzz,eosmu
-      common/eoscom/ zzz,rhotable1,utable1,xtable1,
-     $     steprho,stepu,stepx,eostable,numrho,numu,numx
+      integer iu,irho,ix
+      integer numrhothis,numuthis
+      real*8, allocatable :: rhotable(:), utable(:)
+      real*8 rhotablelast,utablelast,xtablelast
+      real*8 xxx,yyy,eosmu
       integer i
       real*8 steprhotest,steputest
 
@@ -21,10 +16,6 @@
      $     write(69,*)'There are',numx,
      $     'hydrogen abundances, ranging from',xtable1,'to',
      $     xtablelast,'in steps of',stepx
-      if(numx.gt.maxnumx) then
-         write(69,*) 'Increase maxnumx to accomodate EOS file data'
-         stop
-      endif
       goto 102
  98   if(myrank.eq.0)
      $     write(69,*)'EOS file is for a single composition'
@@ -52,8 +43,18 @@ c     write(69,*)'reading ',trim(eosfile)
          do i=1,2
             read(43,*)
          enddo
-         read(43,*) numrho,rhotable1,rhotablelast,steprho
-         read(43,*) numu,utable1,utablelast,stepu
+         read(43,*) numrhothis,rhotable1,rhotablelast,steprho
+         read(43,*) numuthis,utable1,utablelast,stepu
+         if(ix.eq.1) then
+            numrho=numrhothis
+            numu=numuthis
+            if(allocated(eostable)) deallocate(eostable)
+            allocate(rhotable(numrho),utable(numu))
+            allocate(eostable(numu,numrho,numx,3))
+         else if(numrhothis.ne.numrho .or. numuthis.ne.numu) then
+            write(69,*) 'EOS table dimensions changed within file'
+            stop
+         endif
          do i=1,2
             read(43,*)
          enddo
@@ -113,21 +114,13 @@ c     write(69,*)'reading ',trim(eosfile)
 c     which=1 gives temperature
 c     which=2 gives mean molecular mass mu
 c     which=3 gives pressure
+      use eos_table_data
       include 'starsmasher.h'
       real*8 pgas,prad
       real*8 rhocgs,ucgs,beta1,temperature,gam1
       real*8 useeostable
       integer iu,irho,ix
-      integer numrho,numu,numx
-      real*8 utable1,rhotable1,xtable1
-      integer maxtablesize
-      parameter(maxtablesize=1000)
-      real*8 eostable(maxtablesize,maxtablesize,maxnumx,3)
-
-      real*8 steprho,stepu,stepx
-      real*8 xxx,zzz,particlemu,meanmu
-      common/eoscom/ zzz,rhotable1,utable1,xtable1,
-     $     steprho,stepu,stepx,eostable,numrho,numu,numx
+      real*8 xxx,particlemu,meanmu
 
       real*8 f00,f01,f10,f11,log10rho,log10u,
      $     rholow,rhohigh,ulow,uhigh,xlow,xhigh
@@ -146,13 +139,19 @@ c      irho = min(max(1,int((log10rho-rhotable1)/steprho +1)),numrho-1)
 
 c     use particlemu and zzz to get hydrogen abundance xxx:
       xxx=(1.67262158d-24/particlemu+0.25d0*zzz-0.75d0)/1.25d0
-      ix = min(int((xxx-xtable1)/stepx +1),maxnumx-1)
+      if(numx.gt.1) then
+         ix = min(max(1,int((xxx-xtable1)/stepx +1)),numx-1)
+         xlow=xxx-(xtable1+(ix-1)*stepx)
+         xhigh=xtable1+ix*stepx-xxx
+      else
+         ix = 1
+         xlow = 0.d0
+         xhigh = 0.d0
+      endif
 
 c     Note: xlow+xhigh = stepx
 c           if xlow=0 then want to ignore the larger xxx value
 c           if xhigh=0 then want to ignore the smaller xxx value
-      xlow=xxx-(xtable1+(ix-1)*stepx)
-      xhigh=xtable1+ix*stepx-xxx
 
 c      if(myrank.eq.0 .and. ix.ne.1) then
 c         write(69,*) 'Particle with mu=',particlemu,'has X=',xxx,

@@ -10,6 +10,11 @@
 #     make CUDAPATH=/opt/cuda OLEVEL=-O2
 #     make cpu            # build without GPU support
 
+UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+APPLE_SILICON := $(filter Darwin-arm64,$(UNAME_S)-$(UNAME_M))
+.DEFAULT_GOAL := gpu
+
 # ---------------------------------------------------------------- MPI --------
 # mpif90 is used as both compiler and linker, so it supplies its own include
 # paths and MPI libraries. Do not add -lmpi_mpifh or similar by hand: the right
@@ -31,7 +36,7 @@ ifeq ($(MPI_VENDOR),GNU)
   # (the MPI calls in this code pass different types to the same argument) but
   # does not exist before it, so probe rather than assume.
   ALLOW_MISMATCH := $(shell echo "PROGRAM T; END PROGRAM T" | \
-      $(MPIF90) -fallow-argument-mismatch -x f95 -o /dev/null - 2>/dev/null \
+      $(MPIF90) -fallow-argument-mismatch -x f95 -c -o /dev/null - 2>/dev/null \
       && echo -fallow-argument-mismatch)
   FORM_FLAGS = -ffixed-line-length-132 $(ALLOW_MISMATCH)
 else
@@ -39,7 +44,18 @@ else
   FORM_FLAGS = -132
 endif
 
-FC = $(MPIF90) $(FORM_FLAGS)
+ifeq ($(UNAME_S),Darwin)
+  SDKROOT ?= $(shell xcrun --show-sdk-path 2>/dev/null)
+  MACOSX_DEPLOYMENT_TARGET ?= $(shell sw_vers -productVersion | awk -F. '{print $$1"."$$2}')
+  BUILD_ENV = SDKROOT=$(SDKROOT) MACOSX_DEPLOYMENT_TARGET=$(MACOSX_DEPLOYMENT_TARGET)
+  FC = env $(BUILD_ENV) $(MPIF90) $(FORM_FLAGS)
+  LINK = env $(BUILD_ENV) $(LD)
+  PLATFORM_FFLAGS = -frecursive
+else
+  FC = $(MPIF90) $(FORM_FLAGS)
+  LINK = $(LD)
+  PLATFORM_FFLAGS =
+endif
 
 # --------------------------------------------------------------- CUDA --------
 # Derive the CUDA root from nvcc's location rather than naming a version.
@@ -54,6 +70,19 @@ ifneq ($(CUDAPATH),)
   CUDA_LIBDIR := $(firstword $(wildcard $(CUDAPATH)/lib64 \
                                         $(CUDAPATH)/targets/*/lib \
                                         $(CUDAPATH)/lib))
+endif
+
+# Apple Silicon uses Metal; other systems use CUDA when nvcc is available.
+# GPU_BACKEND remains overridable for cross-builds and diagnostics.
+GPU_BACKEND ?= auto
+ifeq ($(GPU_BACKEND),auto)
+  ifneq ($(APPLE_SILICON),)
+    GPU_BACKEND := metal
+  else ifneq ($(NVCC_PATH),)
+    GPU_BACKEND := cuda
+  else
+    GPU_BACKEND := none
+  endif
 endif
 
 # ------------------------------------------------------------- code model ----
@@ -73,15 +102,45 @@ endif
 
 # ------------------------------------------------------------------ flags ----
 OLEVEL   ?= -O4
-FFLAGS    = $(OLEVEL) $(MCMODEL)
+FFLAGS    = $(OLEVEL) $(MCMODEL) $(PLATFORM_FFLAGS)
 CFLAGS    = $(OLEVEL)
 CXXFLAGS  = $(OLEVEL)
 
-GRAVLIB = SPHgrav_lib2
-LIBS    = -lm -lstdc++
+LIBS = -lm
+
+ifeq ($(GPU_BACKEND),metal)
+  GRAVLIB = SPHgrav_lib_metal
+  GPU_GRAV_OBJ = gpu_grav_metal.o
+  GPU_LIBS = -L$(GRAVLIB) -lSPHgrav -framework Foundation -framework Metal -lobjc -lc++
+else ifeq ($(GPU_BACKEND),cuda)
+  GRAVLIB = SPHgrav_lib2
+  GPU_GRAV_OBJ = gpu_grav.o
+  GPU_LIBS = -lstdc++ -L$(GRAVLIB) -lSPHgrav -L$(CUDA_LIBDIR) -lcudart
+else ifeq ($(GPU_BACKEND),none)
+  GRAVLIB =
+  GPU_GRAV_OBJ =
+  GPU_LIBS =
+else
+  $(error Unknown GPU_BACKEND '$(GPU_BACKEND)'; use auto, metal, cuda, or none)
+endif
+
+LIMITS_FILE = starsmasher_limits.generated.h
+ifneq ($(APPLE_SILICON),)
+  DEFAULT_NMAX = 105000
+  DEFAULT_NNMAX = 96
+  DEFAULT_NTAB = 200000
+else
+  DEFAULT_NMAX = 900000
+  DEFAULT_NNMAX = 170
+  DEFAULT_NTAB = 10000000
+endif
+
+NMAX ?= $(DEFAULT_NMAX)
+NNMAX ?= $(DEFAULT_NNMAX)
+NTAB ?= $(DEFAULT_NTAB)
 
 # ---------------------------------------------------------------- objects ----
-FOBJS = kdtree2.o advance.o balAV3.o                             \
+FOBJS = eos_table_data.o kdtree2.o advance.o balAV3.o            \
         getderivs.o getTemperature.o                             \
         initialize_hyperbolic.o init.o kernels.o                 \
         main.o output.o pressure.o                               \
@@ -98,33 +157,53 @@ FOBJS = kdtree2.o advance.o balAV3.o                             \
         initialize_asciiimage.o
 
 CPUOBJS = $(FOBJS) cpu_grav.o
-GPUOBJS = $(FOBJS) gpu_grav.o
+GPUOBJS = $(FOBJS) $(GPU_GRAV_OBJ)
 
 # The executable is named after the directory holding src, so that a build in
 # my_run/src produces my_run_gpu_sph, and is placed one level above src.
 GPUEXEC = $(shell basename $(shell dirname $(shell pwd)))_gpu_sph
 CPUEXEC = $(shell basename $(shell dirname $(shell pwd)))_cpu_sph
 
-%.o: %.f starsmasher.h
+FORCE:
+
+$(LIMITS_FILE): Makefile FORCE
+	@tmp="$@.tmp"; \
+	{ \
+	  echo "      integer nmax,nnmax"; \
+	  echo "      parameter(nmax=$(NMAX),nnmax=$(NNMAX))"; \
+	  echo "      integer ntab"; \
+	  echo "      parameter(ntab=$(NTAB))"; \
+	} > "$$tmp"; \
+	if test -f "$@" && cmp -s "$$tmp" "$@"; then /bin/rm -f "$$tmp"; else mv "$$tmp" "$@"; fi
+
+%.o: %.f starsmasher.h $(LIMITS_FILE)
 	$(FC) -c $(FFLAGS) $<
 
-%.o :: %.f90 starsmasher.h
+%.o :: %.f90 starsmasher.h $(LIMITS_FILE)
 	$(FC) -c $(FFLAGS) $<
+
+initialize_parent.o initialize_polyes.o useeostable.o: eos_table_data.o
 
 # ----------------------------------------------------------------- targets ---
-gpu: check-cuda $(GPUOBJS)
-	$(MAKE) -C $(GRAVLIB) CUDAPATH=$(CUDAPATH)
-	$(LD) -o $(GPUEXEC) $(LDFLAGS) $(GPUOBJS) $(LIBS) \
-		-L$(GRAVLIB) -lSPHgrav -L$(CUDA_LIBDIR) -lcudart
+gpu: check-gpu-backend $(GPUOBJS)
+	$(MAKE) -C $(GRAVLIB) CUDAPATH=$(CUDAPATH) OLEVEL=$(OLEVEL)
+	$(LINK) -o $(GPUEXEC) $(LDFLAGS) $(GPUOBJS) $(LIBS) $(GPU_LIBS)
 	cp -p $(GPUEXEC) ..
 	@echo "***MADE VERSION THAT USES GPUS***  ->  ../$(GPUEXEC)"
 
 cpu: $(CPUOBJS)
-	$(LD) -o $(CPUEXEC) $(LDFLAGS) $(CPUOBJS) $(LIBS)
+	$(LINK) -o $(CPUEXEC) $(LDFLAGS) $(CPUOBJS) $(LIBS)
 	cp -p $(CPUEXEC) ..
 	@echo "***MADE VERSION THAT DOES NOT NEED GPUS***  ->  ../$(CPUEXEC)"
 
-check-cuda:
+check-gpu-backend:
+ifeq ($(GPU_BACKEND),none)
+	@echo "ERROR: no GPU backend is available."; \
+	echo "  - Apple Silicon uses Metal automatically."; \
+	echo "  - Linux/NVIDIA systems require nvcc in PATH."; \
+	echo "  - A CPU-only executable can be built with: make cpu"; \
+	exit 1
+else ifeq ($(GPU_BACKEND),cuda)
 ifeq ($(NVCC_PATH),)
 	@echo "ERROR: nvcc not found in PATH, so the GPU version cannot be built."; \
 	echo "  - If CUDA is installed, add its bin directory to PATH, or pass"; \
@@ -139,25 +218,37 @@ else ifeq ($(CUDA_LIBDIR),)
 else
 	@:
 endif
+else
+	@:
+endif
 
 config:
+	@echo "Platform"
+	@echo "  OS               $(UNAME_S)"
+	@echo "  architecture     $(UNAME_M)"
+	@echo "  GPU backend      $(GPU_BACKEND)"
 	@echo "MPI"
 	@echo "  mpif90          $(MPIF90_PATH)"
 	@echo "  wrapping        $(MPI_VENDOR)"
 	@echo "  fixed-form flag $(FORM_FLAGS)"
-	@echo "CUDA"
+	@echo "CUDA (used only when GPU backend is cuda)"
 	@echo "  nvcc            $(if $(NVCC_PATH),$(NVCC_PATH),NOT FOUND - only 'make cpu' will work)"
 	@echo "  CUDAPATH        $(CUDAPATH)"
 	@echo "  runtime libdir  $(CUDA_LIBDIR)"
 	@echo "Compilation"
 	@echo "  FFLAGS          $(FFLAGS)"
 	@echo "  code model      $(if $(MCMODEL),$(MCMODEL),default (small))"
+	@echo "  nmax            $(NMAX)"
+	@echo "  nnmax           $(NNMAX)"
+	@echo "  ntab            $(NTAB)"
 	@echo "Output"
 	@echo "  GPU executable  ../$(GPUEXEC)"
 	@echo "  CPU executable  ../$(CPUEXEC)"
 
 clean:
-	/bin/rm -rf *.o *__*.f90 *.mod $(GPUEXEC) $(CPUEXEC) ../$(GPUEXEC) ../$(CPUEXEC)
-	$(MAKE) clean -C $(GRAVLIB)
+	/bin/rm -rf *.o *__*.f90 *.mod $(LIMITS_FILE) $(GPUEXEC) $(CPUEXEC) ../$(GPUEXEC) ../$(CPUEXEC)
+	@if test -n "$(GRAVLIB)" && test -d "$(GRAVLIB)"; then \
+	  $(MAKE) --no-print-directory clean -C "$(GRAVLIB)"; \
+	fi
 
-.PHONY: gpu cpu clean config check-cuda
+.PHONY: gpu cpu clean config check-gpu-backend FORCE

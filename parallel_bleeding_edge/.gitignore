@@ -16,6 +16,7 @@
 *.bak
 *~
 *.tmp
+src/starsmasher_limits.generated.h
 *.tui
 *.tuo
 *.mpo

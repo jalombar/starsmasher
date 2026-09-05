@@ -1,5 +1,6 @@
       subroutine parent
 c     creates a star from the data file yrec output
+      use eos_table_data
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 grpottot(nmax)
@@ -15,13 +16,6 @@ c     creates a star from the data file yrec output
      $     muarray(kdm),muarray2(kdm)
       real*8 zarray(kdm)
       common/zprofilecom/ zarray
-      integer maxtablesize
-      parameter(maxtablesize=1000)
-      integer numrho,numu,numx
-      real*8 eostable(maxtablesize,maxtablesize,maxnumx,3)
-      real*8 zzz,steprho,stepu,stepx,rhotable1,utable1,xtable1
-      common/eoscom/ zzz,rhotable1,utable1,xtable1,
-     $     steprho,stepu,stepx,eostable,numrho,numu,numx
       integer jlo,jhi,jm,jnear
       real*8 zfracdiff
       real*8 egsol
@@ -747,6 +741,7 @@ c      endif
       end
       subroutine splinesetup
 c     Read in a stellar evolution code file
+      use eos_table_data
       include 'starsmasher.h'
       integer numlines,i,j
       real*8 amass,radiuscgs,masscgs,radius
@@ -759,13 +754,6 @@ c     Read in a stellar evolution code file
      $     muarray(kdm),muarray2(kdm)
       real*8 zarray(kdm)
       common/zprofilecom/ zarray
-      integer maxtablesize2
-      parameter(maxtablesize2=1000)
-      integer numrho,numu,numx
-      real*8 eostable(maxtablesize2,maxtablesize2,maxnumx,3)
-      real*8 zzz,steprho,stepu,stepx,rhotable1,utable1,xtable1
-      common/eoscom/ zzz,rhotable1,utable1,xtable1,
-     $     steprho,stepu,stepx,eostable,numrho,numu,numx
       integer nzskip
       logical zok
       real*8 xback,xlast
