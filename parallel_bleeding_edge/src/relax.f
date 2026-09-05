@@ -44,6 +44,27 @@ c     period lengthens sharply and 4 t_dyn will underestimate it.  If that is
 c     suspected, measure the period directly: relax briefly with trelax=1.d30 and
 c     take the dominant frequency of the kinetic energy, which oscillates at twice
 c     the mode frequency.
+c
+c     The derivation below takes the distance from the origin to the farthest
+c     particle, together with the mass of everything in the box.  For a single
+c     star centred on the origin that distance is the stellar radius.  A binary
+c     is centred on the centre of mass of the pair, so the farthest particle is
+c     on the far side of the more distant component rather than on the outside
+c     of either star, and the distance is essentially the separation.  The
+c     dynamical time that comes back belongs to the orbit, not to either star.
+c     A corotating run settles trelax in initialize_corotating when it is set
+c     up and in init when it is resumed, so arriving here with trelax=0 and
+c     nrelax>=2 means neither of those applied.  Stop, rather than carry on
+c     with a number derived from the wrong object.
+      if(trelax.eq.0.d0 .and. nrelax.ge.2) then
+         if(myrank.eq.0) then
+            write(69,*)'relax: trelax=0 cannot be derived for nrelax>=2,'
+            write(69,*)'relax: because the star is not alone in the box.'
+            write(69,*)'relax: set trelax explicitly in sph.input.'
+         endif
+         stop 'relax: trelax=0 needs nrelax<2'
+      endif
+
       if(trelax.eq.0.d0 .and. .not.autodone) then
          amtotauto=0.d0
          r2maxauto=0.d0
@@ -55,6 +76,12 @@ c     the mode frequency.
          trelax0auto=4.d0*tdynauto
          treloff=10.d0*trelax0auto
          autodone=.true.
+c     Adopt the derived value rather than leaving trelax at zero and carrying
+c     the answer separately.  dump writes trelax into every snapshot header, so
+c     a run that left it at zero recorded a zero there and told anyone reading
+c     the file later that no drag timescale had been chosen, when one had.  A
+c     corotating binary built from such a snapshot is the case that noticed.
+         trelax=trelax0auto
          if(myrank.eq.0) then
             write(69,*)'relax: trelax=0, so the drag schedule is derived:'
             write(69,*)'relax:   radius  =',sqrt(r2maxauto)

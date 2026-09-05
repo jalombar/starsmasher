@@ -22,6 +22,7 @@ c     calls gravquant,lfstart
       real*8 egsol,solrad
       parameter(egsol=1.9884098706980504d33,solrad=6.957d10)
       real*8 deltaxbin,deltaybin,deltazbin
+      real*8 r2max1,tdyn1
       character*7 dummy
 
       inquire(file=binaryfile,exist=resetsep0)
@@ -138,6 +139,58 @@ c     used in subroutine dump)
       if (nchk.ne.n1) stop 'corotating: problem with file sph.start1u'
 
       if(myrank.eq.0) write(69,*)'n1=',n1
+
+c     trelax=0 asks for the drag timescale to be taken from the model rather
+c     than set by hand.  The derivation in relax.f cannot serve a binary: it
+c     uses the outermost particle of the whole system and the total mass, so
+c     for two bodies the radius it finds is roughly the separation and the
+c     timescale it returns is the orbital one, not the star's.  Settle it here
+c     instead, from star 1 alone, while that star's particles are still centred
+c     on the origin and before star 2 has overwritten trelaxold.  Setting
+c     trelax to a nonzero value here also keeps relax.f's block from firing.
+c
+c     First choice is the value the relaxation itself used, which travels in
+c     the sph.start1u header.  Note that a relaxation followed past treloff
+c     switched its own drag off and recorded trelax=1.d30, so the last dump of
+c     a properly released model carries a sentinel rather than a timescale.
+c     That is the usual case, not the exception, and it falls through to the
+c     derivation below, which measures star 1's own radius: the loop runs over
+c     that star's particles only, and runs here rather than later because the
+c     stars have not yet been moved out to sep0, so the radius it finds is the
+c     stellar one and does not depend on the separation.
+c
+c     treloff is deliberately left alone.  relax.f ties treloff to trelax when
+c     it derives a schedule, but for a corotating binary treloff also fixes
+c     tscanoff and so sets how long a scan lasts; deriving it here would let
+c     the star silently redefine the scan.
+      if(trelax.eq.0.d0) then
+         if(trelaxold.gt.0.d0 .and. trelaxold.lt.1.d29) then
+            trelax=trelaxold
+            if(myrank.eq.0) then
+               write(69,*)'corotating: trelax=0, so reusing the drag'
+               write(69,*)'corotating:   timescale recorded in ',startfile1
+               write(69,*)'corotating:   trelax =',trelax
+            endif
+         else
+            r2max1=0.d0
+            do i=1,n1
+               r2max1=max(r2max1,x(i)**2+y(i)**2+z(i)**2)
+            enddo
+            tdyn1=sqrt(sqrt(r2max1)**3/am1)
+            trelax=4.d0*tdyn1
+            if(myrank.eq.0) then
+               write(69,*)'corotating: trelax=0, and ',startfile1
+               write(69,*)'corotating:   records no usable value, so the'
+               write(69,*)'corotating:   schedule is derived from star 1:'
+               write(69,*)'corotating:   radius =',sqrt(r2max1)
+               write(69,*)'corotating:   mass   =',am1
+               write(69,*)'corotating:   t_dyn  =',tdyn1
+               write(69,*)'corotating:   trelax =',trelax
+            endif
+         endif
+         if(myrank.eq.0) write(69,*)
+     $        'corotating: treloff left as set:',treloff
+      endif
 
       inquire(file=startfile2,exist=twofiles)
       if(twofiles) then

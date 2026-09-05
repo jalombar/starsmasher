@@ -291,6 +291,21 @@ ccccccccccccccc               treloff=dble(nint(t))
                if(myrank.eq.0) write(69,*) 'sep0 & sepfinal set to',sep0
             endif
 
+c     trelax=0 asks for the drag timescale to come from the model.  It cannot
+c     be derived here the way it is for a single star, because the star is no
+c     longer alone in the box and the derivation in relax.f would measure the
+c     pair.  The value settled when the run was set up travels in the dump
+c     header, so take it from there.  A run already released into a dynamical
+c     calculation recorded 1.d30, which is the right answer for it as well.
+            if(trelax.eq.0.d0) then
+               trelax=trelaxold
+               if(myrank.eq.0) then
+                  write(69,*) 'init: trelax=0 on a resumed binary, so the'
+                  write(69,*) 'init: value in the dump is reused: trelax=',
+     $                 trelax
+               endif
+            endif
+
             hfloor=hfloorold
             if(myrank.eq.0) write(69,*) 'set hfloor=hfloorold=',hfloor
 
@@ -602,14 +617,14 @@ c     set some default values, so that they don't necessarily have to be set in 
       mco=-1d30                ! mass of compact object or core particle
       hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
-      trelax=1.d30             ! drag timescale.  0 derives both it and treloff from the model, a very large value disables the drag
-      sep0=200                 ! initial separation of two stars in a binary or collision calculation
+      trelax=1.d30             ! drag timescale.  0 derives it from the model, and for a single star sets treloff with it, a very large value disables the drag
+      sep0=200                 ! initial separation of two stars in a binary or collision calculation, and the separation a scan starts from and holds until tscanon
       equalmass=0              ! particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
-      treloff=0                ! time the drag switches off and the run turns dynamical.  Overwritten when trelax=0
+      treloff=0                ! time the drag switches off and the run turns dynamical.  It ends a scan as well, since a scan runs until min(tf,treloff).  Overwritten when trelax=0 for a single star
       tresplintmuoff=0.        ! time to stop resplinting the mean molecular weight.  leave this at 0.
       nitpot=1                 ! number of iterations between evaluation of the gravitational potential energy.
-      tscanon=0                ! time that the scan of a binary starts
-      sepfinal=1.d30           ! final separation for the scan of a binary
+      tscanon=0                ! time that the scan of a binary starts.  The separation is held at sep0 until then, which gives the stars time to settle into the shape the corotating frame asks for
+      sepfinal=1.d30           ! final separation for the scan of a binary, reached at min(tf,treloff).  The scan is exponential in separation, so it changes by a fixed fraction per unit time.  Set it equal to sep0 for a corotating run that does not scan
       nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u
       ngravprocs=0             ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
       qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.

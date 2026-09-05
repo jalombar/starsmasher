@@ -51,11 +51,11 @@ Time and output
    * - ``tscanon``
      - ``0``
      - every run
-     - time that the scan of a binary starts
+     - time that the scan of a binary starts.  The separation is held at sep0 until then, which gives the stars time to settle into the shape the corotating frame asks for
    * - ``sepfinal``
      - ``1.d30``
      - every run
-     - final separation for the scan of a binary
+     - final separation for the scan of a binary, reached at min(tf,treloff).  The scan is exponential in separation, so it changes by a fixed fraction per unit time.  Set it equal to sep0 for a corotating run that does not scan
    * - ``throwaway``
      - ``.false.``
      - every run
@@ -185,11 +185,11 @@ Relaxation
    * - ``trelax``
      - ``1.d30``
      - every run
-     - drag timescale.  0 derives both it and treloff from the model, a very large value disables the drag
+     - drag timescale.  0 derives it from the model, and for a single star sets treloff with it, a very large value disables the drag
    * - ``treloff``
      - ``0``
      - every run
-     - time the drag switches off and the run turns dynamical.  Overwritten when trelax=0
+     - time the drag switches off and the run turns dynamical.  It ends a scan as well, since a scan runs until min(tf,treloff).  Overwritten when trelax=0 for a single star
    * - ``tresplintmuoff``
      - ``0.``
      - every run
@@ -215,7 +215,7 @@ Orbit of the encounter
    * - ``sep0``
      - ``200``
      - every run
-     - initial separation of two stars in a binary or collision calculation
+     - initial separation of two stars in a binary or collision calculation, and the separation a scan starts from and holds until tscanon
    * - ``rp``
      - ``-1.d30``
      - every run
