@@ -562,9 +562,7 @@ c      end
      $     bbh_longitude,rp
       
       character*9 slurm_gpu_count_str
-      integer slurm_gpu_count, actual_gpu_count,ios
-      character*20 gpucfilename
-      character*50 command
+      integer slurm_gpu_count,actual_gpu_count
 
       ndisplace=0
       displacex=0d0
@@ -664,26 +662,7 @@ c     set some default values, so that they don't necessarily have to be set in 
 c      call system('env')
 
       if(nusegpus.gt.0) then
-         write(gpucfilename, '(A,I2.2)') 'temp_gpu_count_', myrank
-         command = 'nvidia-smi -L | wc -l > ' // trim(gpucfilename)
-c         call execute_command_line(trim(command))
-         call system(trim(command))
-
-c     Read the result from the temporary file
-         open(unit=400+myrank, file=gpucfilename, status='old',
-     $        action='read', iostat=ios)
-         if (ios /= 0) then
-            print *, 'Error opening tempgpucount.txt'
-            actual_gpu_count = abs(ngravprocs)
-         else
-         
-            read(400+myrank, *) actual_gpu_count
-            close(400+myrank)
-c     write(100+myrank,*) actual_gpu_count,ios
-c     Clean up temporary file
-c     call execute_command_line('rm -f ' // trim(gpucfilename))
-            call system('rm -f ' // trim(gpucfilename))
-         endif
+         call get_gpu_count(actual_gpu_count,myrank)
          call getenv('SLURM_GPUS_ON_NODE', slurm_gpu_count_str)
 !     Convert the string to an integer
          read(slurm_gpu_count_str, *, IOSTAT=ierr) slurm_gpu_count
@@ -693,7 +672,11 @@ c         write(200+myrank,*) slurm_gpu_count, ierr
                ngravprocs=-slurm_gpu_count
             endif
          else
-            if(ngravprocs.eq.0 .or. abs(ngravprocs).gt.actual_gpu_count)then
+            if(actual_gpu_count.le.0) then
+               actual_gpu_count=max(abs(ngravprocs),1)
+            endif
+            if(ngravprocs.eq.0 .or.
+     $           abs(ngravprocs).gt.actual_gpu_count)then
                ngravprocs=-actual_gpu_count
             endif
          endif

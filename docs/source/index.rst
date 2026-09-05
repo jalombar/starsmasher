@@ -3,8 +3,8 @@ StarSmasher
 
 StarSmasher is a smoothed particle hydrodynamics (SPH) code for modelling
 collisions and close interactions between stars and planets.  It is
-parallelised with MPI and computes self-gravity either on NVIDIA GPUs or, where
-no such card is available, on the CPU.
+parallelised with MPI and computes self-gravity on NVIDIA GPUs through CUDA, on
+Apple Silicon GPUs through Metal, or on the CPU.
 
 The code descends from StarCrash, written by Joshua Faber, James Lombardi and
 Frederic Rasio, and is maintained at

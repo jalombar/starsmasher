@@ -3,6 +3,8 @@ Welcome to the installation guide for StarSmasher!  Please feel free to contact 
 # [0] What you'll need to install StarSmasher
 You'll need a few things to prepare for a clean installation of StarSmasher.
 
+StarSmasher also builds on macOS with Apple Silicon and uses the integrated GPU through Metal. Apple Silicon users should follow the [Apple Silicon installation guide](./installation_applesilicon.md) instead of the Linux/NVIDIA prerequisites below.
+
 ## [0.1] A Linux computer, ideally with an NVIDIA graphics card
 
 First, you should have a computer running Linux.  An NVIDIA graphics card is worth having, since the GPU takes over the gravity calculation, but it is not essential: ``make cpu`` builds a version that runs anywhere, and sections [0.2] and [0.3] below can then be skipped.  The instructions in this section [0] below assume that you'll be setting up your computer *without* using modules.  If you are working on a research cluster of a university, for example, then you may be able to set up the necessary software with ``module load`` commands.  For example ``module load cuda/cuda-10.1.2`` would load version 10.1.2 of cuda, while ``module load mpi/openmpi-1.10.5-gcc-6.4.0`` would load version 1.10.5 of openmpi (compiled with version 6.4.0 of gcc), if available.  To see what modules are available on your system, type ``module avail``.  **If you are using modules, then load up cuda and openmpi, and move on to section [1] of this installation guide!**

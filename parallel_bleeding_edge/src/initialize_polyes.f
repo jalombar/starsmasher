@@ -1,5 +1,6 @@
       subroutine polyes
 c     creates a star from the data file yrec output
+      use eos_table_data
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 grpottot(nmax)
@@ -29,14 +30,7 @@ c     creates a star from the data file yrec output
       common/gravworkers/comm_worker
       integer status(mpi_status_size)
 
-      integer maxtablesize
-      parameter(maxtablesize=1000)
-      integer numrho,numu,numx,iu,irho,iup
-      real*8 eostable(maxtablesize,maxtablesize,maxnumx,3)
-      real*8 zzz,steprho,stepu,stepx,rhotable1,utable1,xtable1,
-     $     rhotablelast,utablelast,xtablelast
-      common/eoscom/ zzz,rhotable1,utable1,xtable1,
-     $     steprho,stepu,stepx,eostable,numrho,numu,numx
+      integer iu,irho,iup
 
       real*8 rhocgs,log10rho,ucgsguess,pressurecgs,log10u
       real*8 rholow,rhohigh
