@@ -65,7 +65,14 @@ c     with a number derived from the wrong object.
          stop 'relax: trelax=0 needs nrelax<2'
       endif
 
-      if(trelax.eq.0.d0 .and. .not.autodone) then
+c     nrelax=0 is a dynamical run, where relax adds no force at all.  The
+c     radius and mass below are measured over every particle in the box, so
+c     for a hyperbolic encounter they describe the separation of the two
+c     stars rather than the size of either, and the schedule derived from
+c     them would be meaningless.  Nothing reads it at nrelax=0, but log0.sph
+c     would report a drag schedule the run does not have.  Derive only for an
+c     actual relaxation.
+      if(trelax.eq.0.d0 .and. nrelax.ne.0 .and. .not.autodone) then
          amtotauto=0.d0
          r2maxauto=0.d0
          do i=1,ntot
@@ -108,7 +115,10 @@ c     corotating binary built from such a snapshot is the case that noticed.
       endif
 
       trelaxeff=trelax
-      if(trelax.eq.0.d0) trelaxeff=trelax0auto
+c     autodone is what guarantees trelax0auto has been assigned.  A dynamical
+c     run left at trelax=0 now skips the block above, so without this test it
+c     would read trelax0auto before anything set it.
+      if(trelax.eq.0.d0 .and. autodone) trelaxeff=trelax0auto
 
       if (nrelax.eq.1) then
          trelaxuse=trelaxeff
