@@ -74,7 +74,16 @@ c     with a number derived from the wrong object.
          enddo
          tdynauto=sqrt(sqrt(r2maxauto)**3/amtotauto)
          trelax0auto=4.d0*tdynauto
-         treloff=10.d0*trelax0auto
+c     trelax=0 asks for the drag timescale to be derived, not for treloff to be
+c     overridden.  A treloff given in sph.input is a deliberate choice and is
+c     kept; only treloff=0 asks for it to be derived too.
+         if(treloff.eq.0.d0) then
+            treloff=10.d0*trelax0auto
+            if(myrank.eq.0) write(69,*)
+     $           'relax: treloff=0, so it is derived as 10*trelax'
+         else if(myrank.eq.0) then
+            write(69,*)'relax: keeping treloff from sph.input =',treloff
+         endif
          autodone=.true.
 c     Adopt the derived value rather than leaving trelax at zero and carrying
 c     the answer separately.  dump writes trelax into every snapshot header, so

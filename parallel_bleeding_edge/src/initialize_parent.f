@@ -390,6 +390,14 @@ c     is what makes the masses equal: am = rho/n and n ~ rho beyond r_trans.
          zcm=zcm+am(i)*z(i)
          amtot=amtot+am(i)
          call sph_splint(rarray,uarray,uarray2,numlines,ri,u(i))
+c     This routine stores the specific internal energy, but when nintvar=1 the
+c     rest of the code expects u(i) to hold the entropic variable a=p/rho^gam.
+c     initialize_polyes makes that distinction; initialize_parent did not, so
+c     nintvar=1 with a stellar-evolution parent silently misread the array.
+c     Convert using the PARENT density at this radius, so that a is defined
+c     from the profile being matched rather than from the SPH estimate.
+         if(nintvar.eq.1 .and. u(i).ne.0.d0 .and. rhoi.gt.0.d0)
+     $        u(i)=u(i)*(gam-1.d0)/rhoi**(gam-1.d0)
          call sph_splint(rarray,muarray,muarray2,numlines,ri,
      $        meanmolecular(i))
          anumden=rhoi/am(i)
