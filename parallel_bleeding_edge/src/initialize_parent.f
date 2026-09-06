@@ -1,9 +1,7 @@
       subroutine parent
 c     creates a star from the data file yrec output
-      use eos_table_data
       include 'starsmasher.h'
       include 'mpif.h'
-      real*8 grpottot(nmax)
       integer numlines,i
       integer idumb,ip,ix,iy,iz
       real*8 anumden,rhotry,rhoex,rtry,rhomax,hc,xcm,ycm,zcm,amtot,
@@ -14,10 +12,6 @@ c     creates a star from the data file yrec output
      &     rhoarray(kdm),uarray(kdm),rarray(kdm),
      $     rhoarray2(kdm),uarray2(kdm),
      $     muarray(kdm),muarray2(kdm)
-      real*8 zarray(kdm)
-      common/zprofilecom/ zarray
-      integer jlo,jhi,jm,jnear
-      real*8 zfracdiff
       real*8 egsol
 c     astronomical constants:
       parameter(egsol=1.9884098706980504d33)
@@ -49,8 +43,6 @@ c     derived constants:
       real*8 rpreedge, rpost
       real*8 rprearray(kdm),rarray2(kdm)
       real*8 amtotal,rnearby
-      real*8 rtrans,rhotrans,wtrans,wmid,rmid,rhomid
-      integer itrans,jj
 
       call splinesetup
 
@@ -87,61 +79,14 @@ c     derived constants:
 
 
 
-c     ---- two-zone particle-mass scheme -------------------------------------
-c     Particles are given equal masses outside a transition radius and the usual
-c     n ~ rho**equalmass distribution inside it.  The transition is placed at 90%
-c     of the innermost radius where A = P/rho**(5/3) begins to decrease outward.
-c     That criterion is emergent rather than tuned: beyond roughly that radius the
-c     particles are seen to exchange places once the drag is released, so mass
-c     segregation can operate there, and equal masses remove it at the source.
-c     (A is only the true entropy for an ideal monatomic gas of fixed composition,
-c     so this is a proxy; it is used because it locates the observed mixing
-c     boundary well, not because it is thermodynamically exact.)
-      itrans=0
-      do jj=3,numlines
-         if(rarray(jj).gt.redge) goto 77
-         if(pres(jj)/rhoarray(jj)**(5.d0/3.d0) .lt.
-     $        pres(jj-1)/rhoarray(jj-1)**(5.d0/3.d0)) then
-            itrans=jj
-            goto 77
-         endif
-      enddo
- 77   continue
-      if(itrans.gt.0) then
-         rtrans=0.9d0*rarray(itrans)
-      else
-         rtrans=2.d0*redge
-      endif
-      call sph_splint(rarray,rhoarray,rhoarray2,numlines,rtrans,rhotrans)
-c     w must be continuous across the transition, so the outer branch carries the
-c     inner branch's value at r_trans as its normalisation.  With w ~ rho outside,
-c     the particle mass am = rho/n is then exactly constant there.
-      wtrans=(rhotrans/rhomax)**equalmass
-      if(myrank.eq.0) then
-         if(itrans.gt.0) then
-            write(69,*)'two-zone: A=P/rho^(5/3) first decreases at r=',
-     $           rarray(itrans)
-         else
-            write(69,*)'two-zone: A never decreases; no outer zone'
-         endif
-         write(69,*)'two-zone: r_transition=',rtrans
-         write(69,*)'two-zone: rho(r_transition)=',rhotrans
-         write(69,*)'two-zone: w(r_transition)=',wtrans
-      endif
-
-      if(equalmass.ne.0.d0 .or. rtrans.lt.redge) then
+      if(equalmass.ne.0.d0) then
          i=2
          integral=0
          do while(rarray(i).lt.redge)
-            rmid=0.5d0*(rarray(i)+rarray(i-1))
-            rhomid=0.5d0*(rhoarray(i)+rhoarray(i-1))
-            if(rmid.le.rtrans) then
-               wmid=(rhomid/rhomax)**equalmass
-            else
-               wmid=wtrans*rhomid/rhotrans
-            endif
             integral=integral+pi*(rarray(i)+rarray(i-1))**2*
-     $           (rarray(i)-rarray(i-1))*wmid
+     $           (rarray(i)-rarray(i-1))*
+     $           (0.5d0*(rhoarray(i)+rhoarray(i-1))/rhomax)
+     $           **equalmass
             i=i+1
          enddo
          if(myrank.eq.0)write(69,*)'integral=',integral,4.d0/3.d0*pi*redge**3.d0
@@ -149,15 +94,9 @@ c     the particle mass am = rho/n is then exactly constant there.
          rprearray(1)=rarray(1)
          rpreedge = rprearray(1)
          do i = 2, numlines
-            rmid=0.5d0*(rarray(i)+rarray(i-1))
-            rhomid=0.5d0*(rhoarray(i)+rhoarray(i-1))
-            if(rmid.le.rtrans) then
-               wmid=(rhomid/rhomax)**equalmass
-            else
-               wmid=wtrans*rhomid/rhotrans
-            endif
             rprearray(i) = rprearray(i-1) + 
-     $           (rarray(i)-rarray(i-1))*wmid*
+     $           (rarray(i)-rarray(i-1))*
+     $           (0.5d0*(rhoarray(i)+rhoarray(i-1))/rhomax)**equalmass*
      $           (rarray(i-1)/rprearray(i-1))**2
             if (rarray(i).le.redge) rpreedge = rprearray(i)
          enddo
@@ -344,73 +283,27 @@ c     start following loop at the first sph particle (with index 2, not 1, if th
          if(rhoi.le.0.d0) then
             if(myrank.eq.0)write(69,*)'warning: rho(',i,')<=0 at r=',ri,'???'
          endif
-c     A particle whose metallicity is not the one the EOS table was built for gets a
-c     wrong pressure, and useeostable back-derives X from mu assuming the table's Z,
-c     so it can even return X<0.  Nearest profile shell is accurate enough here.
-         if(neos.eq.2) then
-            jlo=1
-            jhi=numlines
- 79         if(jhi-jlo.gt.1) then
-               jm=(jhi+jlo)/2
-               if(rarray(jm).gt.ri) then
-                  jhi=jm
-               else
-                  jlo=jm
-               endif
-               goto 79
-            endif
-            if(abs(rarray(jlo)-ri).le.abs(rarray(jhi)-ri)) then
-               jnear=jlo
-            else
-               jnear=jhi
-            endif
-            zfracdiff=abs(zarray(jnear)-zzz)/zzz
-            if(zfracdiff.gt.0.1d0) then
-               if(myrank.eq.0) then
-                  write(69,*)'particle',i,' at r=',ri,' has Z=',
-     $                 zarray(jnear),' from profile shell',jnear
-                  write(69,*)'but the EOS table is built for Z=',zzz
-                  write(69,*)'differing by',100.d0*zfracdiff,' percent'
-                  write(69,*)'use an EOS table matching the stellar model,'
-                  write(69,*)'or place the core point outside this radius'
-               endif
-               stop 'parent: particle Z does not match the EOS table'
-            endif
-         endif
 c         am(i)=amass/n*(integral*rhoi/amass)**(1.d0-equalmass)
-c     Outside the transition the particle mass is frozen at its value there, which
-c     is what makes the masses equal: am = rho/n and n ~ rho beyond r_trans.
-         if(ri.le.rtrans) then
-            am(i)=integral/n*rhoi**(1.d0-equalmass)*rhomax**equalmass
-         else
-            am(i)=integral/n*rhotrans**(1.d0-equalmass)*rhomax**equalmass
-         endif
+         am(i)=integral/n*rhoi**(1.d0-equalmass)*rhomax**equalmass
          xcm=xcm+am(i)*x(i)
          ycm=ycm+am(i)*y(i)
          zcm=zcm+am(i)*z(i)
          amtot=amtot+am(i)
          call sph_splint(rarray,uarray,uarray2,numlines,ri,u(i))
-c     This routine stores the specific internal energy, but when nintvar=1 the
-c     rest of the code expects u(i) to hold the entropic variable a=p/rho^gam.
-c     initialize_polyes makes that distinction; initialize_parent did not, so
-c     nintvar=1 with a stellar-evolution parent silently misread the array.
-c     Convert using the PARENT density at this radius, so that a is defined
-c     from the profile being matched rather than from the SPH estimate.
+c        initialize_parent stores the specific internal energy, but when
+c        nintvar=1 the rest of the code expects u(i) to hold the entropic
+c        variable a = p/rho^gam.  initialize_polyes makes this distinction;
+c        initialize_parent did not, so nintvar=1 silently misinterpreted the
+c        array.  Convert here, using the PARENT density at this radius so
+c        that a is defined from the profile being matched.
          if(nintvar.eq.1 .and. u(i).ne.0.d0 .and. rhoi.gt.0.d0)
      $        u(i)=u(i)*(gam-1.d0)/rhoi**(gam-1.d0)
          call sph_splint(rarray,muarray,muarray2,numlines,ri,
      $        meanmolecular(i))
          anumden=rhoi/am(i)
-c     The actual number of neighbours is closer to 1.41*nnopt.  Measured by
-c     dividing the converged h by this guess, particle by particle: through the
-c     whole interior (enclosed mass 0.2-0.95) the ratio is 0.905 with a scatter of
-c     only 0.3%, and repeating at nnopt=45, 90 and 120 gives 1.407, 1.411, 1.417,
-c     so this is a property of the kernel rather than of a particular model.  The
-c     old value of 1.9 overestimated h by 9.5% everywhere, which cost a factor of
-c     ~5.7 in the first rho_and_h call because the root solver had to drift that
-c     far to bracket the answer.  Converged h is unaffected.
+c     the actual number of neighbors is closer to 1.9*nnopt
          hp(i)=(3.d0/32.d0/3.1415926535897932384626d0*
-     $        1.41d0*nnopt/anumden)**(1.d0/3.d0) + hfloor
+     $        1.9d0*nnopt/anumden)**(1.d0/3.d0) + hfloor
 
       enddo
       
@@ -497,24 +390,7 @@ c               am(i)=am(i)*(amass-am(1))/amtot
          if(hco.gt.0.d0) then
             hp(1)=hco
          else
-c     Autoset the core point's gravitational softening length.  The old default,
-c     hp(1)=hrms, is a poor choice whenever equalmass>0: the particle spacing then
-c     shrinks towards the centre, so the innermost fluid particles have h much
-c     smaller than the global rms, and softening the core over hrms smears its
-c     gravity across many local smoothing lengths.  The imported stellar profile is
-c     a hydrostatic solution for an unsoftened core, so the inner region is then not
-c     in equilibrium with the gravity actually applied, and the star bleeds
-c     potential energy into motion once the relaxation drag is switched off.
-c
-c     hmin is the right target: since hp(i) above goes as rho(r_i)**(-equalmass/3),
-c     h is a monotonically decreasing function of density, so the minimum h is by
-c     construction that of the innermost SPH particle -- the true inner boundary of
-c     the SPH model.  (Note this is the innermost *particle*, not r=0; a giant's
-c     central density is orders of magnitude above anything the particles sample.)
-c     When equalmass=0 the particle masses go as rho, the number density is uniform,
-c     h is the same everywhere and hmin=hrms, so this reduces exactly to the old
-c     default.  initialize_multiequalmass.f already defaults to hmin as well.
-            hp(1)=hmin
+            hp(1)=hrms
          endif
          if(myrank.eq.0)write(69,*)'hp(core mass)',hp(1)
          cc(1)=int(2.d0*log(1.35d0*a1*
@@ -547,7 +423,7 @@ c     default.  initialize_multiequalmass.f already defaults to hmin as well.
      $           rhoex)
             anumden=rhoex/am(i)
             hp(i)=(3.d0/32.d0/3.1415926535897932384626d0*
-     $           1.41d0*nnopt/anumden)**(1.d0/3.d0) + hfloor
+     $           1.9d0*nnopt/anumden)**(1.d0/3.d0) + hfloor
 
          enddo
 
@@ -608,9 +484,6 @@ c     do loop to get total gravitational potential energy:
                   call get_gravity_using_cpus
                endif
                if(ngravprocs.gt.1) then
-                  if(nusegpus.eq.1)then
-c     The gpu library returns a complete sum for every particle this rank
-c     owns, so gathering each rank's own slice is correct.
                   mygravlength=ngrav_upper-ngrav_lower+1
                   if(myrank.ne.0)then
                      call mpi_gatherv(grpot(ngrav_lower), mygravlength, mpi_double_precision,
@@ -620,20 +493,6 @@ c     owns, so gathering each rank's own slice is correct.
                      call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
      $                    grpot, gravrecvcounts, gravdispls, mpi_double_precision, 0,
      $                    comm_worker, ierr)
-                  endif
-                  else
-c     get_gravity_using_cpus walks pairs with j>=i, so a rank writes into
-c     grpot(j) for particles j it does not own.  Those contributions are
-c     thrown away by a slice gather; the whole array has to be summed.
-c     This is what balAV3.f does for the same reason.
-                     call mpi_reduce(grpot, grpottot, ntot,
-     $                    mpi_double_precision, mpi_sum, 0,
-     $                    mpi_comm_world, ierr)
-                     if(myrank.eq.0) then
-                        do i=1,ntot
-                           grpot(i)=grpottot(i)
-                        enddo
-                     endif
                   endif
                endif
             endif
@@ -749,7 +608,6 @@ c      endif
       end
       subroutine splinesetup
 c     Read in a stellar evolution code file
-      use eos_table_data
       include 'starsmasher.h'
       integer numlines,i,j
       real*8 amass,radiuscgs,masscgs,radius
@@ -760,12 +618,6 @@ c     Read in a stellar evolution code file
      &     rhoarray(kdm),uarray(kdm),rarray(kdm),
      $     rhoarray2(kdm),uarray2(kdm),xm(kdm),
      $     muarray(kdm),muarray2(kdm)
-      real*8 zarray(kdm)
-      common/zprofilecom/ zarray
-      integer nzskip
-      logical zok
-      real*8 xback,xlast
-      integer nzclamp
       real*8 egsol,solrad
 c     astronomical constants:
       parameter(egsol=1.9884098706980504d33,solrad=6.957d10)
@@ -775,6 +627,11 @@ c     derived constants:
       real*8 xx(ndim,kdm)
       integer lz(ndim),ln(ndim)
       real*8 integratednum,integratednum2
+      real*8 amarray(kdm),umarray(kdm),mumarray(kdm),
+     $     umarray2(kdm),mumarray2(kdm)
+      integer nmassknots
+      common/splinemass/amarray,umarray,mumarray,umarray2,mumarray2,
+     $     nmassknots
       common/splinestuff/rarray,uarray,muarray,rhoarray,
      $     uarray2,muarray2,rhoarray2,amass,radius,
      $     integratednum,maxmu,minmu,numlines
@@ -1010,26 +867,6 @@ c     profilefile comes from MESA
      $        star_mass_n14,star_mass_o16,star_mass_ne20,he_core_mass,       
      $        c_core_mass,o_core_mass,si_core_mass,fe_core_mass,             
      $        neutron_rich_core_mass
-     
-         if(num_zones .gt. kdm) then
-c     Every rank must take this branch: the read loop below is bounded by
-c     num_zones, not by kdm, so any rank that continues past this point
-c     writes past the end of the kdm-sized profile arrays.
-            if(myrank .eq. 0) then
-               print *, "Too many zones in the MESA profile!"
-               print *, "Edit the value of 'kdm' in starsmasher.h to "//
-     $              "use more, then rebuild."
-               print *, "num_zones = ",num_zones
-               print *, "Max allowed zones kdm = ", kdm
-               write(69,*) "Too many zones in the MESA profile!"
-               write(69,*) "Edit the value of 'kdm' in starsmasher.h "//
-     $              "to use more, then rebuild."
-               write(69,*) "num_zones = ",num_zones
-               write(69,*) "Max allowed zones kdm = ", kdm
-            end if
-            error stop
-         end if
-     
          read(io,*)             ! blank line
          read(io,*)             ! list of integers                   
 
@@ -1162,9 +999,6 @@ c            xm(i)=star_mass*qq*1.9884098706980504d33
             pres(i)=10d0**logP             
             muarray(i)=1/(2*x_mass_fraction_H+0.75d0*
      $              y_mass_fraction_He+0.5d0*z_mass_fraction_metals)*1.67262158d-24   
-c     remember this shell's metallicity so that parent can compare it against the
-c     metallicity the tabulated EOS was built for (neos=2).
-            zarray(i)=z_mass_fraction_metals
             maxmu=max(maxmu,muarray(i))    
             minmu=min(minmu,muarray(i))    
             if(abs(x_mass_fraction_H + y_mass_fraction_He +      
@@ -1210,38 +1044,7 @@ c     the gravitational potential depends only on density, that profile should b
 c     the same in the sph and stellar evolution models as well.
       
       i=1 ! this line is important because shell number i is shared in common block
-c     A tabulated EOS is built for one metallicity.  Shells whose Z differs from it
-c     (the C/O core of an evolved star, say) cannot be looked up: useeostable derives
-c     X from mu assuming the table's Z and would return X<0.  Fall back to ideal gas
-c     plus radiation for those shells and count them.  They lie inside the core point,
-c     so no SPH particle uses them; particles are checked separately in parent.
-      nzskip=0
-      nzclamp=0
-      zok=.true.
-      if(neos.eq.2) then
-         zok=abs(zarray(i)-zzz).le.0.1d0*zzz
-         if(zok) then
-c     useeostable back-derives X from mu assuming the table's Z, so what it sees is
-c     X_back = X_true + 0.2*(Z_table - Z_shell).  Once the 10% Z test above has passed
-c     that offset is at most 4e-4, but it is enough to push a pure-helium shell (true
-c     X=0) very slightly negative and off the bottom of the X grid.  Nudge mu so the
-c     lookup lands on the edge slab, which is the right composition, rather than
-c     abandoning the table for ideal gas.
-            xback=(1.67262158d-24/muarray(i)+0.25d0*zzz-0.75d0)/1.25d0
-            xlast=xtable1+(numx-1)*stepx
-            if(xback.lt.xtable1) then
-               muarray(i)=1.67262158d-24/
-     $              (1.25d0*(xtable1+1.d-6*stepx)+0.75d0-0.25d0*zzz)
-               nzclamp=nzclamp+1
-            else if(xback.gt.xlast) then
-               muarray(i)=1.67262158d-24/
-     $              (1.25d0*(xlast-1.d-6*stepx)+0.75d0-0.25d0*zzz)
-               nzclamp=nzclamp+1
-            endif
-         endif
-      endif
-      if(.not.zok) nzskip=nzskip+1
-      if(neos.eq.1 .or. .not.zok) then
+      if(neos.eq.1) then
          tem(i)=zeroin(0.d0,pres(i)*muarray(i)/(rhoarray(i)*boltz),
      $        temperaturefunction,1.d-11)
          uarray(i)=1.5d0*boltz*tem(i)/muarray(i)
@@ -1288,31 +1091,7 @@ c     rhoarray(i) is the average density in the vicinity of rarray(i)
      $        rarray(i)**2*0.5d0*(rarray(i+1)-rarray(i-1))
 
          temupperlimit=pres(i)*muarray(i)/(rhoarray(i)*boltz)
-         zok=.true.
-         if(neos.eq.2) then
-            zok=abs(zarray(i)-zzz).le.0.1d0*zzz
-            if(zok) then
-c     useeostable back-derives X from mu assuming the table's Z, so what it sees is
-c     X_back = X_true + 0.2*(Z_table - Z_shell).  Once the 10% Z test above has passed
-c     that offset is at most 4e-4, but it is enough to push a pure-helium shell (true
-c     X=0) very slightly negative and off the bottom of the X grid.  Nudge mu so the
-c     lookup lands on the edge slab, which is the right composition, rather than
-c     abandoning the table for ideal gas.
-               xback=(1.67262158d-24/muarray(i)+0.25d0*zzz-0.75d0)/1.25d0
-               xlast=xtable1+(numx-1)*stepx
-               if(xback.lt.xtable1) then
-                  muarray(i)=1.67262158d-24/
-     $                 (1.25d0*(xtable1+1.d-6*stepx)+0.75d0-0.25d0*zzz)
-                  nzclamp=nzclamp+1
-               else if(xback.gt.xlast) then
-                  muarray(i)=1.67262158d-24/
-     $                 (1.25d0*(xlast-1.d-6*stepx)+0.75d0-0.25d0*zzz)
-                  nzclamp=nzclamp+1
-               endif
-            endif
-         endif
-         if(.not.zok) nzskip=nzskip+1
-         if(neos.eq.1 .or. .not.zok) then
+         if(neos.eq.1) then
             tem(i)=zeroin(0.d0,temupperlimit,
      $           temperaturefunction,1.d-11)
             uarray(i)=1.5d0*boltz*tem(i)/muarray(i)
@@ -1335,22 +1114,6 @@ c            write(102,*) i,uarray(i),tem(i)
      $        rarray(i)**2*0.5d0*(rarray(i+1)-rarray(i-1))
       enddo
 
-      if(neos.eq.2 .and. nzskip.gt.0 .and. myrank.eq.0) then
-         write(69,*)'note:',nzskip,' of',numlines,' profile shells have a'
-         write(69,*)'note: composition the EOS table does not cover: their Z'
-         write(69,*)'note: differs by more than 10% from the table value Z=',zzz
-         write(69,*)'note: These are core shells of an evolved star, not a near'
-         write(69,*)'note: miss on the table edge, so there is no slab to nudge'
-         write(69,*)'note: them onto.  Ideal gas plus radiation was used to fill'
-         write(69,*)'note: in u and T for them.  Nothing reads those shells'
-         write(69,*)'note: unless an SPH particle sits at that radius, and that'
-         write(69,*)'note: is checked separately below, where it is fatal.'
-      endif
-      if(neos.eq.2 .and. nzclamp.gt.0 .and. myrank.eq.0) then
-         write(69,*)'note:',nzclamp,' shells had the back-derived X just'
-         write(69,*)'note: outside the table grid and were nudged onto the'
-         write(69,*)'note: edge slab (offset is at most 4e-4 in X).'
-      endif
       if(myrank.eq.0)then
          write(69,*)'mass from integrating rho profile=',
      $        integratedmass2/egsol,'msun'
@@ -1432,5 +1195,37 @@ c     $        /(radius**2/amass)**2
       call sph_spline(rarray,rhoarray,numlines,1.d30,1.d30,rhoarray2)
       call sph_spline(rarray,uarray,numlines,1.d30,1.d30,uarray2)
       call sph_spline(rarray,muarray,numlines,1.d30,1.d30,muarray2)
-      
+
+c     Also tabulate u and mu against ENCLOSED MASS, for resplintum.  xm holds
+c     the mass coordinate of the parent model in grams; convert to the same
+c     code units as am(i).  These go into their own arrays so that the
+c     radius-based arrays above are left untouched for resplintmu and
+c     temperaturefunction.  Only strictly increasing knots are kept, since a
+c     spline needs a monotonic abscissa and stellar evolution profiles can
+c     repeat the mass coordinate across the outermost near-massless shells.
+      nmassknots=0
+      do i=1,numlines
+         if(nmassknots.eq.0 .or.
+     $        xm(i)/masscgs*amass.gt.amarray(max(nmassknots,1))) then
+            nmassknots=nmassknots+1
+            amarray(nmassknots)=xm(i)/masscgs*amass
+            if(nintvar.eq.1 .and. rhoarray(i).gt.0.d0) then
+               umarray(nmassknots)=uarray(i)*(gam-1.d0)
+     $              /rhoarray(i)**(gam-1.d0)
+            else
+               umarray(nmassknots)=uarray(i)
+            endif
+            mumarray(nmassknots)=muarray(i)
+         endif
+      enddo
+      if(myrank.eq.0) write(69,*)
+     $     'resplintum: enclosed-mass knots =',nmassknots,
+     $     '  m from',amarray(1),'to',amarray(max(nmassknots,1))
+      if(nmassknots.gt.2) then
+         call sph_spline(amarray,umarray,nmassknots,1.d30,1.d30,
+     $        umarray2)
+         call sph_spline(amarray,mumarray,nmassknots,1.d30,1.d30,
+     $        mumarray2)
+      endif
+
       end
