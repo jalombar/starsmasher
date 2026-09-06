@@ -619,10 +619,10 @@ c     set some default values, so that they don't necessarily have to be set in 
       mco=-1d30                ! mass of compact object or core particle
       hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
-      trelax=1.d30             ! drag timescale.  0 derives it from the model, and for a single star sets treloff with it, a very large value disables the drag
+      trelax=1.d30             ! drag timescale.  0 derives it from the model, a very large value disables the drag
       sep0=200                 ! initial separation of two stars in a binary or collision calculation, and the separation a scan starts from and holds until tscanon
       equalmass=0              ! particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
-      treloff=0                ! time the drag switches off and the run turns dynamical.  It ends a scan as well, since a scan runs until min(tf,treloff).  Overwritten when trelax=0 for a single star
+      treloff=0                ! time the drag switches off and the run turns dynamical.  It ends a scan as well, since a scan runs until min(tf,treloff).  0 asks for it to be derived as 10*trelax, which for a single star needs trelax=0 as well
       tresplintmuoff=0.        ! time to stop resplinting the mean molecular weight.  leave this at 0.
       nitpot=1                 ! number of iterations between evaluation of the gravitational potential energy.
       tscanon=0                ! time that the scan of a binary starts.  The separation is held at sep0 until then, which gives the stars time to settle into the shape the corotating frame asks for

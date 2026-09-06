@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **75** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **76** settings.
 
 
 .. _sph-input-time-and-output:
@@ -185,11 +185,11 @@ Relaxation
    * - ``trelax``
      - ``1.d30``
      - every run
-     - drag timescale.  0 derives it from the model, and for a single star sets treloff with it, a very large value disables the drag
+     - drag timescale.  0 derives it from the model, a very large value disables the drag
    * - ``treloff``
      - ``0``
      - every run
-     - time the drag switches off and the run turns dynamical.  It ends a scan as well, since a scan runs until min(tf,treloff).  Overwritten when trelax=0 for a single star
+     - time the drag switches off and the run turns dynamical.  It ends a scan as well, since a scan runs until min(tf,treloff).  0 asks for it to be derived as 10\*trelax, which for a single star needs trelax=0 as well
    * - ``tresplintmuoff``
      - ``0.``
      - every run
@@ -311,7 +311,7 @@ Timestep control
    * - ``nintvar``
      - ``2``
      - every run
-     - 1=integrate entropic variable a, 2=integrate internal energy u
+     - 1=integrate entropic variable a, 2=integrate internal energy u, 12=a then u
    * - ``cn1``
      - ``.3d0``
      - every run
@@ -458,4 +458,22 @@ Input files
      - ``1``
      - ``erg``
      - which code wrote profilefile, since the column layouts differ
+
+.. _sph-input-other-settings:
+
+Other settings
+--------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 19 16 20 45
+
+   * - Variable
+     - Default
+     - Applies to
+     - Meaning
+   * - ``tswitchtou``
+     - ``-1.d0``
+     - every run
+     - nintvar=12: time to hand over from a to u.  <0 means use treloff.
 
