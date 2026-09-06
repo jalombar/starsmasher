@@ -54,14 +54,22 @@ drag is switched off.
 
 .. important::
 
-   ``trelax=0`` sets ``treloff`` as well, overwriting whatever you put there.
-   You cannot derive one and hand-set the other.  It is both or neither.
+   ``trelax=0`` derives the drag timescale only.  A ``treloff`` you set in
+   ``sph.input`` is kept, so you can derive one and hand-set the other.  Only
+   ``treloff=0`` asks for it to be derived as well, as ten times ``trelax``.
+   ``log0.sph`` says which of the two applied::
+
+       relax: keeping treloff from sph.input =   ...
+
+   or::
+
+       relax: treloff=0, so it is derived as 10*trelax
 
 When to override it
 ~~~~~~~~~~~~~~~~~~~
 
-Setting ``trelax`` to a positive value keeps its old meaning exactly, and then
-``treloff`` is yours to set too.  Two reasons to do so:
+Setting ``trelax`` to a positive value keeps its old meaning exactly.  Two
+reasons to do so:
 
 **A very soft envelope.**  Where :math:`\Gamma_1` approaches 4/3 the period
 lengthens sharply, and :math:`4\,t_\mathrm{dyn}` will underestimate it.  The
@@ -78,6 +86,67 @@ to ten times it.
    On a resumed run the schedule is derived again from the star as it now is,
    which has already relaxed and so is slightly smaller than the one it started
    from.  ``log0.sph`` says so when this happens.
+
+.. dropdown:: Integrating the entropic variable while the drag is on, for a smoother model
+   :icon: gear
+
+   ``nintvar`` chooses what the integrator advances.  The default, ``2``, is the
+   specific internal energy :math:`u`.  ``1`` is the entropic variable
+   :math:`a = p/\rho^\gamma`.  ``12`` uses ``1`` while the drag is on and hands
+   over to ``2`` when it comes off, which is usually what you want for a
+   relaxation whose product will later be collided.
+
+   While ``nrelax=1`` and :math:`t <` ``treloff``, ``balAV3`` leaves ``udot``
+   identically zero, so with ``nintvar=1`` each particle's entropy is exactly
+   conserved and the relaxation adds no entropy noise at all.  With ``nintvar=2``
+   the same phase advances :math:`u` by a discrete :math:`p\,dV` term on every
+   step, and that discretisation scatters entropy between particles that should
+   share it.  It shows up as a one-sided tail of over-pressured particles in the
+   outer envelope, where the density scale height is shortest and the smoothing
+   length is least able to resolve it.
+
+   On a 1.0 :math:`M_\odot`, :math:`Z=0.000142` MESA model relaxed at an age of
+   1 Gyr with ``n=5000``, scoring the scatter of :math:`\log P` about a running
+   median over the outer envelope (enclosed mass 0.99 to 0.9999):
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 20 30 50
+
+      * - ``nintvar``
+        - rms of :math:`\log P`
+        - particles more than 0.12 dex high
+      * - ``2``
+        - 0.0628
+        - 4.79 per cent
+      * - ``12``
+        - 0.0389
+        - 1.15 per cent
+
+   Mass is conserved and no particles are ejected either way.
+
+   The handover matters because :math:`a` is conserved only while the flow is
+   adiabatic.  Once the drag is off and shocks can form, :math:`u` is the
+   variable that carries the dissipated energy correctly, so ``12`` gives each
+   phase the variable that suits it.  ``tswitchtou`` sets when the handover
+   happens; its default, a negative value, means "when the drag comes off", and
+   is read at the moment of the test so that it follows a ``treloff`` that
+   ``trelax=0`` derived.
+
+   .. warning::
+
+      :math:`a = u(\gamma-1)/\rho^{\gamma-1}` uses the fixed ``gam``, and is
+      the true adiabatic invariant only for a :math:`\gamma`-law gas.  For ideal
+      gas plus radiation the invariant is the specific entropy, and
+      :math:`p/\rho^{\Gamma_1}` is not conserved unless :math:`\Gamma_1` is
+      constant, so substituting the local :math:`\Gamma_1` would be wrong rather
+      than more accurate.  The code records the largest
+      :math:`|\Gamma_1-\mathrm{gam}|/\mathrm{gam}` met while integrating
+      :math:`a` and reports it in ``log0.sph`` at the handover.  It reaches
+      :math:`9\times10^{-3}` for the model above and :math:`10^{-4}` for a 0.4
+      :math:`M_\odot` one, both harmless.  A radiation-dominated envelope, where
+      :math:`\Gamma_1` approaches 4/3, would need the specific entropy
+      integrated instead; that is not implemented.
 
 Judging whether the model is any good
 -------------------------------------

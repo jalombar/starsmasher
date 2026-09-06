@@ -159,10 +159,10 @@ c     that star's particles only, and runs here rather than later because the
 c     stars have not yet been moved out to sep0, so the radius it finds is the
 c     stellar one and does not depend on the separation.
 c
-c     treloff is deliberately left alone.  relax.f ties treloff to trelax when
-c     it derives a schedule, but for a corotating binary treloff also fixes
-c     tscanoff and so sets how long a scan lasts; deriving it here would let
-c     the star silently redefine the scan.
+c     treloff is deliberately left alone.  relax.f derives treloff alongside
+c     trelax only when treloff was left at zero, but for a corotating binary
+c     treloff also fixes tscanoff and so sets how long a scan lasts; deriving
+c     it here would let the star silently redefine the scan.
       if(trelax.eq.0.d0) then
          if(trelaxold.gt.0.d0 .and. trelaxold.lt.1.d29) then
             trelax=trelaxold
