@@ -101,7 +101,8 @@ c     boundary well, not because it is thermodynamically exact.)
       do jj=3,numlines
          if(rarray(jj).gt.redge) goto 77
          if(pres(jj)/rhoarray(jj)**(5.d0/3.d0) .lt.
-     $        pres(jj-1)/rhoarray(jj-1)**(5.d0/3.d0)) then
+     $        pres(jj-1)/rhoarray(jj-1)**(5.d0/3.d0)
+     $        .and. rarray(itrans).gt.0.1d0*redge) then
             itrans=jj
             goto 77
          endif
