@@ -5,10 +5,14 @@
       subroutine advance
 !     implements second-order accurate leap-frog sph step
       include 'starsmasher.h'
+      include 'mpif.h'
       real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
       common/oldarrays/uo,vxo,vyo,vzo
       integer i
       real*8 dthnew
+!     for the nintvar=12 handover below
+      integer mylength,irank,ierr
+      real*8 tswitchuse
 
 !     variables used for radiative cooling portion of the code:
 !         uorig=specific internal energy u particle would have achieved if no cooling
@@ -26,6 +30,51 @@
       ! behind the specific internal energies u and the velocities
       
       dth=0.5d0*dt
+
+!     nintvar=12: hand over from the entropic variable a to the specific
+!     internal energy u.  p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1).
+!
+!     Two things fix where and how this is done.  It must happen at the TOP of
+!     the step: uo is stored from u further down and udot is recomputed later in
+!     the same step, so switching midway leaves uo in entropy units while udot
+!     is in energy units.  And rho must be gathered first: rho_and_h
+!     synchronises only hp, so rho(i) is valid solely for n_lower:n_upper on
+!     each rank (compbest3, output and changetf each gather it before using it
+!     globally).  Without that, most particles are converted with another
+!     rank's density and the star clumps and dies.
+!
+!     tswitchtou<0 means "when the drag comes off".  That is read here rather
+!     than at startup because trelax=0 lets relax.f derive treloff after init
+!     has already run.
+      if(iswitchtou.eq.1) then
+         tswitchuse=tswitchtou
+         if(tswitchtou.lt.0.d0) tswitchuse=treloff
+         if(t.ge.tswitchuse) then
+            mylength=n_upper-n_lower+1
+            do irank=0,nprocs-1
+               if(myrank.ne.irank)then
+                  call mpi_gatherv(rho(n_lower), mylength,&
+                       mpi_double_precision, rho, recvcounts, displs,&
+                       mpi_double_precision, irank, mpi_comm_world, ierr)
+               else
+                  call mpi_gatherv(mpi_in_place, mylength,&
+                       mpi_double_precision, rho, recvcounts, displs,&
+                       mpi_double_precision, irank, mpi_comm_world, ierr)
+               endif
+            enddo
+            do i=1,n
+               if(u(i).ne.0.d0) u(i)=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+            enddo
+            nintvar=2
+            iswitchtou=0
+            if(myrank.eq.0) then
+               write(69,*)'nintvar=12: switched from a to u at t=',t
+               write(69,*)'   (treloff=',treloff,', tswitchtou=',tswitchtou,')'
+               write(69,*)'   largest |Gamma_1-gam|/gam while integrating a =',&
+                    gam1maxdev
+            endif
+         endif
+      endif
 
       displacexdot=0d0
       displaceydot=0d0

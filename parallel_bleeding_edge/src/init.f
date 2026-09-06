@@ -417,11 +417,15 @@ c here !!!!!
      $        ' dt=',g12.4,
      $        ' corepts=',i2,/)
          if(nintvar.eq.1) then
-            write(69,*)'integrating entropic variable a'
+            if(iswitchtou.eq.1) then
+               write(69,*)'integrating entropic variable a, then u'
+            else
+               write(69,*)'integrating entropic variable a'
+            endif
          elseif(nintvar.eq.2)then
             write(69,*)'integrating energy density u'
          else
-            write(69,*)'must integrate either a or u'
+            write(69,*)'must integrate either a or u (12 for a then u)'
             stop
          endif
          if(neos.eq.0) then
@@ -564,7 +568,7 @@ c      end
       namelist/input/ tf,dtout,n,nnopt,nav,alpha,beta,ngr,hco,mco,hfloor,
      $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
-     $     nintvar,ngravprocs,qthreads,gflag,mbh,runit,munit,
+     $     nintvar,tswitchtou,ngravprocs,qthreads,gflag,mbh,runit,munit,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
@@ -623,7 +627,8 @@ c     set some default values, so that they don't necessarily have to be set in 
       nitpot=1                 ! number of iterations between evaluation of the gravitational potential energy.
       tscanon=0                ! time that the scan of a binary starts.  The separation is held at sep0 until then, which gives the stars time to settle into the shape the corotating frame asks for
       sepfinal=1.d30           ! final separation for the scan of a binary, reached at min(tf,treloff).  The scan is exponential in separation, so it changes by a fixed fraction per unit time.  Set it equal to sep0 for a corotating run that does not scan
-      nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u
+      nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u, 12=a then u
+      tswitchtou=-1.d0         ! nintvar=12: time to hand over from a to u.  <0 means use treloff.
       ngravprocs=0             ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
       qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
       mbh=10d0                 ! mass of the point mass used as the second object when startfile2 is absent
@@ -671,6 +676,17 @@ c     set some default values, so that they don't necessarily have to be set in 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
       close(12)
+
+c     nintvar=12 asks for the entropic variable a while the drag is on, because
+c     it is exactly conserved there and so adds no entropy noise, and then for
+c     the specific internal energy u, because a is not conserved once shocks
+c     matter.  Run as nintvar=1 and record that a handover is still due.
+      gam1maxdev=0.d0
+      iswitchtou=0
+      if(nintvar.eq.12) then
+         nintvar=1
+         iswitchtou=1
+      endif
 
       call set_nusegpus         ! if using gpus, this sets nusegpus=1 *and* nselfgravity=1
 

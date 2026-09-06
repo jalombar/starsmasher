@@ -67,6 +67,16 @@
       common/inputfilenames2/startfile3,binaryfile,triplefile,bpbhfile,imagefile,advectedfile
       common/courantnumbers/ cn1,cn2,cn3,cn4,cn5,cn6,cn7
       common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling,nkernel
+!     nintvar=12 integrates the entropic variable a while the drag is on and
+!     then hands over to the specific internal energy u.  tswitchtou is when
+!     that happens; a negative value means "follow treloff", resolved at use
+!     rather than at read, because trelax=0 lets relax.f change treloff later.
+!     iswitchtou is 1 while a switch is still pending.  gam1maxdev records the
+!     largest |Gamma_1-gam|/gam seen while integrating a, i.e. how far the
+!     fixed-gam entropic variable has strayed from the real gas.
+      real*8 tswitchtou,gam1maxdev
+      integer iswitchtou
+      common/nintvarswitch/ tswitchtou,gam1maxdev,iswitchtou
       parameter(kdm=5000)
       integer ntypes,cc(nmax)
       parameter(ntypes=32)

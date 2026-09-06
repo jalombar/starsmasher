@@ -57,6 +57,12 @@ c     p=(gam-1)*rho*u, so p/rho^2=(gam-1)*u/rho
                gam1=(32.d0-24.d0*beta1-3.d0*beta1**2) /
      $              (24.d0-21.d0*beta1)
                
+c     a=p/rho^gam assumes a gam-law gas.  Record how far the true Gamma_1
+c     departs from gam so that the breakdown of that assumption is visible
+c     rather than silent; for a radiation-dominated envelope it will be large.
+               if(nintvar.eq.1) gam1maxdev=
+     $              max(gam1maxdev,abs(gam1-gam)/gam)
+
                if(gam1.lt.0.999*4.d0/3.d0 .or. gam1.gt.1.001*5.d0/3.d0) then
                   write(69,*)'warning gam1=',gam1,'at i=',i
                   write(69,*) beta1,pgas,prad,temperature,rho(i),
