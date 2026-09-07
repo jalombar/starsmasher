@@ -311,7 +311,7 @@ Timestep control
    * - ``nintvar``
      - ``2``
      - every run
-     - 1=integrate entropic variable a, 2=integrate internal energy u, 12=a then u
+     - 1=integrate entropic variable a, 2=integrate internal energy u, 3=integrate buoyancy ln A (needs neos=1), 12=a then u, 32=ln A then u
    * - ``cn1``
      - ``.3d0``
      - every run
@@ -475,5 +475,5 @@ Other settings
    * - ``tswitchtou``
      - ``-1.d0``
      - every run
-     - nintvar=12: time to hand over from a to u.  <0 means use treloff.
+     - nintvar=12 or 32: time to hand over to u.  <0 means use treloff.
 
