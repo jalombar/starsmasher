@@ -325,6 +325,25 @@ c     get 3-letter code for type of initial condition from init file
          read(12,initt)
          close(12)
          if(myrank.eq.0) write(69,*)'init: new run, iname=',iname
+c     Only the stellar-evolution parent knows how to build ln A, because it has
+c     the profile's own density at each particle's radius to define the entropy
+c     from.  The routines that construct a polytrope keep their density in a
+c     local variable and then rescale u by a constant factor afterwards, which
+c     a logarithm cannot survive, so converting there is a real change rather
+c     than a line.  Every other name reads u from an existing dump and carries
+c     whatever variable produced it, which is consistent exactly when that run
+c     also used nintvar=3 -- the dump does not record which variable it holds,
+c     so that is the caller's to get right, as it already is for nintvar=1.
+         if(nintvar.eq.3 .and.
+     $        (iname.eq.'1es' .or. iname.eq.'1mc' .or. iname.eq.'meq'
+     $        .or. iname.eq.'res' .or. iname.eq.'grs')) then
+            if(myrank.eq.0) then
+               write(69,*)'nintvar=3 cannot be built by iname=',iname
+               write(69,*)'use iname=erg, or start from a dump that was'
+               write(69,*)'itself made with nintvar=3.'
+            endif
+            stop 'nintvar=3 needs iname=erg or a nintvar=3 dump'
+         endif
          if(iname.eq.'1es') then
             call polyes
          else if (iname.eq.'1mc') then
@@ -422,10 +441,17 @@ c here !!!!!
             else
                write(69,*)'integrating entropic variable a'
             endif
+         elseif(nintvar.eq.3) then
+            if(iswitchtou.eq.1) then
+               write(69,*)'integrating buoyancy ln A, then u'
+            else
+               write(69,*)'integrating buoyancy ln A'
+            endif
          elseif(nintvar.eq.2)then
             write(69,*)'integrating energy density u'
          else
-            write(69,*)'must integrate either a or u (12 for a then u)'
+            write(69,*)'must integrate a, ln A or u',
+     $           ' (12 for a then u, 32 for ln A then u)'
             stop
          endif
          if(neos.eq.0) then
@@ -441,6 +467,20 @@ c here !!!!!
          else
             write(69,*)'invalid neos=',neos
             stop
+         endif
+c     The buoyancy is defined from the ideal gas plus radiation equation of
+c     state and has no meaning without it: a polytrope has no temperature to
+c     invert for, and the tabulated eos is not analytic.  Stop rather than
+c     integrate a quantity that is not the entropy of the gas being modelled.
+         if(nintvar.eq.3 .and. neos.ne.1) then
+            write(69,*)'nintvar=3 (buoyancy ln A) needs neos=1, not',neos
+            stop 'nintvar=3 needs neos=1'
+         endif
+c     Radiative cooling adds heat outside the dissipation that balAV3 turns
+c     into d(lnA)/dt, so the two have not been made consistent yet.
+         if(nintvar.eq.3 .and. ncooling.ne.0) then
+            write(69,*)'nintvar=3 with ncooling is not implemented'
+            stop 'nintvar=3 needs ncooling=0'
          endif
          if(nusegpus.eq.0)then
             write(69,*)'cpus will be used for any gravity'
@@ -627,8 +667,8 @@ c     set some default values, so that they don't necessarily have to be set in 
       nitpot=1                 ! number of iterations between evaluation of the gravitational potential energy.
       tscanon=0                ! time that the scan of a binary starts.  The separation is held at sep0 until then, which gives the stars time to settle into the shape the corotating frame asks for
       sepfinal=1.d30           ! final separation for the scan of a binary, reached at min(tf,treloff).  The scan is exponential in separation, so it changes by a fixed fraction per unit time.  Set it equal to sep0 for a corotating run that does not scan
-      nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u, 12=a then u
-      tswitchtou=-1.d0         ! nintvar=12: time to hand over from a to u.  <0 means use treloff.
+      nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u, 3=integrate buoyancy ln A (needs neos=1), 12=a then u, 32=ln A then u
+      tswitchtou=-1.d0         ! nintvar=12 or 32: time to hand over to u.  <0 means use treloff.
       ngravprocs=0             ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
       qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
       mbh=10d0                 ! mass of the point mass used as the second object when startfile2 is absent
@@ -685,6 +725,14 @@ c     matter.  Run as nintvar=1 and record that a handover is still due.
       iswitchtou=0
       if(nintvar.eq.12) then
          nintvar=1
+         iswitchtou=1
+      endif
+c     nintvar=32 is the same bargain with the buoyancy ln A, which is the true
+c     entropy of an ideal gas plus radiation rather than the entropy of a
+c     gam-law gas, and so does not need Gamma_1 to stay near gam.  The digits
+c     read in order, as for 12: 3 first, then 2.
+      if(nintvar.eq.32) then
+         nintvar=3
          iswitchtou=1
       endif
 

@@ -50,7 +50,7 @@ c     variables used for radiative cooling portion of the code:
       integer itabtilde
 
       if(nav.eq.0) then
-         if(nintvar.eq.1)then
+         if(nintvar.eq.1 .or. nintvar.eq.3)then
             do i=1,n
                udot(i)=0.d0
             enddo
@@ -266,6 +266,21 @@ c     "Scatter" part of the sum:
 c     p=(gam-1)*rho*u=a*rho^gam, so a=(gam-1)*rho^(1-gam)*u
          if(nintvar.eq.1 .and. u(i).ne.0.d0)
      $        udot(i)=udot(i)*0.5d0*(gam-1.d0)*rho(i)**(1.d0-gam)
+
+c     ln A is the specific entropy up to the factor 3k/2mu and a constant, so
+c     d(lnA)/dt = (2 mu/3k) (du/dt)/T, with du/dt the dissipative part alone --
+c     which is exactly what the sum above holds, since the branch that fills it
+c     leaves out the adiabatic pdV work that does not change the entropy.  The
+c     temperature comes from pressure, which runs earlier in the same step over
+c     this same n_lower:n_upper range; the fallback covers the first call,
+c     before pressure has ever filled it.
+         if(nintvar.eq.3 .and. u(i).ne.0.d0) then
+            if(tempcache(i).le.0.d0)
+     $           call getT_from_lna(u(i),rho(i)*munit/runit**3.d0,
+     $           meanmolecular(i),-1.d0,tempcache(i))
+            udot(i)=udot(i)*0.5d0*gravconst*munit/runit
+     $           *2.d0*meanmolecular(i)/(3.d0*boltz*tempcache(i))
+         endif
 
       enddo
 c      write(6,'(a)')'hydrompi'

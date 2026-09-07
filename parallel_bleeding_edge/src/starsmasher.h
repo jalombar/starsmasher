@@ -68,7 +68,8 @@
       common/courantnumbers/ cn1,cn2,cn3,cn4,cn5,cn6,cn7
       common/integration/nintvar,neos,nusegpus,nselfgravity,ncooling,nkernel
 !     nintvar=12 integrates the entropic variable a while the drag is on and
-!     then hands over to the specific internal energy u.  tswitchtou is when
+!     then hands over to the specific internal energy u; nintvar=32 does the
+!     same with the buoyancy ln A described below.  tswitchtou is when
 !     that happens; a negative value means "follow treloff", resolved at use
 !     rather than at read, because trelax=0 lets relax.f change treloff later.
 !     iswitchtou is 1 while a switch is still pending.  gam1maxdev records the
@@ -77,6 +78,18 @@
       real*8 tswitchtou,gam1maxdev
       integer iswitchtou
       common/nintvarswitch/ tswitchtou,gam1maxdev,iswitchtou
+!     nintvar=3 integrates the buoyancy of Gaburov, Lombardi & Portegies Zwart
+!     (2008, MNRAS 383, L5), stored as ln A.  For a monatomic ideal gas plus
+!     radiation that is the true specific entropy up to a factor and a
+!     composition constant, s-s0=(3k/2mu)lnA, so it is exactly conserved in an
+!     adiabatic flow whatever Gamma_1 does.  It needs neos=1.  nintvar=32 is
+!     the corresponding handover, ln A while the drag is on and then u --
+!     digits in order, as for 12.
+!     tempcache holds the temperature found in pressure.  It is valid only for
+!     n_lower:n_upper on each rank, which is the range balAV3 needs it over,
+!     and doubles as the starting point for the next inversion.
+      real*8 tempcache(nmax)
+      common/tempcachecom/tempcache
       parameter(kdm=5000)
       integer ntypes,cc(nmax)
       parameter(ntypes=32)

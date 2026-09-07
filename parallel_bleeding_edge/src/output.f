@@ -323,6 +323,15 @@ c     p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1)
                myeint=myeint+am(i)*u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
                ucgs=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
      $              *gravconst*munit/runit
+            else if(nintvar.eq.3) then
+c     ln A is stored, so the internal energy has to come back through the
+c     temperature before it can be added to the energy budget.
+               rhocgs=rho(i)*munit/runit**3.d0
+               call getT_from_lna(u(i),rhocgs,meanmolecular(i),-1.d0,
+     $              temperature)
+               ucgs=1.5d0*boltz*temperature/meanmolecular(i)
+     $              +arad*temperature**4/rhocgs
+               myeint=myeint+am(i)*ucgs/(gravconst*munit/runit)
             else
                myeint=myeint+am(i)*u(i)
                ucgs=u(i)*gravconst*munit/runit
@@ -639,10 +648,18 @@ c     myrank=0 needs the nn,gx,gy,gz values to make the col file
                if(nintvar.eq.1) then
                   ucgs=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
      $                 *gravconst*munit/runit
+               else if(nintvar.eq.3 .and. u(i).ne.0.d0) then
+                  call getT_from_lna(u(i),rhocgs,meanmolecular(i),-1.d0,
+     $                 temperature)
+                  ucgs=1.5d0*boltz*temperature/meanmolecular(i)
+     $                 +arad*temperature**4/rhocgs
                else
                   ucgs=u(i)*gravconst*munit/runit
                endif
-               if(arad.gt.0.d0.and.nintvar.eq.2.and.u(i).ne.0.d0)then
+               if(nintvar.eq.3 .and. u(i).ne.0.d0) then
+c     the temperature came out of the ln A inversion just above
+               else if(arad.gt.0.d0.and.nintvar.eq.2
+     $                 .and.u(i).ne.0.d0)then
                   call gettemperature(qconst*rhocgs/meanmolecular(i),
      $                 -ucgs*rhocgs/arad,
      $                 temperature )

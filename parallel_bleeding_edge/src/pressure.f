@@ -42,15 +42,26 @@ c     p=(gam-1)*rho*u, so p/rho^2=(gam-1)*u/rho
          do i=n_lower,n_upper
             if(u(i).ne.0.d0) then
                rhocgs=rho(i)*munit/runit**3.d0
-               if(nintvar.eq.1) then
-                  ucgs=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
-     $                 *gravconst*munit/runit
+               if(nintvar.eq.3) then
+c     ln A is stored.  Inverting it for the temperature has no closed form,
+c     unlike the quartic that the internal energy gives, because the gas
+c     contributes a logarithm of T and the radiation a power of it.  The
+c     temperature kept from the previous step is a very good starting point,
+c     so the Newton inside normally takes one or two passes.
+                  call getT_from_lna(u(i),rhocgs,meanmolecular(i),
+     $                 tempcache(i),temperature)
                else
-                  ucgs=u(i)*gravconst*munit/runit
-               endif
+                  if(nintvar.eq.1) then
+                     ucgs=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+     $                    *gravconst*munit/runit
+                  else
+                     ucgs=u(i)*gravconst*munit/runit
+                  endif
 
-               call gettemperature(qconst*rhocgs/meanmolecular(i),
-     $              -ucgs*rhocgs/arad,temperature)
+                  call gettemperature(qconst*rhocgs/meanmolecular(i),
+     $                 -ucgs*rhocgs/arad,temperature)
+               endif
+               tempcache(i)=temperature
                pgas=rhocgs*boltz*temperature/meanmolecular(i)
                prad=arad*temperature**4/3.d0
                beta1=pgas/(pgas+prad)

@@ -43,7 +43,15 @@ c            dtivel=cn1*hp(i)/sqrt(uijmax(i))
      $           +(vydot(i)-vydotsm(i))**2
      $           +(vzdot(i)-vzdotsm(i))**2)**0.25d0
             if(ncooling.eq.0) then
-               dtiu=cn3*u(i)/dabs(udot(i))
+               if(nintvar.eq.3) then
+c     u(i) holds ln A here, so u(i)/|udot(i)| is not a relative change: the
+c     value of a logarithm depends on the units its argument was measured in,
+c     and shifting them would silently rescale the timestep.  d(lnA) is already
+c     the fractional change in A, so limit that directly.
+                  dtiu=cn3/dabs(udot(i))
+               else
+                  dtiu=cn3*u(i)/dabs(udot(i))
+               endif
             else
 c               dtiu=cn3*u(i)/dabs(udot(i) + (ueq(i)-u(i))*(1-exp(-dth/tthermal(i))/dth )
                dtiu=-cn3*u(i)/(udot(i) + (ueq(i)-u(i))/tthermal(i))
