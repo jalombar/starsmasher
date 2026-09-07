@@ -12,7 +12,7 @@
       real*8 dthnew
 !     for the nintvar=12 handover below
       integer mylength,irank,ierr
-      real*8 tswitchuse
+      real*8 tswitchuse,rhocgsswitch,tswitch
 
 !     variables used for radiative cooling portion of the code:
 !         uorig=specific internal energy u particle would have achieved if no cooling
@@ -31,7 +31,7 @@
       
       dth=0.5d0*dt
 
-!     nintvar=12: hand over from the entropic variable a to the specific
+!     nintvar=12 and 32: hand over from the integrated entropy variable to the specific
 !     internal energy u.  p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1).
 !
 !     Two things fix where and how this is done.  It must happen at the TOP of
@@ -62,17 +62,36 @@
                        mpi_double_precision, irank, mpi_comm_world, ierr)
                endif
             enddo
-            do i=1,n
-               if(u(i).ne.0.d0) u(i)=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
-            enddo
+            if(nintvar.eq.3) then
+!     ln A back to u: invert the buoyancy for the temperature, then take the
+!     energy of an ideal gas plus radiation at that temperature.
+               do i=1,n
+                  if(u(i).ne.0.d0) then
+                     rhocgsswitch=rho(i)*munit/runit**3.d0
+                     call getT_from_lna(u(i),rhocgsswitch,&
+                          meanmolecular(i),-1.d0,tswitch)
+                     u(i)=(1.5d0*boltz*tswitch/meanmolecular(i)&
+                          +arad*tswitch**4/rhocgsswitch)&
+                          /(gravconst*munit/runit)
+                  endif
+               enddo
+            else
+               do i=1,n
+                  if(u(i).ne.0.d0) u(i)=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+               enddo
+            endif
+            if(myrank.eq.0) then
+               if(nintvar.eq.3) then
+                  write(69,*)'nintvar=32: switched from ln A to u at t=',t
+               else
+                  write(69,*)'nintvar=12: switched from A to u at t=',t
+                  write(69,*)'   largest |Gamma_1-gam|/gam while integrating a =',&
+                       gam1maxdev
+               endif
+               write(69,*)'   (treloff=',treloff,', tswitchtou=',tswitchtou,')'
+            endif
             nintvar=2
             iswitchtou=0
-            if(myrank.eq.0) then
-               write(69,*)'nintvar=12: switched from a to u at t=',t
-               write(69,*)'   (treloff=',treloff,', tswitchtou=',tswitchtou,')'
-               write(69,*)'   largest |Gamma_1-gam|/gam while integrating a =',&
-                    gam1maxdev
-            endif
          endif
       endif
 

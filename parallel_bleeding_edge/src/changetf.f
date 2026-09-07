@@ -3,6 +3,8 @@ c     pplot27: try to detect collisions
 c     pplot28: if two stars are in process of merging, don't call it a new binary
 c     pplot46: center of mass position and velocity used to calculate orbital elements, but position of lowest grpot particle in component is used when determining if particles are bound and which component is which color
       include 'starsmasher.h'
+      real*8 uofstored
+      external uofstored
       include 'mpif.h'
       real*8 ax1,ay1,az1,ax2,ay2,az2,ax3,ay3,az3
       real*8 axr,ayr,azr,axg,ayg,azg,axb,ayb,azb
@@ -772,6 +774,8 @@ c               tjumpahead=min(tjumpahead,dble(nint(t+75.d0+25*ran1(idumb))))
             if(nintvar.eq.1) then
 c     p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1)
                eint=eint+am(i)*u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+            else if(nintvar.eq.3 .and. u(i).ne.0.d0) then
+               eint=eint+am(i)*uofstored(i)
             else
                eint=eint+am(i)*u(i)
             endif
@@ -1149,6 +1153,8 @@ c            write(state,103) stara,starb
             if(nintvar.eq.1) then
                eintsave=eintsave
      $              +am(i)*u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+            else if(nintvar.eq.3 .and. u(i).ne.0.d0) then
+               eintsave=eintsave+am(i)*uofstored(i)
             else
                eintsave=eintsave+am(i)*u(i)
             endif

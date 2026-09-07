@@ -10,6 +10,7 @@ c     numbers for a summary table
       real*8 spinz,spiny,spinx
       real*8 zrel,yrel,xrel
       real*8 rhocgs,spintotal,vzrel,vyrel,vxrel
+      real*8 tcompbest
       real*8 betaofi,prad,pgas,ucgs
       real*8 theta,dotproduct,rad,gamma,rhomax
       real*8 angularvelocity,rcyl,rhomaxfocus,temperature
@@ -124,6 +125,14 @@ c     make sure all processors know the most recent rho values for all particles
             if(nintvar.eq.1) then
 c     p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1)
                enth(i)=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+            else if(nintvar.eq.3) then
+c     ln A is stored: recover u through the temperature.  rho has been gathered
+c     above, so it is the whole array here and not just this rank's share.
+               call getT_from_lna(u(i),rho(i)*munit/runit**3.d0,
+     $              meanmolecular(i),-1.d0,tcompbest)
+               enth(i)=(1.5d0*boltz*tcompbest/meanmolecular(i)
+     $              +arad*tcompbest**4/(rho(i)*munit/runit**3.d0))
+     $              /(gravconst*munit/runit)
             else
                enth(i)=u(i)     !use this if u(i) is actually specific energy
             endif
@@ -133,6 +142,8 @@ c     p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1)
       if(myrank.eq.0) then
          if(nintvar.eq.1) then
             write(69,*) '***assumed u(i) is truly p/rho^gamma***'
+         else if(nintvar.eq.3) then
+            write(69,*) '***assumed u(i) is truly ln A***'
          else
             write(69,*) '**assumed u(i) is specific internal energy u**'
          endif

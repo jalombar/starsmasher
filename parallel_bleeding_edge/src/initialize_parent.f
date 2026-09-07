@@ -7,7 +7,7 @@ c     creates a star from the data file yrec output
       integer numlines,i
       integer idumb,ip,ix,iy,iz
       real*8 anumden,rhotry,rhoex,rtry,rhomax,hc,xcm,ycm,zcm,amtot,
-     $     ammin,ammax,xtry,ytry,ztry,ri,rhoi
+     $     ammin,ammax,xtry,ytry,ztry,ri,rhoi,alnai
       integer irtry
       real*8 amass,masscgs,radius
       real*8 tem(kdm),pres(kdm),
@@ -391,6 +391,10 @@ c     is what makes the masses equal: am = rho/n and n ~ rho beyond r_trans.
          zcm=zcm+am(i)*z(i)
          amtot=amtot+am(i)
          call sph_splint(rarray,uarray,uarray2,numlines,ri,u(i))
+c     The mean molecular weight is splined before the conversions below rather
+c     than after them, because the nintvar=3 buoyancy needs it.
+         call sph_splint(rarray,muarray,muarray2,numlines,ri,
+     $        meanmolecular(i))
 c     This routine stores the specific internal energy, but when nintvar=1 the
 c     rest of the code expects u(i) to hold the entropic variable a=p/rho^gam.
 c     initialize_polyes makes that distinction; initialize_parent did not, so
@@ -399,8 +403,14 @@ c     Convert using the PARENT density at this radius, so that a is defined
 c     from the profile being matched rather than from the SPH estimate.
          if(nintvar.eq.1 .and. u(i).ne.0.d0 .and. rhoi.gt.0.d0)
      $        u(i)=u(i)*(gam-1.d0)/rhoi**(gam-1.d0)
-         call sph_splint(rarray,muarray,muarray2,numlines,ri,
-     $        meanmolecular(i))
+c     nintvar=3 stores ln A instead.  Build it from the parent's own u, density
+c     and composition, for the same reason: the entropy a particle starts with
+c     should be the profile's, not one inferred from the sph density estimate.
+         if(nintvar.eq.3 .and. u(i).ne.0.d0 .and. rhoi.gt.0.d0) then
+            call getlna_from_u(u(i)*gravconst*munit/runit,
+     $           rhoi*munit/runit**3.d0,meanmolecular(i),alnai)
+            u(i)=alnai
+         endif
          anumden=rhoi/am(i)
 c     The actual number of neighbours is closer to 1.41*nnopt.  Measured by
 c     dividing the converged h by this guess, particle by particle: through the
