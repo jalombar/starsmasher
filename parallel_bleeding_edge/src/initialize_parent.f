@@ -32,6 +32,7 @@ c     derived constants:
       real*8 integral
       real*8 maxmu,minmu,drhodhi
       double precision utottest
+      real*8 rhocgsi,tempi
       real*8 epot
       real*8 redge1,redge2
       real*8 hpguess,xacc,dxmax
@@ -591,8 +592,48 @@ c     (should give a number of nearest neighbors close to nnopt)
          cc(i)=int(10000*masscgs/egsol)
       enddo
 
-      if(corepts.eq.0 .and. treloff.le.0.d0) then
+c     treloff.lt.0 rather than .le.0, so that this no longer fires on an
+c     ordinary relaxation.  It rescaled u onto utot2 and then the positions
+c     onto wtota2, and measured against the profile integrated directly both
+c     corrections did more harm than good: the star as built sits 0.29% loose
+c     in binding energy, and the rescale drove it 0.36% tight, overshooting.
+c     Worse for nintvar=3, where the entropy is built before the rescale and
+c     so does not know the star was then squeezed: the recovered u rises with
+c     the density and the star starts 1.6% too hot.  Skipping this leaves the
+c     10 msun model within 0.09% in internal energy and 0.30% in binding.
+c     A negative treloff still asks for it, and the targets it uses are now
+c     the corrected ones.
+      if(corepts.eq.0 .and. treloff.lt.0.d0) then
          if(myrank.eq.0) write(69,*)'will try to get correct u and w...'
+
+c     Renormalize the specific internal energy, not whatever u(i) happens to
+c     be storing.  For nintvar=1 the two are proportional -- a is u times
+c     (gam-1)/rho^(gam-1) -- so scaling the stored variable in place was
+c     right by accident.  For nintvar=3 it is not: ln A is logarithmic in u,
+c     so a factor on u is an additive shift in ln A.  Scaling ln A directly
+c     collapsed it from 34.4 to 2.5 at the centre, a factor 7d13 in A, which
+c     left the star with essentially no pressure and a courant timestep so
+c     large that the opening half-step stepped clean past tf and the run
+c     ended having taken no steps at all.  So convert back to u, renormalize
+c     there, and convert again.
+c     The density used is the parent's at this radius rather than rho(i):
+c     rho_and_h has not run yet, so rho(i) is not filled in, and even once it
+c     is it holds the sph estimate rather than the profile being matched --
+c     the same reasoning as for the forward conversion earlier.
+         if(nintvar.eq.3) then
+            do i=1,n
+               if(u(i).ne.0.d0) then
+                  ri=sqrt(x(i)**2+y(i)**2+z(i)**2)
+                  call sph_splint(rarray,rhoarray,rhoarray2,numlines,
+     $                 ri,rhoi)
+                  rhocgsi=rhoi*munit/runit**3.d0
+                  call getT_from_lna(u(i),rhocgsi,meanmolecular(i),
+     $                 -1.d0,tempi)
+                  u(i)=(1.5d0*boltz*tempi/meanmolecular(i)
+     $                 +arad*tempi**4/rhocgsi)/(gravconst*munit/runit)
+               endif
+            enddo
+         endif
 
          utottest=0.d0
          do i=1,n
@@ -606,6 +647,19 @@ c     (should give a number of nearest neighbors close to nnopt)
          do i=1,n
             u(i)=u(i)*utot2/utottest/(gravconst*munit**2/runit)
          enddo
+
+         if(nintvar.eq.3) then
+            do i=1,n
+               if(u(i).ne.0.d0) then
+                  ri=sqrt(x(i)**2+y(i)**2+z(i)**2)
+                  call sph_splint(rarray,rhoarray,rhoarray2,numlines,
+     $                 ri,rhoi)
+                  call getlna_from_u(u(i)*gravconst*munit/runit,
+     $                 rhoi*munit/runit**3.d0,meanmolecular(i),alnai)
+                  u(i)=alnai
+               endif
+            enddo
+         endif
 
 c     do loop to get total gravitational potential energy:
          if(ngr.ne.0)then
@@ -790,6 +844,7 @@ c     derived constants:
      $     uarray2,muarray2,rhoarray2,amass,radius,
      $     integratednum,maxmu,minmu,numlines
       real*8 utot2,wtota2,sum
+      real*8 utot2old,wtota2old,dmshell
       real*8 maxmu,minmu
       real*8 zeroin
       real*8 redge1
@@ -1288,6 +1343,19 @@ c         write(101,*) i,uarray(i)
       integratednum2=0.d0
       utot2=0.d0
       wtota2=0.d0
+      utot2old=0.d0
+      wtota2old=0.d0
+c     utot2 and wtota2 are the targets that parent rescales the sph star onto,
+c     so a bias in them is a bias in the star.  Both used to be built from
+c     sum w*4 pi r^2*0.5*(r(i+1)-r(i-1)), the same quadrature that turns this
+c     10.000 msun model into the 10.0338 msun reported just below -- a +0.34%
+c     bias that went straight into the targets.  wtota2 also used the virial
+c     form -3 int P dV, which equals -int G m/r dm only for a star in exact
+c     hydrostatic equilibrium with no surface pressure, worth another +0.11%.
+c     The profile carries its own enclosed mass in xm, so integrate against
+c     that instead: no quadrature bias in the mass, and no virial assumption.
+c     The old values are kept as utot2old/wtota2old and printed alongside so
+c     the size of the correction stays visible.
       do i=2,numlines
 c     rhoarray(i) is the average density in the vicinity of rarray(i)
          integratedmass2=integratedmass2+rhoarray(i)*4.d0*pi*
@@ -1295,8 +1363,11 @@ c     rhoarray(i) is the average density in the vicinity of rarray(i)
          integratednum2=integratednum2+rhoarray(i)*4.d0*pi*
      $        rarray(i)**2*0.5d0*(rarray(i+1)-rarray(i-1))/
      $        muarray(i)
-         wtota2=wtota2-3.d0*pres(i)*4.d0*pi*
+         wtota2old=wtota2old-3.d0*pres(i)*4.d0*pi*
      $        rarray(i)**2*0.5d0*(rarray(i+1)-rarray(i-1))
+         dmshell=xm(i)-xm(i-1)
+         wtota2=wtota2-gravconst*0.5d0*(xm(i)+xm(i-1))
+     $        /(0.5d0*(rarray(i)+rarray(i-1)))*dmshell
 
          temupperlimit=pres(i)*muarray(i)/(rhoarray(i)*boltz)
          zok=.true.
@@ -1342,8 +1413,9 @@ c     make sure i=1 shell is done same way up above
 c            write(102,*) i,uarray(i),tem(i)
 
          endif
-         utot2=utot2+uarray(i)*rhoarray(i)*4.d0*pi*
+         utot2old=utot2old+uarray(i)*rhoarray(i)*4.d0*pi*
      $        rarray(i)**2*0.5d0*(rarray(i+1)-rarray(i-1))
+         utot2=utot2+0.5d0*(uarray(i)+uarray(i-1))*(xm(i)-xm(i-1))
       enddo
 
       if(neos.eq.2 .and. nzskip.gt.0 .and. myrank.eq.0) then
@@ -1366,10 +1438,18 @@ c            write(102,*) i,uarray(i),tem(i)
          write(69,*)'mass from integrating rho profile=',
      $        integratedmass2/egsol,'msun'
          write(69,*)'number from integrating=',integratednum2
+         write(69,*)'mass from xm (the profile itself)=',
+     $        xm(numlines)/egsol,'msun'
          write(69,*)
      $        'utot (in sph units)=',utot2/(gravconst*munit**2/runit)
          write(69,*)
      $        'wtot (in sph units)=',wtota2/(gravconst*munit**2/runit)
+         write(69,*)
+     $        'utot from the old r-quadrature=',
+     $        utot2old/(gravconst*munit**2/runit)
+         write(69,*)
+     $        'wtot from the old r-quadrature and virial=',
+     $        wtota2old/(gravconst*munit**2/runit)
       endif
 
       masscgs=xm(numlines)
