@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **76** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **77** settings.
 
 
 .. _sph-input-time-and-output:
@@ -396,6 +396,10 @@ Units
      - ``1.9884098706980504d33``
      - every run
      - number of g in unit of mass.  use 1.9884098706980504E+033 if want MESA solar mass.
+   * - ``gravconst``
+     - ``6.67430d-08``
+     - every run
+     - newton's gravitational constant in cgs.  2018 CODATA value; older StarSmasher runs used 6.67390d-08
 
 .. _sph-input-input-files:
 
