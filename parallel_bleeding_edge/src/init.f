@@ -58,6 +58,8 @@ c     compute look-up tables:
          write(69,*) 'These are the code units being used:'
          write(69,*) '   mass unit=',munit,'g'
          write(69,*) '   radius unit=',runit,'cm'
+         write(69,*) '   gravitational constant=',gravconst,
+     $        'cm^3/(g s^2)'
          write(69,*) '   pressure unit=',punit,'dyne/cm^2'
       endif  
 
@@ -609,6 +611,7 @@ c      end
      $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
      $     nintvar,tswitchtou,ngravprocs,qthreads,gflag,mbh,runit,munit,
+     $     gravconst,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
@@ -674,6 +677,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       mbh=10d0                 ! mass of the point mass used as the second object when startfile2 is absent
       runit=6.957d10          ! number of cm in the unit of length.  use 6.957d10 if want MESA solar radius.
       munit=1.9884098706980504d33          ! number of g in unit of mass.  use 1.9884098706980504E+033 if want MESA solar mass.
+      gravconst=6.67430d-08    ! newton's gravitational constant in cgs.  2018 CODATA value; older StarSmasher runs used 6.67390d-08
 !     the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
 !     dt_sph=1/(1/dt1 + 1/dt2 + 1/dt3 + 1/dt4)
       cn1=.3d0                 ! dt1=cn1*h/v_signal

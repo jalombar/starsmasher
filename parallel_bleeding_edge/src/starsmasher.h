@@ -39,8 +39,7 @@
       parameter(sigma=pi**2*boltz*(boltz*2d0*pi/planck)**3/60d0/crad2)
       parameter(arad=4.0d0*sigma/crad,qconst=1.5d0*boltz/arad)
       real*8 munit,runit,punit,gravconst,redge
-      parameter(gravconst = 6.67430d-08)
-      common/units/munit,runit,punit
+      common/units/munit,runit,punit,gravconst
       common/artvis/ alpha,beta,nav
       integer computeexclusivemode,ppn
       common/grav/ ngr,computeexclusivemode

@@ -227,7 +227,7 @@ GROUPS = [
  ('Timestep control', ['nintvar','cn1','cn2','cn3','cn4','cn5','cn6','cn7']),
  ('Parallelism and GPUs',
                      ['ngravprocs','qthreads','ppn','computeexclusivemode','gflag']),
- ('Units',           ['runit','munit']),
+ ('Units',           ['runit','munit','gravconst']),
  ('Input files',     ['startfile1','startfile2','startfile3','binaryfile','triplefile',
                       'bpbhfile','imagefile','advectedfile',
                       'eosfile','opacityfile','profilefile',
