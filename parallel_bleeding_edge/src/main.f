@@ -91,7 +91,11 @@ c            beta=2.d0
          if(reat.ge.0.d0) call eatem
 
          if(t.gt.abs(tjumpahead)) then
-            if(autotf) then
+c     A negative tjumpahead means the user set the jump time deliberately, so
+c     honour it whatever tf is doing.  A positive one can only have come from
+c     changetf deciding a jump was worth scheduling, and that is a decision
+c     only a run with a negative tf is allowed to make.
+            if(autotf .or. tjumpahead.lt.0.d0) then
                if(myrank.eq.0) write(69,*) 'jumpping ahead at time t=',t
                call jumpahead
             else

@@ -7,4 +7,5 @@ Using StarSmasher
    running
    input
    output
+   jumping_ahead
    visualisation

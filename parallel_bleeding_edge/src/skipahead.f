@@ -51,6 +51,9 @@
       real*8 displacex, displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
+      real*8 ebind1,ebind2
+      integer nreassigned
+      logical keepit
 
 c     Initializing bhcomp
       bhcomp = -1
@@ -104,73 +107,15 @@ c     discards those; the whole array has to be summed instead.
       if(myrank.eq.0)write(69,*)
      $     '***done analyzing system right before jump ahead***'
 
-      if(throwaway)then
-         call compbest3(.true.)
-      else
-c     When throwaway is set equal to .false. (the default value) then...
-c     We will be keeping *all* mass, and assuming it is in two separate components, with
-c     the point masses making up one component.  This will need to be fixed if we ever
-c     have, for example, a red giant star with a point mass core.
-         am1=0d0
-         x1=0d0
-         y1=0d0
-         z1=0d0
-         vx1=0d0
-         vy1=0d0
-         vz1=0d0
-         am2=0d0
-         x2=0d0
-         y2=0d0
-         z2=0d0
-         vx2=0d0
-         vy2=0d0
-         vz2=0d0
-         am3=0d0
-         x3=0d0
-         y3=0d0
-         z3=0d0
-         vx3=0d0
-         vy3=0d0
-         vz3=0d0
-         am4=0d0
-         do i=1,n
-            if(u(i).eq.0) then
-               am1=am1+am(i)
-               x1=x1+am(i)*x(i)
-               y1=y1+am(i)*y(i)
-               z1=z1+am(i)*z(i)
-               vx1=vx1+am(i)*vx(i)
-               vy1=vy1+am(i)*vy(i)
-               vz1=vz1+am(i)*vz(i)
-               icomp(i)=1
-            else
-               am2=am2+am(i)
-               x2=x2+am(i)*x(i)
-               y2=y2+am(i)*y(i)
-               z2=z2+am(i)*z(i)
-               vx2=vx2+am(i)*vx(i)
-               vy2=vy2+am(i)*vy(i)
-               vz2=vz2+am(i)*vz(i)
-               icomp(i)=2
-            endif
-         enddo
-         if(am1.gt.0) then
-            x1=x1/am1
-            y1=y1/am1
-            z1=z1/am1
-            vx1=vx1/am1
-            vy1=vy1/am1
-            vz1=vz1/am1
-         endif
-         if(am2.gt.0) then
-            x2=x2/am2
-            y2=y2/am2
-            z2=z2/am2
-            vx2=vx2/am2
-            vy2=vy2/am2
-            vz2=vz2/am2
-         endif
-      endif
+c     The two-body solve needs the centre of mass of each *body*, so the split
+c     has to be the physical one whether or not the debris is about to be
+c     discarded.  Sorting particles by whether they are point masses is not good
+c     enough once anything has been stripped: a tidal tail drags the centre of
+c     mass of "every SPH particle" away from the centre of mass of the star, and
+c     the orbit measured from it is wrong by far more than the jump's own
+c     tolerances.  It also mistakes a red giant's core particle for the compact
+c     object.  compbest3 iterates a binding test instead, and costs one call.
+      call compbest3(.true.)
 
       if(myrank.eq.0) then
          if(am1.gt.0)then
@@ -225,6 +170,37 @@ c     have, for example, a red giant star with a point mass core.
                endif
             enddo
          endif
+      endif
+
+      if(.not.throwaway)then
+c     Nothing is going to be discarded, so every particle has to be carried
+c     across the jump, including the ones compbest3 assigned to neither body.
+c     Move each with whichever of the two it is more tightly bound to.  That is
+c     an approximation, because such a particle is not on either body's orbit,
+c     but it is a better one than leaving the debris behind while both bodies
+c     are moved out from under it.
+         nreassigned=0
+         do i=1,n
+            if(icomp(i).ne.1 .and. icomp(i).ne.2)then
+               ebind1=0.5d0*((vx(i)-vx1)**2+(vy(i)-vy1)**2
+     $              +(vz(i)-vz1)**2)
+     $              -am1/max(hp(i),((x(i)-x1)**2+(y(i)-y1)**2
+     $              +(z(i)-z1)**2)**0.5d0)
+               ebind2=0.5d0*((vx(i)-vx2)**2+(vy(i)-vy2)**2
+     $              +(vz(i)-vz2)**2)
+     $              -am2/max(hp(i),((x(i)-x2)**2+(y(i)-y2)**2
+     $              +(z(i)-z2)**2)**0.5d0)
+               if(ebind1.le.ebind2)then
+                  icomp(i)=1
+               else
+                  icomp(i)=2
+               endif
+               nreassigned=nreassigned+1
+            endif
+         enddo
+         if(myrank.eq.0) write(69,*)
+     $        'jumpahead: throwaway is off, so',nreassigned,
+     $        'particles belonging to neither body are carried along'
       endif
 
       r12=sqrt((x1-x2)**2+(y1-y2)**2+(z1-z2)**2)
@@ -622,9 +598,16 @@ c     discards those; the whole array has to be summed instead.
             if(u(i).eq.0) bhcomp=icomp(i)
          enddo
 
+c     Keep the point masses, and the body that is not sharing a component with
+c     one: that component's SPH particles are the debris the accretor has taken,
+c     and they are treated as accreted.  bhcomp stays negative when there is no
+c     point mass anywhere, and then there is no accretor, so both bodies are
+c     kept and only material bound to neither goes.
          do i=1,n
-            if(  (bhcomp.eq.2 .and. icomp(i).eq.1) .or.
-     $           (bhcomp.eq.1 .and. icomp(i).eq.2) .or. u(i).eq.0)then
+            keepit = u(i).eq.0 .or.
+     $           (icomp(i).eq.1 .and. bhcomp.ne.1) .or.
+     $           (icomp(i).eq.2 .and. bhcomp.ne.2)
+            if(keepit)then
                if(icomp(i).eq.1) then
                   amass1=amass1+1
                elseif(icomp(i).eq.2) then

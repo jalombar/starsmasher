@@ -36,9 +36,91 @@ A setting you do not name keeps its default, and a setting the chosen
 initialization script does not read is ignored without complaint.
 :doc:`../reference/sph_input` lists all of them with their defaults.
 
+.. _code-units:
+
+Code units
+----------
+
 Numbers in ``sph.input`` are in code units unless a setting says otherwise.
-``munit`` and ``runit`` fix what those are, and default to the mass and radius
-of the Sun.  See :ref:`code units <code-units>`.
+StarSmasher works in units where
+
+.. math::
+
+   G = M_\mathrm{unit} = R_\mathrm{unit} = 1.
+
+Three settings fix what that means in cgs, and all three can be reset in
+``sph.input`` like any other::
+
+    &input
+    runit=6.957d10,
+    munit=1.9884098706980504d33,
+    gravconst=6.67430d-08,
+    &end
+
+``runit`` is the number of centimetres in the unit of length, ``munit`` the
+number of grams in the unit of mass, and ``gravconst`` Newton's constant in
+cgs.  The values above are the defaults: the MESA solar radius, the MESA solar
+mass, and the 2018 CODATA value of :math:`G`.  Out of the box, then, a mass of
+1 is a solar mass and a length of 1 is a solar radius.
+
+Every other unit is built from those three and nothing else, so changing any
+one of them rescales all of them.  The defaults give the values in the last
+column.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 36 38
+
+   * - Quantity
+     - Unit
+     - Default value in cgs
+   * - mass
+     - :math:`M_\mathrm{unit}`
+     - approximately :math:`1.99\times10^{33}` g
+   * - length
+     - :math:`R_\mathrm{unit}`
+     - approximately :math:`6.96\times10^{10}` cm
+   * - time
+     - :math:`\sqrt{R_\mathrm{unit}^3 / (G M_\mathrm{unit})}`
+     - approximately :math:`1.59\times10^{3}` s, or 26.5 minutes
+   * - velocity
+     - :math:`\sqrt{G M_\mathrm{unit} / R_\mathrm{unit}}`
+     - approximately :math:`4.37\times10^{7}` cm s\ :sup:`-1`, or 437 km s\ :sup:`-1`
+   * - acceleration
+     - :math:`G M_\mathrm{unit} / R_\mathrm{unit}^2`
+     - approximately :math:`2.74\times10^{4}` cm s\ :sup:`-2`
+   * - density
+     - :math:`M_\mathrm{unit} / R_\mathrm{unit}^3`
+     - approximately :math:`5.91` g cm\ :sup:`-3`
+   * - pressure
+     - :math:`G M_\mathrm{unit}^2 / R_\mathrm{unit}^4`
+     - approximately :math:`1.13\times10^{16}` dyn cm\ :sup:`-2`
+   * - energy
+     - :math:`G M_\mathrm{unit}^2 / R_\mathrm{unit}`
+     - approximately :math:`3.79\times10^{48}` erg
+   * - specific energy
+     - :math:`G M_\mathrm{unit} / R_\mathrm{unit}`
+     - approximately :math:`1.91\times10^{15}` erg g\ :sup:`-1`
+   * - angular momentum
+     - :math:`\sqrt{G M_\mathrm{unit}^3 R_\mathrm{unit}}`
+     - approximately :math:`6.04\times10^{51}` g cm\ :sup:`2` s\ :sup:`-1`
+
+Put less formally: with the defaults, a density of 1 is one solar mass spread
+through one cubic solar radius, and a time of 1 is how long a body in a
+circular orbit grazing the solar surface takes to cover one solar radius, a
+little under half an hour.
+
+Temperature is the one quantity that is never scaled.  It is in kelvin
+everywhere, in the input and in the output alike.
+
+A polytrope is the exception to all of this, and only when ``neos=0``.  The
+polytropic equation of state is :math:`P = A\rho^\gamma`, which brings in no
+physical constant, so nothing in the calculation refers to grams or centimetres
+at all.  A polytrope of ``starmass=1`` and ``starradius=1`` is a star of one
+mass unit and one radius unit, not one solar mass and one solar radius, and you
+may read those units as whatever you like.  Setting ``neos=1`` or ``neos=2``
+brings physical constants back in, and the model becomes a star of a definite
+size again.
 
 Depending on what you are setting up
 ------------------------------------

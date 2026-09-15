@@ -208,6 +208,12 @@ A ``restartrad.sph`` file is written every few iterations, overwriting the
 previous one.  If one is present when a run starts, it is used automatically.
 You can also restart from any snapshot by renaming it to ``restartrad.sph``.
 
+A restart is not only a way to recover from a crash.  It is also how settings
+are changed part-way through a calculation, since ``sph.input`` is reread every
+time: artificial viscosity can be turned off, the output interval changed, or an
+orbital jump armed once you have seen how the first passage went.  See
+:doc:`jumping_ahead`.
+
 .. note::
 
    Output files are numbered per stage, not per rank.  A fresh run writes
