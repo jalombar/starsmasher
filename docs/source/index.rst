@@ -28,7 +28,9 @@ number in an output file means, that is :doc:`using/output`.
 
 If the physics is what you are after rather than the mechanics,
 :doc:`reference/equations_of_motion` explains what StarSmasher does differently
-from textbook SPH and why it matters for collisions.
+from textbook SPH and why it matters for collisions, and
+:doc:`using/jumping_ahead` explains how a wide, highly eccentric orbit is
+skipped analytically instead of being integrated.
 
 .. toctree::
    :maxdepth: 2

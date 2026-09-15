@@ -21,6 +21,22 @@ Every run writes these:
    checkpoint.  If it is present in the directory when a run starts, the code
    continues from it rather than beginning afresh.
 
+A run with a negative ``tf`` writes one more, and a run that jumps ahead on its
+orbit writes two others:
+
+``ecc.sph``
+   One row per output, tracking the two most massive components of the system:
+   their masses and positions, their separation, the mass that has left them,
+   and the semimajor axis and eccentricity of the orbit between them.
+
+``jumpahead.sph``
+   The same columns as ``energy*.sph``, three lines per orbital jump, from
+   either side of it.
+
+``m1m2rp.sph``
+   Written by ``jumpahead``.  Two lines: the particle counts and then the
+   masses of the two components, each followed by ``rp``.
+
 A relaxation writes two more, as a convenience for checking the model:
 
 ``parent.sph``
@@ -284,6 +300,89 @@ wrong.
    in a directory you meant to reuse for a fresh run will silently continue the
    old one.  If a new run begins at a time you did not expect, this is why.
 
+Written when ``tf`` is negative
+-------------------------------
+
+``ecc.sph``
+~~~~~~~~~~~
+
+A negative ``tf`` lets the code revise its own stopping time, and to do that it
+analyses the system at every output.  ``ecc.sph`` is the record of that
+analysis: plain text, one row per output, fifteen columns.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 12 88
+
+   * - Columns
+     - Meaning
+   * - 1
+     - time
+   * - 2-3
+     - masses of the two most massive components, heaviest first
+   * - 4-9
+     - their centre-of-mass positions, three each
+   * - 10
+     - the separation between them
+   * - 11-12
+     - all the mass that has left both stars, as a fraction of the total and in
+       code units
+   * - 13-14
+     - semimajor axis and eccentricity of the orbit between the two
+   * - 15
+     - the part of that mass which is unbound from the system as well
+
+The first of the two components is the more massive one, which in a star and
+black hole encounter means the black hole *together with whatever is bound to
+it*, not the point particle alone.  The second is the star.
+
+Columns 12 and 15 are easy to confuse and are not the same quantity.  Column 12
+is everything that has come off the stars, whether or not it is still bound to
+the system; column 15 counts only the part that is leaving for good.  The
+difference between them is material that is unbound from either star but still
+bound to the pair, a common envelope in the case this bookkeeping was written
+for.  Column 12 is usually the one wanted.
+
+The components are found by ``compbest3``, which iterates a binding test until
+membership stops changing.  Columns 13 and 14 are what tell you whether an
+encounter has left a bound remnant, and are what you watch when deciding
+whether to :doc:`jump ahead <jumping_ahead>`.
+
+``jumpahead.sph``
+~~~~~~~~~~~~~~~~~
+
+Written only when a jump can happen, and appended to at each one.  The columns
+are exactly those of ``energy*.sph``, and the lines come in groups of three:
+
+#. the system as it was before anything was touched,
+#. after the orbit has been advanced, but before any mass is discarded,
+#. after the mass has been discarded.
+
+Comparing the first two lines isolates what the Kepler solve did; comparing the
+second and third isolates what the mass removal did.  Nothing else writes to
+this file, so it is three lines per jump and nothing else.
+
+Unlike ``log*.sph`` and ``energy*.sph`` it is not numbered per stage, and it is
+truncated rather than appended to when a run starts.  Since arming a jump
+normally means restarting, copy it somewhere safe before the next restart if
+you want to keep a record across several passages.
+
+.. note::
+
+   Fortran buffers this file, so a run in progress may show an ``ecc.sph`` that
+   is empty or many rows behind, and a run that was killed rather than allowed
+   to finish may leave it empty altogether.  ``jumpahead.sph`` below behaves the
+   same way.  Read the ``out*.sph`` snapshots instead if you need the current
+   state of a live run.
+
+``m1m2rp.sph``
+~~~~~~~~~~~~~~
+
+Written by ``jumpahead``, and overwritten by each jump.  Two lines, three
+numbers each: the first gives the number of particles in each component and
+``rp``, the second the mass of each component and ``rp`` again.  See
+:doc:`jumping_ahead`.
+
 Written for star relaxation runs
 --------------------------------
 
@@ -295,33 +394,8 @@ same quantities in the same order, so a relaxation can be checked by plotting
 one over the other.  ``parent.sph`` stops after column 6.
 
 Everything in both files is in code units, with two exceptions: temperature is
-in kelvin and mean molecular weight is in grams.
-
-.. _code-units:
-
-.. admonition:: Code units
-
-   StarSmasher works in units where
-
-   .. math::
-
-      G = M_\mathrm{unit} = R_\mathrm{unit} = 1.
-
-   ``munit`` and ``runit`` in :doc:`../reference/sph_input` say what those two
-   are in grams and centimetres.  They default to the mass and radius of the
-   Sun, so unless you change them a density of 1 means one solar mass per cubic
-   solar radius, and a time of 1 is the interval light would need to cross a
-   solar radius if :math:`GM_\odot/R_\odot` were unity.  Every other unit
-   follows from those three.
-
-   A polytrope is the exception, and only when ``neos=0``.  The polytropic
-   equation of state is :math:`P = A\rho^\gamma`, which brings in no physical
-   constant, so nothing in the calculation refers to grams or centimetres at
-   all.  A polytrope of ``starmass=1`` and ``starradius=1`` is a star of one
-   mass unit and one radius unit, not one solar mass and one solar radius, and
-   you may read those units as whatever you like.  Setting ``neos=1`` or
-   ``neos=2`` brings physical constants back in, and the model becomes a star of
-   a definite size again.
+in kelvin and mean molecular weight is in grams.  What a code unit is worth in
+cgs, and how to change it, is set out under :ref:`code units <code-units>`.
 
 .. list-table::
    :header-rows: 1

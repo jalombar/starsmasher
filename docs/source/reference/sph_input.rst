@@ -47,7 +47,7 @@ Time and output
    * - ``tjumpahead``
      - ``1d30``
      - every run
-     - time after which a wide orbit may be skipped rather than integrated.  Only acts when tf is negative
+     - time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
    * - ``tscanon``
      - ``0``
      - every run
@@ -57,9 +57,9 @@ Time and output
      - every run
      - final separation for the scan of a binary, reached at min(tf,treloff).  The scan is exponential in separation, so it changes by a fixed fraction per unit time.  Set it equal to sep0 for a corotating run that does not scan
    * - ``throwaway``
-     - ``.false.``
+     - ``.true.``
      - every run
-     - when skipping ahead, discard unbound ejecta rather than keeping all mass as two components
+     - when skipping ahead, discard the debris and the material the accretor has taken, keeping only the surviving body and the point masses
 
 .. _sph-input-the-particles:
 
@@ -379,6 +379,9 @@ Parallelism and GPUs
 
 Units
 -----
+
+These three set the physical meaning of every code unit; see
+:ref:`code units <code-units>` for what the derived units work out to.
 
 .. list-table::
    :header-rows: 1

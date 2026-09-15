@@ -702,7 +702,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       ncooling=0 ! 0 if no cooling, otherwise radiative cooling
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
-      tjumpahead=1d30 ! time after which a wide orbit may be skipped rather than integrated.  Only acts when tf is negative
+      tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
       startfile1='sph.start1u' ! first body of the encounter, in out*.sph format, usually the last snapshot of a relaxation
       startfile2='sph.start2u' ! second body, same format as startfile1.  If absent, a single point mass of mass mbh is used
       startfile3='sph.start3u' ! third body of a triple, same format as startfile1
@@ -714,12 +714,21 @@ c     set some default values, so that they don't necessarily have to be set in 
       eosfile='sph.eos' ! tabulated equation of state, read when neos selects a table
       opacityfile='sph.opacity' ! tabulated opacities, read when cooling needs them
       profilefile='eg.last1.muse_s2mm' ! stellar-evolution profile that erg builds its star from
-      throwaway=.false. ! when skipping ahead, discard unbound ejecta rather than keeping all mass as two components
+      throwaway=.true. ! when skipping ahead, discard the debris and the material the accretor has taken, keeping only the surviving body and the point masses
       stellarevolutioncodetype=1 ! which code wrote profilefile, since the column layouts differ
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
       close(12)
+
+c     A tjumpahead the user has actually chosen is stored negated, which is how
+c     changetf is told to leave it alone.  Without that, changetf clears the
+c     jump time at the first output dump and the jump never happens.  The
+c     default of 1d30 is left positive, so a run that never asked for a jump
+c     behaves exactly as before.  Negating again on a restart is harmless
+c     because the value is already negative by then.
+      if(tjumpahead.gt.0.d0 .and. tjumpahead.lt.1.d30)
+     $     tjumpahead=-tjumpahead
 
 c     nintvar=12 asks for the entropic variable a while the drag is on, because
 c     it is exactly conserved there and so adds no entropy noise, and then for
@@ -824,9 +833,13 @@ c      endif
      $     'x1    ','y1    ','z1    ','x2    ','y2    ','z2    ',
      $     'd12    ','am4/amtot    ','am4    ',
      $     'a12    ','ecc12    ','mejecta    '
-
-c         open(34,file='jumpahead.sph')
       endif
+
+c     enout writes the energies from either side of every jump to unit 34.
+c     Name the file, or they land in a stray fort.34.  The condition is the one
+c     main.f uses to decide whether a jump can happen at all.
+      if(myrank.eq.0 .and. (autotf .or. tjumpahead.lt.0.d0))
+     $     open(34,file='jumpahead.sph')
 
       return
 

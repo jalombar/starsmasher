@@ -1164,6 +1164,14 @@ c            write(state,103) stara,starb
      $        'when eint=',eintsave
       endif         
 
+c     A negative tjumpahead is the user pinning the jump time by hand, either
+c     in sph.input or through init.f flipping the sign on a restart.  Every
+c     branch above is free to clear tjumpahead when it decides a jump is not
+c     wanted, which would throw the pinned value away before main.f ever got to
+c     use it, so put it back.  main.f compares against abs(tjumpahead) and sets
+c     tjumpahead=1.d30 once a jump has fired, so this cannot cause a second one.
+      if(tjumpaheadold.lt.0.d0) tjumpahead=tjumpaheadold
+
       if(tjumpahead.ne.tjumpaheadold) then
          if(myrank.eq.0)write(69,'(3(a,g13.5))')'tjumpahead changed from',tjumpaheadold,
      $        'to',tjumpahead

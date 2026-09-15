@@ -44,6 +44,8 @@
 
 
 ### Tides and Collisions
+[Partial Tidal Disruptions of Main-sequence Stars by Intermediate-mass Black Holes](https://ui.adsabs.harvard.edu/abs/2023ApJ...948...89K/abstract)
+
 [Micro-Tidal Disruption Events by Stellar Compact Objects and the Production of Ultra-Long GRBs](http://adsabs.harvard.edu/abs/2016ApJ...823..113P)
 
 [Formation of Black Hole X-Ray Binaries in Globular Clusters](http://iopscience.iop.org/article/10.1088/0004-637X/717/2/948/pdf)

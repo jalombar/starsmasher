@@ -234,6 +234,12 @@ GROUPS = [
                       'stellarevolutioncodetype']),
 ]
 
+# Optional prose to print under a group heading, before its table.
+GROUP_NOTES = {
+ 'Units': ['These three set the physical meaning of every code unit; see',
+           ':ref:`code units <code-units>` for what the derived units work out to.'],
+}
+
 def main():
     members, defaults, _lo, _hi = parse(INIT)
     usage = applies_to(os.path.dirname(INIT), members)
@@ -292,6 +298,10 @@ def main():
         slug = 'sph-input-' + re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')
         w('.. _%s:' % slug); w('')
         w(title); w('-' * len(title)); w('')
+        for line in GROUP_NOTES.get(title, []):
+            w(line)
+        if title in GROUP_NOTES:
+            w('')
         w('.. list-table::')
         w('   :header-rows: 1')
         w('   :widths: 19 16 20 45')
