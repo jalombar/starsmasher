@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **77** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **78** settings.
 
 
 .. _sph-input-time-and-output:
@@ -61,7 +61,7 @@ Time and output
      - every run
      - when skipping ahead, discard the debris and the material the accretor has taken, keeping only the surviving body and the point masses
    * - ``internal_energy_fraction``
-     - ``0``
+     - ``0d0``
      - every run
      - how much of a particle's specific internal energy counts toward unbinding it when compbest3 sorts particles into components.  0 leaves it out, as Nandez, Ivanova & Lombardi (2014) argue for; 1 counts all of it, as in Kremer et al. (2022)
 
