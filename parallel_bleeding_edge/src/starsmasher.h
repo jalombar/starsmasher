@@ -61,6 +61,13 @@
       character*255 startfile3,binaryfile,triplefile,bpbhfile
       character*255 imagefile,advectedfile
       logical throwaway
+!     internal_energy_fraction weights the specific internal energy in the
+!     binding test compbest3 uses to sort particles into components: a particle
+!     counts as bound to a component when v^2/2 + internal_energy_fraction*u -
+!     M/d is negative.  0 leaves the internal energy out altogether, 1 counts
+!     all of it.  See Nandez, Ivanova & Lombardi (2014, ApJ 786, 39), Sec. 3.2.
+      real*8 internal_energy_fraction
+      common/boundcriterion/ internal_energy_fraction
       integer stellarevolutioncodetype	
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
       common/inputfilenames2/startfile3,binaryfile,triplefile,bpbhfile,imagefile,advectedfile

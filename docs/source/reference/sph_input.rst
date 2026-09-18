@@ -60,6 +60,10 @@ Time and output
      - ``.true.``
      - every run
      - when skipping ahead, discard the debris and the material the accretor has taken, keeping only the surviving body and the point masses
+   * - ``internal_energy_fraction``
+     - ``0``
+     - every run
+     - how much of a particle's specific internal energy counts toward unbinding it when compbest3 sorts particles into components.  0 leaves it out, as Nandez, Ivanova & Lombardi (2014) argue for; 1 counts all of it, as in Kremer et al. (2022)
 
 .. _sph-input-the-particles:
 

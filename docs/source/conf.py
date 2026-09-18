@@ -21,6 +21,9 @@ source_suffix    = {'.rst': 'restructuredtext', '.md': 'markdown'}
 html_theme       = 'sphinx_rtd_theme'
 html_static_path = ['_static']
 html_css_files   = ['custom.css']
+# Links that leave the site open in a new tab, so that a reader following a
+# paper reference does not lose their place in the documentation.
+html_js_files    = ['external-links.js']
 html_title       = 'StarSmasher'
 # The logo is optional so the docs still build before the artwork is added.
 import os as _os
