@@ -616,6 +616,7 @@ c      end
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,throwaway,
+     $     internal_energy_fraction,
      $     startfile3,binaryfile,triplefile,bpbhfile,
      $     imagefile,advectedfile,
      $     stellarevolutioncodetype,
@@ -715,6 +716,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       opacityfile='sph.opacity' ! tabulated opacities, read when cooling needs them
       profilefile='eg.last1.muse_s2mm' ! stellar-evolution profile that erg builds its star from
       throwaway=.true. ! when skipping ahead, discard the debris and the material the accretor has taken, keeping only the surviving body and the point masses
+      internal_energy_fraction=0d0 ! how much of a particle's specific internal energy counts toward unbinding it when compbest3 sorts particles into components.  0 leaves it out, as Nandez, Ivanova & Lombardi (2014) argue for; 1 counts all of it, as in Kremer et al. (2022)
       stellarevolutioncodetype=1 ! which code wrote profilefile, since the column layouts differ
 
       open(12,file='sph.input',err=100,STATUS='OLD')

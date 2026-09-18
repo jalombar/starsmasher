@@ -2,15 +2,12 @@ Jumping ahead on a wide orbit
 =============================
 
 A grazing encounter between a star and a black hole often leaves the star bound,
-on an orbit so eccentric and so wide that the next pericentre passage is tens of
-thousands of dynamical times away.  Integrating the intervening orbit is
-pointless.  For all but the last little while of it the two bodies are a
-two-body problem with a star quietly ringing inside it, and SPH is being asked
-to do nothing that Kepler could not do exactly.
+on an orbit so eccentric and so wide that the next pericentre passage could be tens of
+thousands of dynamical times or more away.  For all but the last little while of the orbit, the two bodies are a
+two-body problem with a star quietly ringing inside it.
 
-StarSmasher can skip that part.  The routine is ``jumpahead``, in
-``parallel_bleeding_edge/src/skipahead.f``; the file and the routine have never
-agreed on a name, and "skip ahead" and "jump ahead" both refer to it.  It
+StarSmasher can skip the part handled by a Kepler two-body orbit.  The routine is ``jumpahead,`` in
+``parallel_bleeding_edge/src/skipahead.f``.  It
 measures the orbit the two components are on, solves the two-body problem
 analytically, and puts the system back down at a smaller separation on the
 *infalling* branch of the same orbit, with every particle's position and
@@ -22,19 +19,17 @@ Where this has been used
 
 The technique goes back to the binary-disruption simulations of `Antonini,
 Lombardi & Merritt (2011), ApJ 731, 128
-<https://ui.adsabs.harvard.edu/abs/2011ApJ...731..128A/abstract>`_
-(`arXiv:1008.5369 <https://arxiv.org/abs/1008.5369>`_), whose Section 3.3,
-"Timescale considerations and orbital advancement", sets out the argument: the
-thermal timescale of a bound star is :math:`10^5` to :math:`10^7` yr, far longer
+<https://ui.adsabs.harvard.edu/abs/2011ApJ...731..128A/abstract>`_, whose
+Section 3.3, "Timescale considerations and orbital advancement", sets out the
+argument: the thermal timescale of a bound star is :math:`10^5` to :math:`10^7` yr, far longer
 than an orbital period, so the star's structure barely changes over an orbit and
 nothing is lost by advancing it analytically.  They wait at least eight days
 after periapsis before measuring the orbital elements, and check the
 approximation against runs that integrate the orbit in full.
 
 `Godet et al. (2014), ApJ 793, 105
-<https://ui.adsabs.harvard.edu/abs/2014ApJ...793..105G/abstract>`_
-(`arXiv:1408.1819 <https://arxiv.org/abs/1408.1819>`_) use the same treatment for
-the repeated partial stripping of a donor by an intermediate-mass black hole in
+<https://ui.adsabs.harvard.edu/abs/2014ApJ...793..105G/abstract>`_ use the same
+treatment for the repeated partial stripping of a donor by an intermediate-mass black hole in
 HLX-1.  Their Section 6.1 states it compactly: once the donor "has retreated
 sufficiently far from the black hole to become stabilized (typically about 100
 dynamical timescales after periapsis), we employ the analytic Kepler two-body
@@ -61,6 +56,8 @@ debris bound to the black hole is treated as accreted, which is harmless when
 Turning it on
 -------------
 
+All four parameters below are set in ``sph.input``.
+
 ``tjumpahead``
    The time at which the jump happens.  The default, ``1d30``, never fires.  Any
    other value is a deliberate request and is honoured.  The code stores it
@@ -72,6 +69,11 @@ Turning it on
 ``throwaway``
    Whether the debris is discarded.  The default is ``.true.``, which is what
    the papers do.  See `Discarding the debris`_.
+
+``internal_energy_fraction``
+   How much of a particle's specific internal energy is allowed to help unbind
+   it when the particles are sorted into components.  The default is ``0``.
+   See `Which particle belongs to which body`_.
 
 ``tf``
    Not required for a jump, but set it negative anyway.  A negative ``tf`` lets
@@ -94,7 +96,7 @@ Choosing when to jump
 ---------------------
 
 Jump too early and the orbital elements are still changing and the star is not
-back in equilibrium; jump too late and you have paid for the integration you
+back in equilibrium. Jump too late and you have paid for the integration you
 were trying to avoid.
 
 A separation that works
@@ -143,7 +145,15 @@ have finished being disrupted, so look at a snapshot before trusting the number.
 Turning a separation into a time
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-``tjumpahead`` is a time, so the prescription has to be converted.  The first
+**Barker's equation is not required.**  ``tjumpahead`` is a time and nothing
+else, and the code knows nothing of :math:`r_{\rm jump}` or of Barker's
+equation.  If you already know how long you want to wait (because you watched
+the first passage go by, or because a previous run of the same
+encounter told you) then write that time in and skip to the next section.
+What follows is only the way to turn a separation you have picked into a time,
+which you need when you are choosing the jump time before the run exists.
+
+The first
 passage is near enough parabolic for Barker's equation, the parabolic
 counterpart of Kepler's equation (`Pathan 2008, Math. Gaz. 92, 39
 <https://www.cambridge.org/core/journals/mathematical-gazette/article/abs/eulers-and-barkers-equations-a-geometric-derivation-of-the-time-of-flight-along-parabolic-trajectories/3AEDFC36C19C75A01F91984247A603E4>`_,
@@ -303,7 +313,7 @@ has been moved from :math:`r=45.7` to :math:`r=22.9`, so it is deeper in the
 black hole's potential and moving faster.  The total energy moves in the fifth
 digit.
 
-Line 2 to line 3 is the mass removal:
+Line 2 to line 3 is the mass removal (if throwaway is set to .true.):
 
 .. code-block:: text
 
@@ -349,6 +359,89 @@ axis has halved again.  Without the jump it would have arrived somewhere near
 
 How it works
 ------------
+
+Which particle belongs to which body
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The Kepler solve needs two bodies, so before anything else the particles have to
+be divided between them.  ``compbest3``, in ``compbest3.f``, determines the mass,
+the center of mass, and center of mass velocity of
+each of the two components.  
+
+The algorithm is the one set out in Section 2.2, "Analysis of Hydrodynamics", of
+`Kremer et al. (2022), ApJ 933, 203
+<https://ui.adsabs.harvard.edu/abs/2022ApJ...933..203K/abstract>`_.  The code does a
+two-body binding test applied particle by particle.
+
+Each component :math:`j` has a mass :math:`M_j` and a centre.  The centre of the
+star is its **densest particle**; the centre of the black hole and whatever is
+bound to it is the **point particle itself**.  Particle :math:`i` counts as
+bound to component :math:`j` when
+
+.. math::
+
+   \frac{1}{2}v_{ij}^{2} + f_u\,u_i - \frac{GM_j}{d_{ij}} < 0,
+
+where :math:`v_{ij}` is the particle's velocity relative to that component's
+center-of-mass velocity, :math:`d_{ij}` is its distance from that component's
+center, :math:`u_i` is its specific internal energy, and :math:`f_u` is the
+``sph.input`` parameter ``internal_energy_fraction``.  (The array holding
+:math:`f_u u_i` is called ``enth`` in the source, but what it scales is specific
+internal energy and not enthalpy: whichever variable the run actually
+integrates, :math:`A`, :math:`\ln A` or :math:`u`, is converted back to
+:math:`u_i` first.)
+
+Three rules settle the rest:
+
+* A particle bound to more than one component goes to the one whose center is
+  **closer**, not to the one it is more tightly bound to.
+* A particle bound to neither body is ejecta, which the code calls component 4.
+* A point mass never changes component.  Point masses are sorted once, on the
+  first call, and stay put, so the black hole anchors its component for good.
+
+The masses and centers are then recomputed from the new membership and the test
+repeated, until a pass moves nobody.  That loop is the ``nit``/``nchng`` table
+in ``log0.sph``.
+
+A body left holding between one and four SPH particles is dissolved
+into the ejecta, on the grounds that it is not a star.
+
+Kremer et al. use :math:`f_u = 1`.  The default here is ``0``, following
+Section 3.2 of `Nandez, Ivanova & Lombardi (2014), ApJ 786, 39
+<https://ui.adsabs.harvard.edu/abs/2014ApJ...786...39N/abstract>`_, who set the
+two side by side as the "conventional" and "abridged" definitions and adopt the
+abridged one.  Their objection to counting :math:`u_i` is that it declares
+material unbound on the strength of heat it never gets to spend: the particles
+it mislabels are shock-heated ones sitting beside the companion with a large
+:math:`u_i` and almost no velocity, and they are still sitting there at the end
+of the run, having neither radiated that heat nor passed it to a neighbour.
+With :math:`f_u = 0` the internal energy of the ejecta falls as adiabatic
+expansion says it should; with :math:`f_u = 1` it stays high.
+
+At a well-chosen jump time the setting should barely matter, and that is an
+argument for jumping late rather than for ignoring the parameter.  What the
+test weighs is :math:`f_u u_i` against :math:`GM_j/d_{ij}`, and by
+:math:`r_{\rm jump}` those two are far apart for almost every particle: the
+star has had tens of dynamical times to return to hydrostatic equilibrium, so
+its material is bound by a wide margin, and the debris has expanded and cooled
+adiabatically, so :math:`u_i` out there is small.  Only material still hot from
+the pericentre shock lies near the boundary, and waiting is what removes it.
+If flipping :math:`f_u` between 0 and 1 moves the masses in ``m1m2rp.sph``
+appreciably, the jump was made too early.
+
+.. dropdown:: The ancestor of the scheme
+
+   The scheme's ancestor, cited by Kremer et al. and worth knowing about if you
+   compare bound masses against older work, is Section 2.7 of `Lombardi et al.
+   (2006), ApJ 640, 441
+   <https://ui.adsabs.harvard.edu/abs/2006ApJ...640..441L/abstract>`_.  It
+   differs from what runs here in four ways: distances are measured to each
+   component's center of mass rather than to its densest particle, the binding
+   test uses :math:`M_j - m_i` in place of :math:`M_j`, a particle must in
+   addition lie closer to its component's centre than the two centres are to
+   each other, and a tie is broken by the more negative energy rather than by
+   the shorter distance.  It also carries a third, common-envelope component
+   that the version here does not.
 
 The two-body solve
 ~~~~~~~~~~~~~~~~~~
@@ -422,22 +515,6 @@ is what Antonini et al. justify with the thermal timescale argument.
    after the jump is what you compare it against.  At the end, ``lfstart``
    restarts the leapfrog.
 
-.. dropdown:: Splitting the system into two components
-
-   The Kepler problem needs two bodies, so the particles have to be divided.
-   ``compbest3`` does it, the same component finder that fills ``ecc.sph``: it
-   iterates a binding test until membership stops changing, and puts material
-   bound to neither body into a fourth, unbound component.  If a third component
-   turns out to be more massive than the lighter of the first two, it is renamed
-   into its place, so the jump always describes the two most important bodies.
-
-   This happens whichever way ``throwaway`` is set.  It has to: the two-body
-   solve needs the centre of mass of each *body*, and sorting particles by
-   whether they are point masses is not good enough once anything has been
-   stripped.  A tidal tail drags the centre of mass of "every SPH particle" well
-   away from the centre of mass of the star, and it would also mistake a red
-   giant's core particle for the compact object.
-
 .. dropdown:: Rotating the new orbit into place
 
    The positions and velocities are worked out in the orbital plane, so they
@@ -477,6 +554,15 @@ logged as ``throwaway is off, so N particles belonging to neither body are
 carried along``.  That is an approximation, since such a particle is not on
 either body's orbit, but a better one than leaving the debris behind while both
 bodies are moved out from under it.
+
+Because nothing is removed, nothing is renumbered either: with
+``throwaway=.false.`` the particle order is not changed by a jump.  Particle
+:math:`i` in the snapshots after the jump is the same particle :math:`i` as
+before it, and ``ntot`` is the same too, so a particle can be tracked straight
+through.  With ``throwaway=.true.`` the survivors are compacted into a
+contiguous block, which keeps them in their existing relative order but shifts
+every index past the first deletion, so indices must not be compared across a
+jump.
 
 The Kepler solve uses the component masses from ``compbest3``, so debris bound
 to the black hole is counted in the black hole's mass *for the purpose of the
@@ -546,9 +632,13 @@ for after touching the routine.
 The same component finder runs in the post-processing.  ``compbest3.f`` is
 shipped with the splot routines in ``splot_routines/`` as well, where option 71
 calls it to build ``massAndMore.out``.  Bound masses quoted from a jump and
-bound masses measured afterwards therefore come from the same algorithm.
+bound masses measured afterwards therefore come from the same algorithm.  That
+copy has :math:`f_u = 0` built in and reads no ``sph.input``, so it agrees with
+a run left at the default and not with one that sets
+``internal_energy_fraction=1``.
 
 .. seealso::
 
-   :doc:`../reference/sph_input` for ``tjumpahead``, ``throwaway`` and ``tf``,
-   and :doc:`output` for the files named here.
+   :doc:`../reference/sph_input` for ``tjumpahead``, ``throwaway``,
+   ``internal_energy_fraction`` and ``tf``, and :doc:`output` for the files
+   named here.

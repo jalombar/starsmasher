@@ -136,6 +136,11 @@ c     above, so it is the whole array here and not just this rank's share.
             else
                enth(i)=u(i)     !use this if u(i) is actually specific energy
             endif
+c     internal_energy_fraction decides how much of that specific internal
+c     energy is allowed to help unbind the particle.  The default of 0 drops
+c     it, leaving a purely kinetic-plus-gravitational criterion; 1 counts it
+c     in full, which is what Kremer et al. (2022) write down.
+            enth(i)=internal_energy_fraction*enth(i)
          endif
       enddo
       

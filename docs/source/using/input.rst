@@ -107,8 +107,10 @@ column.
 
 Put less formally: with the defaults, a density of 1 is one solar mass spread
 through one cubic solar radius, and a time of 1 is how long a body in a
-circular orbit grazing the solar surface takes to cover one solar radius, a
-little under half an hour.
+circular orbit grazing the solar surface takes to sweep out one radian, a
+little under half an hour.  That last one is exact rather than approximate,
+which is why a whole such orbit takes :math:`2\pi` code units of time, or
+about 2.78 hours.
 
 Temperature is the one quantity that is never scaled.  It is in kelvin
 everywhere, in the input and in the output alike.

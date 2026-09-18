@@ -545,6 +545,7 @@ c      end
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,throwaway,
+     $     internal_energy_fraction,
      $     stellarevolutioncodetype,npoly,usegravitycorrections,
      $     hceiling,meanmolecularweight
       integer filenum
@@ -625,6 +626,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       opacityfile='sph.opacity'
       profilefile='eg.last1.muse_s2mm'
       throwaway=.false.
+      internal_energy_fraction=0d0 ! how much of a particle's specific internal energy counts toward unbinding it when compbest3 sorts particles into components.  0 leaves it out, as Nandez, Ivanova & Lombardi (2014) argue for; 1 counts all of it, as in Kremer et al. (2022)
       stellarevolutioncodetype=1
       meanmolecularweight=0.10329d-23 ! in grams.  This is 0.617534 proton masses
 
