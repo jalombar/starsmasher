@@ -551,6 +551,7 @@ c     write binary dump file containing complete current results
       integer mylength, ierr, mygravlength
       integer comm_worker
       common/gravworkers/comm_worker
+      real*8 gtot(nmax)
 
 c     myrank=0 needs the rho,divv values to make the output file
       mylength=n_upper-n_lower+1
@@ -614,27 +615,42 @@ c     this is here for the generation of col*.sph files
          if(ngr.ne.0 .and. myrank.lt.ngravprocs)then
 c     myrank=0 needs the nn,gx,gy,gz values to make the col file
             if(ngravprocs.gt.1) then
-               mygravlength=ngrav_upper-ngrav_lower+1
-               if(myrank.ne.0)then
-                  call mpi_gatherv(gx(ngrav_lower), mygravlength, mpi_double_precision,
-     $                 gx, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-                  call mpi_gatherv(gy(ngrav_lower), mygravlength, mpi_double_precision,
-     $                 gy, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-                  call mpi_gatherv(gz(ngrav_lower), mygravlength, mpi_double_precision,
-     $                 gz, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
+               if(nusegpus.eq.1) then
+c     gpu gravity: each rank holds the full g for its own slice
+                  mygravlength=ngrav_upper-ngrav_lower+1
+                  if(myrank.ne.0)then
+                     call mpi_gatherv(gx(ngrav_lower), mygravlength, mpi_double_precision,
+     $                    gx, gravrecvcounts, gravdispls, mpi_double_precision, 0,
+     $                    comm_worker, ierr)
+                     call mpi_gatherv(gy(ngrav_lower), mygravlength, mpi_double_precision,
+     $                    gy, gravrecvcounts, gravdispls, mpi_double_precision, 0,
+     $                    comm_worker, ierr)
+                     call mpi_gatherv(gz(ngrav_lower), mygravlength, mpi_double_precision,
+     $                    gz, gravrecvcounts, gravdispls, mpi_double_precision, 0,
+     $                    comm_worker, ierr)
+                  else
+                     call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
+     $                    gx, gravrecvcounts, gravdispls, mpi_double_precision, 0,
+     $                    comm_worker, ierr)
+                     call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
+     $                    gy, gravrecvcounts, gravdispls, mpi_double_precision, 0,
+     $                    comm_worker, ierr)
+                     call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
+     $                    gz, gravrecvcounts, gravdispls, mpi_double_precision, 0,
+     $                    comm_worker, ierr)
+                  endif
                else
-                  call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                 gx, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-                  call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                 gy, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
-                  call mpi_gatherv(mpi_in_place, mygravlength, mpi_double_precision,
-     $                 gz, gravrecvcounts, gravdispls, mpi_double_precision, 0,
-     $                 comm_worker, ierr)
+c     cpu_grav leaves each rank with a partial sum over all particles,
+c     so the partial sums must be added, not gathered slice by slice
+                  call mpi_reduce(gx, gtot, n, mpi_double_precision,
+     $                 mpi_sum, 0, comm_worker, ierr)
+                  if(myrank.eq.0) gx(1:n)=gtot(1:n)
+                  call mpi_reduce(gy, gtot, n, mpi_double_precision,
+     $                 mpi_sum, 0, comm_worker, ierr)
+                  if(myrank.eq.0) gy(1:n)=gtot(1:n)
+                  call mpi_reduce(gz, gtot, n, mpi_double_precision,
+     $                 mpi_sum, 0, comm_worker, ierr)
+                  if(myrank.eq.0) gz(1:n)=gtot(1:n)
                endif
             endif
          endif
