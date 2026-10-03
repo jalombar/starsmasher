@@ -158,9 +158,17 @@ c     each processor will compute gravity for its chunk of particles
                if(u(i).eq.0.d0) range(i)=-range(i)
             enddo
             mygravlength=ngrav_upper-ngrav_lower+1
-            call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength, x, y, z, 
-     $           am, range,q,nkernel)
-            call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+c     firsthalf/lasthalf_grav_forces are GPU routines; in the CPU build they
+c     are empty stubs (cpu_grav.f), so grpot was never recomputed here and the
+c     mpi_reduce below summed rank 0's already-reduced grpot with the other
+c     ranks' stale partials, giving epotfinal ~2x.  Branch as balAV3.f does.
+            if(nusegpus.eq.1)then
+               call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength,
+     $              x, y, z, am, range,q,nkernel)
+               call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+            else
+               call get_gravity_using_cpus
+            endif
 
             if(ngravprocs.gt.1) then
                if(nusegpus.eq.1)then
