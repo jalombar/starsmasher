@@ -259,7 +259,31 @@ c     mygravlength=ngrav_upper-ngrav_lower+1
          epoteat=epoteat+(epotoriginal-epotfinal)
          ekineat=ekineat+thrownawayekin+(ekinbhoriginal-ekinbhfinal)
          einteat=einteat+thrownawayeint
+
+c     The dthnew half-kick that advance applied to v and u used accelerations
+c     and udot evaluated with the swallowed particles still present.  Undo
+c     it (exact for ncooling=0: v=vxo+(dth+dthnew)*vxdot), re-evaluate the
+c     derivatives for the post-swallow particle set (rho_and_h was already
+c     called above; on CPUs gravity is computed inside uvdots), and redo the
+c     half-kick, so the first post-swallow step does not run on pre-swallow
+c     forces.  Changes the dynamics slightly.
+         if(ncooling.eq.0) then
+            do i=1,ntot
+               vx(i)=vx(i)-hdt*vxdot(i)
+               vy(i)=vy(i)-hdt*vydot(i)
+               vz(i)=vz(i)-hdt*vzdot(i)
+               if(u(i).ne.0.d0) u(i)=u(i)-hdt*udot(i)
+            enddo
+            if(ngr.ne.0) call gravforce
+            call uvdots
+            do i=1,ntot
+               vx(i)=vx(i)+hdt*vxdot(i)
+               vy(i)=vy(i)+hdt*vydot(i)
+               vz(i)=vz(i)+hdt*vzdot(i)
+               if(u(i).ne.0.d0) u(i)=u(i)+hdt*udot(i)
+            enddo
+         endif
       endif
-      
+
       return
       end
