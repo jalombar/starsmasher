@@ -584,13 +584,23 @@ c     derived constants:
      $     grada,actual_gradT,total_energy,total_energy_integral,       
      $     scale_height,mu,dummy
       integer ii,one,maxnumcol,col
-      parameter(maxnumcol=99)
-      integer in(maxnumcol),numcol
+c     A MESA profile carries one column per quantity named in its
+c     profile_columns.list, and a list that asks for most of what MESA can
+c     report runs to a couple of hundred.  maxnumcol only has to be at least as
+c     large as the widest profile to be read, and costs 49 bytes per column.
+      parameter(maxnumcol=512)
+c     in is one element longer than maxnumcol so that a profile with more
+c     columns than maxnumcol can be recognised as such, rather than found by
+c     reading past the end of the array.
+      integer in(maxnumcol+1),numcol
       character*41 headers(maxnumcol)
+      character*16 headerfmt
       integer imass,ilogR,ilogT,
      $     ilogRho,ilogP,ix_mass_fraction_H,iy_mass_fraction_He,
      $     iz_mass_fraction_metals,iradius,ipressure,ihe3,ihe4
-      real*8 mesadata(2:maxnumcol)
+c     The read below fills mesadata from column 1, not column 2 as in
+c     parallel_bleeding_edge, so the array has to start at 1.
+      real*8 mesadata(maxnumcol)
 
       if(myrank.eq.0) then
          write(69,*) 'splinesetup: stellarevolutioncodetype=',
@@ -709,19 +719,49 @@ c     profilefile comes from MESA
 
 
 
-         do i=1,maxnumcol
+         do i=1,maxnumcol+1
             in(i)=0
          enddo
-         
-         read(io,*,err=99) (in(i),i=1,maxnumcol)
-         print *,'should never see this'
-         
+
+c     A profile narrower than maxnumcol+1 runs this read off the end of the
+c     column line and into the header names, where it fails and jumps to 99.  A
+c     wider one satisfies the read from the column line alone and falls through
+c     to the same place.  Either way in holds the column numbers that were
+c     there, and the zeroes above mark where they stopped.
+         read(io,*,err=99) (in(i),i=1,maxnumcol+1)
+
  99      continue
+c     Bound the search by the size of in.  Testing in(numcol+1) unbounded reads
+c     one element past the end of the array as soon as a profile has maxnumcol
+c     columns or more; that is undefined behaviour, and it returned zero often
+c     enough to look like it was working.
          numcol=0
-         do while(in(numcol+1).ne.0)
-            numcol=numcol+1
+         do i=1,maxnumcol+1
+            if(in(i).eq.0) exit
+            numcol=i
          enddo
          close(io)
+
+         if(numcol .gt. maxnumcol) then
+c     Every rank must take this branch: the read loop further down is bounded by
+c     numcol, so any rank that continues past this point writes past the end of
+c     the maxnumcol-sized headers and mesadata arrays.  numcol is only a lower
+c     bound here, since in ran out before the columns did, so report it as one.
+            if(myrank .eq. 0) then
+               print *, "Too many columns in the MESA profile!"
+               print *, "Edit the value of 'maxnumcol' in "//
+     $              "initialize_parent.f to use more, then rebuild."
+               print *, "Columns found = at least ", numcol
+               print *, "Max allowed columns maxnumcol = ", maxnumcol
+               write(69,*) "Too many columns in the MESA profile!"
+               write(69,*) "Edit the value of 'maxnumcol' in "//
+     $              "initialize_parent.f to use more, then rebuild."
+               write(69,*) "Columns found = at least ", numcol
+               write(69,*) "Max allowed columns maxnumcol = ", maxnumcol
+            end if
+            error stop
+         end if
+
          if(myrank.eq.0) then
             write(69,*) 'number of columns in MESA file=',numcol
          endif
@@ -743,7 +783,12 @@ c     profilefile comes from MESA
          read(io,*)             ! blank line
          read(io,*)             ! list of integers                   
 
-         read(io,'(99a)')(headers(i), i=1,numcol)
+c     One a edit descriptor per column, each taking the 41 characters that MESA
+c     writes per field.  The repeat count is built here rather than written as a
+c     literal: a literal smaller than numcol makes the format revert, which
+c     starts a new record and reads the first data line as header names.
+         write(headerfmt,'(a,i0,a)') '(',max(numcol,1),'a)'
+         read(io,headerfmt)(headers(i), i=1,numcol)
 
          imass=0
          ilogR=0
