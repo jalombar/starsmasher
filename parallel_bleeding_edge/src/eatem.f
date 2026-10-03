@@ -20,6 +20,9 @@
       real*8 thermaltime(nmax)
       common/tt/ thermaltime
       real*8 thrownawayeint,thrownawayekin,thrownawayepot
+      real*8 hdt,ueaten,ttherm
+      real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
+      common/oldarrays/uo,vxo,vyo,vzo
       real*8 epotoriginal,ekinbhoriginal
       real*8 epotfinal,ekinbhfinal
       real*8 range(ntot),grpottot(ntot)
@@ -46,6 +49,7 @@
       thrownawayepot=0.d0
       thrownawaynum=0
       epotoriginal=0.d0
+      hdt=0.5d0*dt
       if(u(no).ne.0.d0)then
          write(69,*)'code assumes that last particle is a black hole...'
          write(69,*)'stopping'
@@ -94,9 +98,41 @@
             thrownawaymx=thrownawaymx+am(i)*x(i)
             thrownawaymy=thrownawaymy+am(i)*y(i)
             thrownawaymz=thrownawaymz+am(i)*z(i)
-            thrownawayeint=thrownawayeint+am(i)*u(i)
+c     eatem runs after advance, which left v and u a further dthnew=0.5*dt
+c     ahead of the state enout used for this step's energy row: enout is
+c     called partway through advance, after only the dth predictor kick,
+c     whereas v and u now carry the full (dth+dthnew) kick.  Rebuilding
+c     enout's predictor value books the energy that leaves the same way as
+c     the ekin/eint it leaves behind in energy0.sph.  Both branches below
+c     are second order in dt rather than exact, because the predictor used
+c     the accelerations of the previous step and uvdots has since
+c     overwritten them.  Diagnostics only: nothing dynamical reads these.
+c
+c     The kick to u is linear only when ncooling=0, where subtracting
+c     hdt=dthnew inverts it.  With cooling u was advanced by relaxation
+c     towards ueq, so rebuild the predictor from uo instead, which advance
+c     leaves alone; tthermal=1d30 collapses the exponentials back to the
+c     linear form.  Recovering uo from u algebraically would mean dividing
+c     by exp(-hdt/tthermal) and is unusable once the thermal time drops
+c     below the timestep.  The exception is binary relaxation, where cmadj
+c     symmetrises uo between the two components so it cannot be used.
+            if(ncooling.eq.0) then
+               ueaten=u(i)-hdt*udot(i)
+            else if(u(i).eq.0.d0) then
+               ueaten=0.d0
+            else if(nrelax.ge.2 .and. .not.gonedynamic) then
+               ueaten=u(i)
+            else
+               ttherm=abs(tthermal(i))
+               ueaten=uo(i)*exp(-dth/ttherm)
+     $              +ueq(i)*(1.d0-exp(-dth/ttherm))+dth*udot(i)
+            endif
+            thrownawayeint=thrownawayeint+am(i)*ueaten
+c     the velocity update is a plain kick whatever ncooling is, so the
+c     kinetic term needs no such split.
             thrownawayekin=thrownawayekin+
-     $           0.5d0*am(i)*(vx(i)**2+vy(i)**2+vz(i)**2)
+     $           0.5d0*am(i)*((vx(i)-hdt*vxdot(i))**2
+     $           +(vy(i)-hdt*vydot(i))**2+(vz(i)-hdt*vzdot(i))**2)
             thrownawayepot=thrownawayepot+0.5d0*am(i)*grpot(i)
             thrownawaynum=thrownawaynum+1
             if(myrank.eq.0) then
@@ -114,7 +150,8 @@ c     always keep the black hole:
       i=no
       epotoriginal=epotoriginal+am(i)*grpot(i)
       epotoriginal=0.5d0*epotoriginal
-      ekinbhoriginal=0.5d0*am(i)*(vx(i)**2+vy(i)**2+vz(i)**2)
+      ekinbhoriginal=0.5d0*am(i)*((vx(i)-hdt*vxdot(i))**2
+     $     +(vy(i)-hdt*vydot(i))**2+(vz(i)-hdt*vzdot(i))**2)
 
       ntot=ntot+1
       coeff=1.d0/(1.d0+thrownawaymass/am(i))
@@ -158,9 +195,17 @@ c     each processor will compute gravity for its chunk of particles
                if(u(i).eq.0.d0) range(i)=-range(i)
             enddo
             mygravlength=ngrav_upper-ngrav_lower+1
-            call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength, x, y, z, 
-     $           am, range,q,nkernel)
-            call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+c     firsthalf/lasthalf_grav_forces are GPU routines; in the CPU build they
+c     are empty stubs (cpu_grav.f), so grpot was never recomputed here and the
+c     mpi_reduce below summed rank 0's already-reduced grpot with the other
+c     ranks' stale partials, giving epotfinal ~2x.  Branch as balAV3.f does.
+            if(nusegpus.eq.1)then
+               call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength,
+     $              x, y, z, am, range,q,nkernel)
+               call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+            else
+               call get_gravity_using_cpus
+            endif
 
             if(ngravprocs.gt.1) then
                if(nusegpus.eq.1)then
@@ -189,7 +234,8 @@ c     mygravlength=ngrav_upper-ngrav_lower+1
 
          if(myrank.eq.0) then
             i=ntot
-            ekinbhfinal=0.5d0*am(i)*(vx(i)**2+vy(i)**2+vz(i)**2)
+            ekinbhfinal=0.5d0*am(i)*((vx(i)-hdt*vxdot(i))**2
+     $           +(vy(i)-hdt*vydot(i))**2+(vz(i)-hdt*vzdot(i))**2)
             epotfinal=0d0
             do i=1,ntot
                epotfinal=epotfinal+am(i)*grpot(i)
@@ -213,7 +259,31 @@ c     mygravlength=ngrav_upper-ngrav_lower+1
          epoteat=epoteat+(epotoriginal-epotfinal)
          ekineat=ekineat+thrownawayekin+(ekinbhoriginal-ekinbhfinal)
          einteat=einteat+thrownawayeint
+
+c     The dthnew half-kick that advance applied to v and u used accelerations
+c     and udot evaluated with the swallowed particles still present.  Undo
+c     it (exact for ncooling=0: v=vxo+(dth+dthnew)*vxdot), re-evaluate the
+c     derivatives for the post-swallow particle set (rho_and_h was already
+c     called above; on CPUs gravity is computed inside uvdots), and redo the
+c     half-kick, so the first post-swallow step does not run on pre-swallow
+c     forces.  Changes the dynamics slightly.
+         if(ncooling.eq.0) then
+            do i=1,ntot
+               vx(i)=vx(i)-hdt*vxdot(i)
+               vy(i)=vy(i)-hdt*vydot(i)
+               vz(i)=vz(i)-hdt*vzdot(i)
+               if(u(i).ne.0.d0) u(i)=u(i)-hdt*udot(i)
+            enddo
+            if(ngr.ne.0) call gravforce
+            call uvdots
+            do i=1,ntot
+               vx(i)=vx(i)+hdt*vxdot(i)
+               vy(i)=vy(i)+hdt*vydot(i)
+               vz(i)=vz(i)+hdt*vzdot(i)
+               if(u(i).ne.0.d0) u(i)=u(i)+hdt*udot(i)
+            enddo
+         endif
       endif
-      
+
       return
       end
