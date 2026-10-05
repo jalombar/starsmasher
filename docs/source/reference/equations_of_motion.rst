@@ -141,6 +141,44 @@ becoming under- or over-resolved as the star is disrupted.
    target of an equation solved for every particle at every step, which is why
    leaving it unchanged while increasing ``N`` degrades the model.
 
+Dynamic softening for compact objects
+-------------------------------------
+
+A compact object or core particle (a point particle, with ``u=0``) feels and
+exerts gravity only, softened over the length ``hco``.  By default that length is
+fixed.  With ``dynhco=1`` it is instead solved from the same constraint as an
+SPH smoothing length,
+
+.. math::
+
+   N_i = \sum_j G\!\left(|\mathbf{r}_i - \mathbf{r}_j|,\, h_i\right) = n_{\rm opt},
+
+with the sum running over the SPH neighbours of the point particle only.  The
+softening then shrinks when gas gathers around a black hole and grows when the
+gas leaves.  Because :math:`h_i` now depends on the positions of those
+neighbours, the gravity between the point particle and each of them gets the
+same kind of correction term as for an SPH particle (equations A14 and A15 of
+Gaburov et al. 2010), and energy stays conserved.  There are no hydrodynamic
+forces on or from the point particle.
+
+With ``dynhco=2`` the solution :math:`h_{\rm dyn}` is smoothly limited to
+the range from ``hcomin`` to ``hcomax``,
+
+.. math::
+
+   h_{\rm low} = \left(h_{\rm dyn}^p + h_{\rm comin}^p\right)^{1/p},
+   \qquad
+   h = \left(h_{\rm low}^{-p} + h_{\rm comax}^{-p}\right)^{-1/p},
+
+with :math:`p` set by ``hcopnorm``.  The correction term includes the factor
+:math:`dh/dh_{\rm dyn}`, so energy is still conserved.  A hard clamp such as
+:math:`h=\max(h_{\rm dyn}, h_{\rm comin})` would not conserve energy, because
+the correction force would switch on and off abruptly.  Without a lower limit,
+gas that collects around a black hole can drive the softening, and with it the
+timestep, towards zero.  ``hcomin`` or ``hcomax`` of zero or less removes that
+limit, and neither is set by default.  With neither limit set, ``dynhco=2``
+runs exactly as ``dynhco=1``.
+
 Blackollider
 ------------
 

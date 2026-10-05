@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **78** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **82** settings.
 
 
 .. _sph-input-time-and-output:
@@ -258,6 +258,22 @@ Compact object and black hole
      - ``10d0``
      - ``2cr`` ``hbs`` ``hyp``
      - mass of the point mass used as the second object when startfile2 is absent
+   * - ``dynhco``
+     - ``0``
+     - every run
+     - 0: point particles (u=0) keep the constant softening hco. 1: their softening is solved from eq.(A1) like an SPH smoothing length. 2: as 1 but smoothly limited to [hcomin,hcomax]
+   * - ``hcomin``
+     - ``0d0``
+     - every run
+     - dynhco=2: lower limit on a point particle's softening length (<=0: no limit)
+   * - ``hcomax``
+     - ``0d0``
+     - every run
+     - dynhco=2: upper limit on a point particle's softening length (<=0: no limit)
+   * - ``hcopnorm``
+     - ``8d0``
+     - every run
+     - dynhco=2: sharpness p of the smooth limits h=((h\_dyn^p+hcomin^p)^(-1)+hcomax^(-p))^(-1/p)
    * - ``bbh_m1``
      - ``-1d0``
      - ``hyp``

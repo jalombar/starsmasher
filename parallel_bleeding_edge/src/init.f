@@ -611,6 +611,7 @@ c      end
      $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
      $     nintvar,tswitchtou,ngravprocs,qthreads,gflag,mbh,runit,munit,
+     $     dynhco,hcomin,hcomax,hcopnorm,
      $     gravconst,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
@@ -661,6 +662,10 @@ c     set some default values, so that they don't necessarily have to be set in 
       ngr=3                    ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
       hco=-1d30                ! softening/smoothing length for compact object or core particle (<0 for auto-set)
       mco=-1d30                ! mass of compact object or core particle
+      dynhco=0                 ! 0: point particles (u=0) keep the constant softening hco. 1: their softening is solved from eq.(A1) like an SPH smoothing length. 2: as 1 but smoothly limited to [hcomin,hcomax]
+      hcomin=0d0               ! dynhco=2: lower limit on a point particle's softening length (<=0: no limit)
+      hcomax=0d0               ! dynhco=2: upper limit on a point particle's softening length (<=0: no limit)
+      hcopnorm=8d0             ! dynhco=2: sharpness p of the smooth limits h=((h_dyn^p+hcomin^p)^(-1)+hcomax^(-p))^(-1/p)
       hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
       trelax=1.d30             ! drag timescale.  0 derives it from the model, a very large value disables the drag
@@ -721,6 +726,9 @@ c     set some default values, so that they don't necessarily have to be set in 
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
+c     dynamic softening: the limits apply only with dynhco=2 and at least one
+c     of them set.  Otherwise dynhco=2 runs exactly as dynhco=1.
+      hcolim=dynhco.eq.2 .and. (hcomin.gt.0.d0 .or. hcomax.gt.0.d0)
       close(12)
 
 c     A tjumpahead the user has actually chosen is stored negated, which is how

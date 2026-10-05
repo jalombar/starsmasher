@@ -218,6 +218,22 @@ c     gravity correction part
 c                  csij = csij - 0.5d0*diwkin * bonet_psi(i) * invbonnet
                   csijgc = csijgc - 0.5d0*diwkin * bonet_Psi(i) * invBonnet
                endif
+            else if(u(i).eq.0.d0 .and. u(j).ne.0.d0 .and. dynhco.ge.1
+     $              .and. ngr.ne.0) then
+c     point particle i with a dynamic softening length: no hydro or AV, but
+c     the same gravity correction (a14),(a15) as for an sph particle, since
+c     its h_i obeys eq. (a1) summed over its sph neighbours j
+               csij=0.d0
+               if(hcolim) then
+c     grad G at the unlimited solution h_dyn (see rho_and_h)
+                  if(r2.lt.4.d0*hdynco(i)**2) then
+                     diwkin=dgtab(int(ctab*r2/hdynco(i)**2)+1)
+     $                    /hdynco(i)**2
+                  else
+                     diwkin=0.d0
+                  endif
+               endif
+               csijgc = -0.5d0*diwkin*bonet_psi(i)/(bonet_0mega(i)*am(j))
             else
                csij=0.d0
                csijgc=0.d0
