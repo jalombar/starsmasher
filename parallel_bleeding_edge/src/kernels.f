@@ -113,7 +113,15 @@ c     sph.input or assigned by default in init.f.
       real*8 alpha_n, u, iw
       parameter(alpha_n = 4.d0)
 
-      if (u < 1) then
+      if (gflag.eq.2) then
+c     gflag=2: G=(1-q^3)^2 with q=u/2, strictly decreasing on 0<u<2, so
+c     chi_i=dN_i/dh_i>0 whenever particle i has a neighbour (no plateaus)
+         if (u < 2) then
+            ig = (1.d0 - (u/2.d0)**3)**2
+         else
+            ig = 0.d0
+         endif
+      else if (u < 1) then
          if(gflag.eq.0)then
             ig = iw(alpha_n * u)
          else
@@ -135,7 +143,14 @@ c     sph.input or assigned by default in init.f.
       real*8 alpha_n, u, diw
       parameter(alpha_n = 4.d0)
 
-      if (u .eq. 0) then
+      if (gflag.eq.2) then
+c     (1/u) dG/du for G=(1-q^3)^2, q=u/2
+         if (u < 2) then
+            dig = -0.75d0*u*(1.d0 - (u/2.d0)**3)
+         else
+            dig = 0.d0
+         endif
+      else if (u .eq. 0) then
          dig = 0
       else if (u < 1) then
          if(gflag.eq.0)then

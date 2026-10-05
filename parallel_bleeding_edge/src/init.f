@@ -653,7 +653,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       tf=50000                 ! desired final time to stop simulation
       dtout=100                ! how often an out*.sph files should be dumped
       n=100000                 ! desired number of particles.  if n<0 then |n|=number of particles *per solar mass*.  used only if making a new star.
-      gflag=1                   ! set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes
+      gflag=1                   ! set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes, or 2 for G=(1-q^3)^2 with q=r/2h, which decreases strictly with r so that the h solution has no flat stretches. It gives about 3*nnopt neighbours within 2h, so it needs about half the nnopt of gflag=1 for the same neighbour count
       nnopt=22+gflag                 ! controls neighbor number.  leave it at 22 to get almost 40 neighbors.
       nav=3                    ! artificial viscosity (av) flag.  leave it at 3 to get a hybrid balsara-monaghan av.
       alpha=1                  ! av coefficient for term linear in mu

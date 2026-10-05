@@ -377,7 +377,7 @@ Parallelism and GPUs
    * - ``gflag``
      - ``1``
      - every run
-     - set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes
+     - set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes, or 2 for G=(1-q^3)^2 with q=r/2h, which decreases strictly with r so that the h solution has no flat stretches. It gives about 3\*nnopt neighbours within 2h, so it needs about half the nnopt of gflag=1 for the same neighbour count
 
 .. _sph-input-units:
 

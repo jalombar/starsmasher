@@ -65,6 +65,24 @@ better when massive compact objects or core particles are present.  The
 namelist default ``nnopt=22+gflag`` follows ``gflag``, so changing one moves
 the other.
 
+``gflag=2`` selects :math:`G=(1-q^3)^2` with :math:`q=r/2h`.  Unlike the other
+two, this :math:`G` decreases strictly all the way out to :math:`r=2h`, so
+:math:`N_i` always increases with :math:`h_i` whenever particle :math:`i` has a
+neighbour.  With ``gflag`` 0 or 1, :math:`G` is flat over part of the kernel and
+``nnopt`` is an integer, so :math:`N_i` can be flat in :math:`h_i` right at the
+target.  The smoothing length can then drift without the matching correction
+term, and energy is not conserved.  The error is small in ordinary stars but
+large for gas near a massive black hole, because there a change in :math:`h_i`
+changes the gravitational softening a lot.
+
+``gflag=2`` needs a smaller ``nnopt`` for the same number of neighbours.  For
+uniform density, the number of neighbours within :math:`2h` is exactly
+:math:`3\,n_{\rm opt}`, since :math:`3\int_0^1 (1-q^3)^2 q^2\,dq = 1/3`.  In
+relaxed stars it is about :math:`3.2` to :math:`3.4\,n_{\rm opt}`, compared
+with :math:`1.4` to :math:`1.7\,n_{\rm opt}` for ``gflag=1`` (see below).  So
+``gflag=2`` needs roughly half the ``nnopt`` of ``gflag=1``, and
+``nnopt`` should be set explicitly when using ``gflag=2``.
+
 Smoothing lengths are updated at every timestep, so this is a root find per
 particle per step.  Standard SPH solves for :math:`h_i` too, so the expense is
 not particular to this formulation.
