@@ -40,6 +40,9 @@ c     p=(gam-1)*rho*u, so p/rho^2=(gam-1)*u/rho
 
       else if(neos.eq.1) then
          do i=n_lower,n_upper
+c     block steps: only active particles and refreshed neighbours need P
+            if(nblock.eq.1 .and. nblockfull.eq.0 .and.
+     $           .not.(actblk(i).or.refblk(i))) cycle
             if(u(i).ne.0.d0) then
                rhocgs=rho(i)*munit/runit**3.d0
                if(nintvar.eq.3) then
@@ -91,6 +94,9 @@ c     rather than silent; for a radiation-dominated envelope it will be large.
 
       else if(neos.eq.2) then
          do i=n_lower,n_upper
+c     block steps: only active particles and refreshed neighbours need P
+            if(nblock.eq.1 .and. nblockfull.eq.0 .and.
+     $           .not.(actblk(i).or.refblk(i))) cycle
             if(u(i).ne.0.d0) then
                rhocgs=rho(i)*munit/runit**3.d0
                if(nintvar.eq.1) then

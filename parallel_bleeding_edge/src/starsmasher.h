@@ -2,12 +2,30 @@
 
       include 'starsmasher_limits.generated.h'
       integer n_lower,n_upper,myrank,nprocs
-      integer qthreads,q,gflag
+      integer qthreads,q,gflag,dynhco
       real*8 mbh,reat,starmass,starradius
       common/massblackhole/mbh,reat
       common/starsize/starmass,starradius
       common/nlimits/n_lower,n_upper,nprocs,myrank,qthreads,q
       common/flag/gflag
+      common/dynhcoflag/dynhco
+      real*8 hcomin,hcomax,hcopnorm
+      common/dynhcolimits/hcomin,hcomax,hcopnorm
+!     dynhco=2: unlimited softening solution h_dyn of each point particle (the
+!     limited value is in hp), used by the correction term in balAV3
+      real*8 hdynco(nmax)
+      common/dynhcosol/hdynco
+!     hcolim: dynhco=2 with at least one limit set (see init.f).  Otherwise a
+!     point particle with dynamic softening uses h_dyn itself, as for dynhco=1
+      logical hcolim
+      common/dynhcolim/hcolim
+!     nblock=1: block (power-of-2) timesteps, see blockstep.f90
+      integer nblock,nbinmax,nblockfull,nblimit,nblockref
+      real*8 dtmaxblk,dtforce
+      common/blockpars/dtmaxblk,dtforce,nblock,nbinmax,nblockfull,nblimit,nblockref
+      real*8 dtpart(nmax)
+      logical actblk(nmax),refblk(nmax)
+      common/blockdt/dtpart,actblk,refblk
       integer ngrav_lower,ngrav_upper,ngravprocs
       common/ngravlimits/ngrav_lower,ngrav_upper,ngravprocs
       real*8 vxdotsm(nmax),vydotsm(nmax),vzdotsm(nmax)

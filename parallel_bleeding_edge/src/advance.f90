@@ -29,6 +29,10 @@
       ! coming into this routine, positions, udot, and accelerations are a half-timestep
       ! behind the specific internal energies u and the velocities
       
+      if(nblock.eq.1) then
+         call advance_block
+         return
+      endif
       dth=0.5d0*dt
 
 !     nintvar=12 and 32: hand over from the integrated entropy variable to the specific
@@ -396,6 +400,12 @@
       double precision drhodhi,dphidhi
       real*8 divv(nmax),hpguess
       common/commdivv/divv
+      ! dynhco=2 with limits: last unlimited softening solution of each point particle, so
+      ! its solve restarts next to the root instead of from a clamped value
+      real*8 hdynlast(nmax)
+      real*8 hlowco,hbhco,facco,chico
+      save hdynlast
+      data hdynlast/nmax*0.d0/
       integer maxit,i,j
       double precision ezrtsafe,xtmp,xacc,dxmax
       parameter (maxit=50)
@@ -411,6 +421,8 @@
       real*8 dist2
       integer mylength,irank,ierr
       real*8 dxfrac
+      logical usebrute
+      integer nsolve
 
       if(myrank.eq.nprocs-1) call cpu_time(time1)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -424,7 +436,17 @@
          my_array(3,k)=z(k)
 !         myhp(k)=0
       enddo
-      tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.) ! this is how you create a tree.
+!     block steps: when few particles on this rank need a neighbour search,
+!     search directly instead of building the tree over all particles
+      usebrute=.false.
+      if(nblock.eq.1 .and. nblockfull.eq.0) then
+         nsolve=0
+         do k=n_lower,n_upper
+            if(actblk(k) .or. refblk(k)) nsolve=nsolve+1
+         enddo
+         usebrute=(20*nsolve.lt.(n_upper-n_lower+1))
+      endif
+      if(.not.usebrute) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.) ! this is how you create a tree.
 !     the above have replaced the call to linkedlists
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -453,11 +475,24 @@
             first(i)=first(i-1)+nn(i-1)
          endif
 
-         if(u(i).eq.0.d0) then
+!     block timesteps: only active particles re-solve h, and inactive ones keep
+!     the values predicted in advance_block
+         if(nblock.eq.1 .and. nblockfull.eq.0 .and. .not.actblk(i)&
+              .and. .not.refblk(i)) then
+            nn(i)=0
+            cycle
+         endif
+
+!     With dynhco=1 a point particle solves eq. (A1) for its softening length
+!     exactly as an SPH particle does, counting only SPH neighbours.
+         if(u(i).eq.0.d0 .and. dynhco.eq.0) then
 !            if(myrank.eq.0)write(69,*)'hp(core)=',hp(i),i
             r2last=-1.d30
             goto 60909
          endif
+
+         if(u(i).eq.0.d0 .and. hcolim .and. hdynlast(i).gt.0.d0)&
+              hp(i)=hdynlast(i)
 
          ! Change hp(i) to mean hptilde(i) while solving eq.(A1) of GLPZ 2010.
          hp(i)=hp(i) - hfloor
@@ -478,8 +513,12 @@
          r2=4.d0*hp(i)**2.d0
          r2last=r2
 
-         call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
-              r2=r2,nfound=cnt,nalloc=n,results=results)
+         if(usebrute) then
+            call brute_r2(i,r2,cnt,results)
+         else
+            call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
+               r2=r2,nfound=cnt,nalloc=n,results=results)
+         endif
          nn(i)=cnt
          call check_neighbor_capacity(i)
          list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
@@ -516,9 +555,13 @@
             enddo
             nn(i)=cnt
          else
-            call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                 correltime=-1,&
-                 r2=r2,nfound=cnt,nalloc=n,results=results)
+            if(usebrute) then
+               call brute_r2(i,r2,cnt,results)
+            else
+               call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
+                  correltime=-1,&
+                  r2=r2,nfound=cnt,nalloc=n,results=results)
+            endif
             nn(i)=cnt
             call check_neighbor_capacity(i)
             list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
@@ -585,9 +628,13 @@
                enddo
                nn(i)=cnt
             else
-               call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                    correltime=-1,r2=r2,nfound=cnt,nalloc=n,&
-                    results=results)
+               if(usebrute) then
+                  call brute_r2(i,r2,cnt,results)
+               else
+                  call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
+                     correltime=-1,r2=r2,nfound=cnt,nalloc=n,&
+                     results=results)
+               endif
                nn(i)=cnt
                call check_neighbor_capacity(i)
                list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
@@ -621,6 +668,46 @@
 
          ! Change hp(i) back to the true smoothing length now that done solving eq. (A1) of GLPZ 2010.  
          hp(i) = hp(i) + hfloor
+
+         ! dynhco=2 with limits (hcolim): the softening used is a smooth function of the solution
+         ! h_dyn of eq. (A1):  hlow=(h_dyn^p+hcomin^p)^(1/p),
+         ! h=(hlow^(-p)+hcomax^(-p))^(-1/p).  h depends on positions only
+         ! through h_dyn, so the correction term is that of h_dyn times
+         ! dh/dh_dyn, with chi evaluated at h_dyn (done below).
+         if(u(i).eq.0.d0 .and. hcolim) then
+            hdynlast(i)=hp(i)
+            hdynco(i)=hp(i)
+            ! hcomin<=0 or hcomax<=0 means no limit on that side
+            hlowco=hp(i)
+            if(hcomin.gt.0.d0) hlowco=(hp(i)**hcopnorm+hcomin**hcopnorm)**(1.d0/hcopnorm)
+            hbhco=hlowco
+            if(hcomax.gt.0.d0) hbhco=(hlowco**(-hcopnorm)+hcomax**(-hcopnorm))**(-1.d0/hcopnorm)
+            facco=(hp(i)/hlowco)**(hcopnorm-1.d0)*(hbhco/hlowco)**(hcopnorm+1.d0)
+            ! neighbour list out to 2*max(h,h_dyn), and chi at h_dyn from it
+            r2=4.d0*max(hbhco,hp(i))**2
+            if(r2.gt.r2last) then
+               if(usebrute) then
+                  call brute_r2(i,r2,cnt,results)
+               else
+                  call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
+                     correltime=-1,r2=r2,nfound=cnt,nalloc=n,results=results)
+               endif
+               nn(i)=cnt
+               call check_neighbor_capacity(i)
+               list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+               r2last=r2
+            endif
+            chico=0.d0
+            do in=1,nn(i)
+               jn=list(first(i)+in)
+               dist2=(x(i)-x(jn))**2+(y(i)-y(jn))**2+(z(i)-z(jn))**2
+               if(u(jn).ne.0.d0 .and. dist2.lt.4.d0*hp(i)**2) then
+                  chico=chico-dgdhtab(int(ctab*dist2/hp(i)**2)+1)
+               endif
+            enddo
+            chico=chico/hp(i)
+            hp(i)=hbhco
+         endif
          
 60909    continue  ! code is jumped to here for point particles (with u=0)
 
@@ -643,9 +730,13 @@
             enddo
             nn(i)=cnt
          else
-            call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                 correltime=-1,&
-                 r2=r2,nfound=cnt,nalloc=n,results=results)
+            if(usebrute) then
+               call brute_r2(i,r2,cnt,results)
+            else
+               call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
+                  correltime=-1,&
+                  r2=r2,nfound=cnt,nalloc=n,results=results)
+            endif
             nn(i)=cnt
             call check_neighbor_capacity(i)
             list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
@@ -654,6 +745,16 @@
          call bonetsumwithphi(i,rho(i), bonet_omega(i),&
               bonet_0mega(i),&
               bonet_psi(i), bonet_wn(i))
+         ! hcolim: psi is at the h used (bonetsumwithphi). Replace chi by
+         ! chi(h_dyn)/(dh/dh_dyn) so that psi/chi in balAV3 is psi*dh/dh_dyn/chi(h_dyn)
+         if(u(i).eq.0.d0 .and. hcolim) then
+            if(facco.gt.1.d-12 .and. chico.gt.0.d0) then
+               bonet_0mega(i)=chico/facco
+            else
+               bonet_0mega(i)=1.d0
+               bonet_psi(i)=0.d0
+            endif
+         endif
 
 !         write(16,*) i,rho(i), bonet_omega(i),&
 !             bonet_0mega(i),&
@@ -693,7 +794,7 @@
 !      myhp(i)=hp(i)
 
       enddo
-      call kdtree2_destroy(tree2)
+      if(.not.usebrute) call kdtree2_destroy(tree2)
       deallocate(results)
       deallocate(my_array)
 
@@ -713,6 +814,15 @@
       enddo
 
       call pressure
+      if(nblock.eq.1) then
+         call sync_all(hp)
+         call sync_all(rho)
+         call sync_all(por2)
+         call sync_all(bonet_omega)
+         call sync_all(bonet_0mega)
+         call sync_all(bonet_psi)
+         call sync_all(hdynco)
+      endif
       if(myrank.eq.nprocs-1) then
          call cpu_time(time2)
          write (6,'(a,f6.3,a,i4)')&
@@ -788,7 +898,7 @@
       hpi = hp(i)
       h2=hpi**2
       ctaboverh2=ctab/h2
-      if(u(i).ne.0.d0) then
+      if(u(i).ne.0.d0 .or. dynhco.ge.1) then
 
          bonet1_rho   = 0.d0
          bonet1_omega = 0.d0
@@ -808,8 +918,10 @@
             itab=int(ctaboverh2*r2)+1
 
             ! the u(j).eq.0 is necessary in the next line because we always do gravity
-            ! with point particles
-            if(nselfgravity.eq.1 .or. u(j).eq.0.d0)&
+            ! with point particles.  A point particle i likewise always does gravity
+            ! with everything, but it has no self-potential term, so skip j=i then.
+            if((nselfgravity.eq.1 .or. u(j).eq.0.d0 .or. u(i).eq.0.d0)&
+                 .and. .not.(u(i).eq.0.d0 .and. j.eq.i))&
                  bonet1_psi   = bonet1_psi   + am(j)*dphidhtab(itab)
             if(u(j).ne.0.d0) then
                if(r2.lt.4d0*h2tilde) then
@@ -1005,5 +1117,26 @@
          stop
       endif
 
+      return
+      end
+!***********************************************************************
+      subroutine brute_r2(i,r2,cnt,results)
+!     Direct-search replacement for kdtree2_r_nearest_around_point (block
+!     steps, few searches): all particles j (self included) with squared
+!     distance <= r2, in index order.
+      use kdtree2_module
+      include 'starsmasher.h'
+      integer i,cnt,j
+      real*8 r2,d2
+      type(kdtree2_result) :: results(*)
+      cnt=0
+      do j=1,n
+         d2=(x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
+         if(d2.le.r2) then
+            cnt=cnt+1
+            results(cnt)%idx=j
+            results(cnt)%dis=d2
+         endif
+      enddo
       return
       end

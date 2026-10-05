@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **78** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **89** settings.
 
 
 .. _sph-input-time-and-output:
@@ -258,6 +258,22 @@ Compact object and black hole
      - ``10d0``
      - ``2cr`` ``hbs`` ``hyp``
      - mass of the point mass used as the second object when startfile2 is absent
+   * - ``dynhco``
+     - ``0``
+     - every run
+     - 0: point particles (u=0) keep the constant softening hco. 1: their softening is solved from eq.(A1) like an SPH smoothing length. 2: as 1 but smoothly limited to [hcomin,hcomax]
+   * - ``hcomin``
+     - ``0d0``
+     - every run
+     - dynhco=2: lower limit on a point particle's softening length (<=0: no limit)
+   * - ``hcomax``
+     - ``0d0``
+     - every run
+     - dynhco=2: upper limit on a point particle's softening length (<=0: no limit)
+   * - ``hcopnorm``
+     - ``8d0``
+     - every run
+     - dynhco=2: sharpness p of the smooth limits h=((h\_dyn^p+hcomin^p)^(-1)+hcomax^(-p))^(-1/p)
    * - ``bbh_m1``
      - ``-1d0``
      - ``hyp``
@@ -344,6 +360,34 @@ Timestep control
      - ``4.d0``
      - every run
      - r\_ij=(x\_ij^2+y\_ij^2+z\_ij^2+cn7\*h\_i^2)^.5
+   * - ``nblock``
+     - ``0``
+     - every run
+     - 0: one shared timestep. 1: block (power-of-2) timesteps, for dynamical runs only (see the docs for the settings it needs)
+   * - ``nbinmax``
+     - ``20``
+     - every run
+     - nblock=1: smallest step is dtmaxblk/2\*\*nbinmax
+   * - ``dtmaxblk``
+     - ``-1d0``
+     - every run
+     - nblock=1: largest step (<=0: use dtout)
+   * - ``nblimit``
+     - ``2``
+     - every run
+     - nblock=1: a step may be at most 2\*\*nblimit times a neighbour's
+   * - ``nblockref``
+     - ``1``
+     - every run
+     - nblock=1: 1 refreshes h,rho,chi,psi,divv of inactive neighbours of active particles
+   * - ``nblockfull``
+     - ``0``
+     - every run
+     - nblock=1 testing: 1 recomputes h and hydro for all particles every substep
+   * - ``dtforce``
+     - ``-1d0``
+     - every run
+     - testing only: >0 forces the shared timestep to this value
 
 .. _sph-input-parallelism-and-gpus:
 
@@ -377,7 +421,7 @@ Parallelism and GPUs
    * - ``gflag``
      - ``1``
      - every run
-     - set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes
+     - set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes, or 2 for G=(1-q^3)^2 with q=r/2h, which decreases strictly with r so that the h solution has no flat stretches. It gives about 3\*nnopt neighbours within 2h, so it needs about half the nnopt of gflag=1 for the same neighbour count
 
 .. _sph-input-units:
 
