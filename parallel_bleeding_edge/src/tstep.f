@@ -34,6 +34,11 @@ c***********************************************************************
       mydtaccco(2)=0            ! particle index for dominate dt6 particle
       mydt=1.d30                ! overall minimum dt (on this myrank process)
 
+      if(nblock.eq.1) then
+         do i=1,ntot
+            dtpart(i)=1.d30
+         enddo
+      endif
       do i=n_lower,n_upper
          if(u(i).ne.0.d0) then
 c            dtivel=cn1*hp(i)/sqrt(uijmax(i))
@@ -78,6 +83,8 @@ c               dtiu=cn3*u(i)/dabs(udot(i) + (ueq(i)-u(i))*(1-exp(-dth/tthermal(
             endif
             mydt=min(mydt,(1.d0/dtivel+1.d0/dtiacc+1.d0/dtiu
      $            +1.d0/dtiacc4)**(-1.d0))
+            if(nblock.eq.1) dtpart(i)=min(dtpart(i),(1.d0/dtivel
+     $           +1.d0/dtiacc+1.d0/dtiu+1.d0/dtiacc4)**(-1.d0))
          else
             do j=1,ntot
                if(j.ne.i)then
@@ -107,6 +114,14 @@ c     that need them.
                      mydtaccco(2)=j
                   endif
                   mydt=min(mydt,(1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
+c     block steps: the pairwise limit protects both partners, since gas
+c     particles have no acceleration criterion of their own (cn2=cn4=1e30)
+                  if(nblock.eq.1) then
+                     dtpart(i)=min(dtpart(i),
+     $                    (1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
+                     dtpart(j)=min(dtpart(j),
+     $                    (1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
+                  endif
                endif
             enddo
          endif
@@ -116,6 +131,9 @@ c     that need them.
 c     mpi sync here dt should be min for all processes
       call mpi_allreduce(mydt,dt,1,mpi_double_precision,mpi_min, 
      $      mpi_comm_world,ierr)
+      if(dtforce.gt.0.d0) dt=dtforce
+      if(nblock.eq.1) call mpi_allreduce(mpi_in_place,dtpart,ntot,
+     $     mpi_double_precision,mpi_min,mpi_comm_world,ierr)
 
       call mpi_reduce(mydtvel,dtvelmin,1,mpi_2double_precision,
      $     mpi_minloc,0,mpi_comm_world,ierr)

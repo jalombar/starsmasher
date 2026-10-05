@@ -201,6 +201,49 @@ worth doing before committing to a long job.
    output: the GPU build reports ``SPHgrav found 1 CUDA devices`` and
    ``is running on ... with gpu 0``, and the CPU build reports neither.
 
+Block timesteps
+---------------
+
+By default every particle advances with one shared timestep, the smallest that
+any particle needs.  In an encounter with a black hole, a handful of gas
+particles close to the black hole can need steps thousands of times shorter
+than the rest of the star, and the whole star then pays for them.
+
+Setting ``nblock=1`` gives each particle its own step instead, a power-of-2
+fraction of the largest step ``dtmaxblk`` (``dtout`` when ``dtmaxblk`` is zero
+or less).  The smallest allowed step is ``dtmaxblk/2**nbinmax``.  Each particle
+is integrated with its own kick-drift-kick leapfrog.  Particles that are not
+active in a substep are drifted to the current time, and their smoothing
+lengths and densities are predicted rather than solved.  Two safeguards keep
+neighbours consistent:
+
+* ``nblimit`` (default 2) keeps every particle's step within a factor
+  ``2**nblimit`` of its neighbours' steps, and a particle whose neighbour
+  suddenly needs a much shorter step is woken up early (Saitoh & Makino 2009).
+* ``nblockref=1`` (the default) re-solves the smoothing length, density and
+  related sums of any inactive particle that is a neighbour of an active one,
+  so that the active particles see up-to-date values.
+
+The black hole to gas timestep limits from ``cn5``, ``cn6`` and ``cn7`` are
+applied to both members of each pair.  Energies are written only when all
+particles are in step, every ``dtmaxblk``.  Output files and restarts work the
+same way in both modes, so a run can be restarted with or without block
+timesteps.
+
+Block timesteps need a dynamical run (``nrelax=0``) with ``nintvar=2``,
+``ncooling=0``, ``hfloor=0``, ``nkernel=2`` and ``nselfgravity=1``, and the code
+stops with a message otherwise.  They have been tested with the CPU gravity
+build only.
+
+In a star and black hole encounter, block timesteps used 4 to 6 times less CPU
+time than shared steps.  They needed ``cn5`` and ``cn6`` tightened together
+(``cn5=cn6=0.0025`` rather than ``0.01``) to conserve energy as well as the
+shared-step run.  Tightening either one alone was not enough.
+
+``nblockfull`` and ``dtforce`` exist for testing only.  ``nblockfull=1``
+recomputes every particle's smoothing length and hydrodynamics at every
+substep, and ``dtforce`` replaces the shared timestep with a fixed value.
+
 Restarting
 ----------
 

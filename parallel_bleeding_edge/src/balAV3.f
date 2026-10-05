@@ -448,7 +448,11 @@ c      write(6,'(a)')'hydrompi_complete'
          if(nusegpus.eq.1)then
             call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
          else
-            call get_gravity_using_cpus
+            if(nblock.eq.1) then
+               call get_gravity_active
+            else
+               call get_gravity_using_cpus
+            endif
          endif   
          if(myrank.eq.ngravprocs-1) call cpu_time(time1)
          if(ngravprocs.gt.1) then

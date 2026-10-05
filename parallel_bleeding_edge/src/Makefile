@@ -141,6 +141,7 @@ NTAB ?= $(DEFAULT_NTAB)
 
 # ---------------------------------------------------------------- objects ----
 FOBJS = eos_table_data.o kdtree2.o advance.o balAV3.o            \
+        blockstep.o blockhydro.o                                 \
         getderivs.o getTemperature.o                             \
         initialize_hyperbolic.o init.o kernels.o                 \
         main.o output.o pressure.o                               \

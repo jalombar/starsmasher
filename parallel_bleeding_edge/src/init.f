@@ -612,6 +612,7 @@ c      end
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
      $     nintvar,tswitchtou,ngravprocs,qthreads,gflag,mbh,runit,munit,
      $     dynhco,hcomin,hcomax,hcopnorm,
+     $     nblock,nbinmax,dtmaxblk,dtforce,nblockfull,nblimit,nblockref,
      $     gravconst,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
@@ -666,6 +667,13 @@ c     set some default values, so that they don't necessarily have to be set in 
       hcomin=0d0               ! dynhco=2: lower limit on a point particle's softening length (<=0: no limit)
       hcomax=0d0               ! dynhco=2: upper limit on a point particle's softening length (<=0: no limit)
       hcopnorm=8d0             ! dynhco=2: sharpness p of the smooth limits h=((h_dyn^p+hcomin^p)^(-1)+hcomax^(-p))^(-1/p)
+      nblock=0                 ! 0: one shared timestep. 1: block (power-of-2) timesteps, for dynamical runs only (see the docs for the settings it needs)
+      nbinmax=20               ! nblock=1: smallest step is dtmaxblk/2**nbinmax
+      dtmaxblk=-1d0            ! nblock=1: largest step (<=0: use dtout)
+      nblockref=1              ! nblock=1: 1 refreshes h,rho,chi,psi,divv of inactive neighbours of active particles
+      nblimit=2                ! nblock=1: a step may be at most 2**nblimit times a neighbour's
+      nblockfull=0             ! nblock=1 testing: 1 recomputes h and hydro for all particles every substep
+      dtforce=-1d0             ! testing only: >0 forces the shared timestep to this value
       hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
       trelax=1.d30             ! drag timescale.  0 derives it from the model, a very large value disables the drag
@@ -729,6 +737,10 @@ c     set some default values, so that they don't necessarily have to be set in 
 c     dynamic softening: the limits apply only with dynhco=2 and at least one
 c     of them set.  Otherwise dynhco=2 runs exactly as dynhco=1.
       hcolim=dynhco.eq.2 .and. (hcomin.gt.0.d0 .or. hcomax.gt.0.d0)
+c     block timesteps: every particle counts as active until the block
+c     stepper starts (the start-up force calculation needs all of them)
+      actblk=.true.
+      refblk=.false.
       close(12)
 
 c     A tjumpahead the user has actually chosen is stored negated, which is how

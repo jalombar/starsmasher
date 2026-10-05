@@ -19,6 +19,13 @@
 !     point particle with dynamic softening uses h_dyn itself, as for dynhco=1
       logical hcolim
       common/dynhcolim/hcolim
+!     nblock=1: block (power-of-2) timesteps, see blockstep.f90
+      integer nblock,nbinmax,nblockfull,nblimit,nblockref
+      real*8 dtmaxblk,dtforce
+      common/blockpars/dtmaxblk,dtforce,nblock,nbinmax,nblockfull,nblimit,nblockref
+      real*8 dtpart(nmax)
+      logical actblk(nmax),refblk(nmax)
+      common/blockdt/dtpart,actblk,refblk
       integer ngrav_lower,ngrav_upper,ngravprocs
       common/ngravlimits/ngrav_lower,ngrav_upper,ngravprocs
       real*8 vxdotsm(nmax),vydotsm(nmax),vzdotsm(nmax)

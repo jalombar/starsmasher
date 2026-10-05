@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **82** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **89** settings.
 
 
 .. _sph-input-time-and-output:
@@ -360,6 +360,34 @@ Timestep control
      - ``4.d0``
      - every run
      - r\_ij=(x\_ij^2+y\_ij^2+z\_ij^2+cn7\*h\_i^2)^.5
+   * - ``nblock``
+     - ``0``
+     - every run
+     - 0: one shared timestep. 1: block (power-of-2) timesteps, for dynamical runs only (see the docs for the settings it needs)
+   * - ``nbinmax``
+     - ``20``
+     - every run
+     - nblock=1: smallest step is dtmaxblk/2\*\*nbinmax
+   * - ``dtmaxblk``
+     - ``-1d0``
+     - every run
+     - nblock=1: largest step (<=0: use dtout)
+   * - ``nblimit``
+     - ``2``
+     - every run
+     - nblock=1: a step may be at most 2\*\*nblimit times a neighbour's
+   * - ``nblockref``
+     - ``1``
+     - every run
+     - nblock=1: 1 refreshes h,rho,chi,psi,divv of inactive neighbours of active particles
+   * - ``nblockfull``
+     - ``0``
+     - every run
+     - nblock=1 testing: 1 recomputes h and hydro for all particles every substep
+   * - ``dtforce``
+     - ``-1d0``
+     - every run
+     - testing only: >0 forces the shared timestep to this value
 
 .. _sph-input-parallelism-and-gpus:
 
