@@ -1,3 +1,24 @@
+!*********************************************************
+!     Neighbour search for block steps when few particles need one.  A kd
+!     tree is built from the positions at some moment and kept over many
+!     substeps.  If no particle has moved more than dmax since then, two
+!     particles now closer than r were closer than r+2*dmax when the tree was
+!     built, so a search of the old tree with that larger radius finds every
+!     current neighbour.  The candidates are then tested at their current
+!     positions with the same arithmetic as a direct search and returned in
+!     index order, so the result is identical to a direct search.  The tree
+!     is rebuilt when dmax becomes large compared with the smallest smoothing
+!     length being solved, which only bounds the number of extra candidates.
+      module stale_tree_mod
+      use kdtree2_module
+      implicit none
+      type(kdtree2), pointer :: stree => null()
+      real(kdkind), allocatable :: sxb(:,:)
+      type(kdtree2_result), allocatable :: swork(:)
+      real*8 :: sdmax = 0.d0
+      integer :: sn = 0
+      integer*8 :: nrebuild = 0, ncalls = 0
+      end module stale_tree_mod
 ! 
 ! pretty much where everything happens
 !
@@ -415,6 +436,7 @@
       real*8 dxfrac
       logical usebrute
       integer nsolve
+      real*8 hsmall
 
       if(myrank.eq.nprocs-1) call cpu_time(time1)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -439,6 +461,13 @@
          usebrute=(20*nsolve.lt.(n_upper-n_lower+1))
       endif
       if(.not.usebrute) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.) ! this is how you create a tree.
+      if(usebrute) then
+         hsmall=1.d30
+         do k=n_lower,n_upper
+            if(actblk(k) .or. refblk(k)) hsmall=min(hsmall,hp(k))
+         enddo
+         call stale_tree_prepare(hsmall)
+      endif
 !     the above have replaced the call to linkedlists
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -1105,22 +1134,91 @@
       end
 !***********************************************************************
       subroutine brute_r2(i,r2,cnt,results)
-!     Direct-search replacement for kdtree2_r_nearest_around_point (block
-!     steps, few searches): all particles j (self included) with squared
-!     distance <= r2, in index order.
+!     All particles j (self included) with squared distance <= r2 from i, in
+!     index order, as a direct search over all particles would give.  Uses
+!     the kept tree (stale_tree_mod) when stale_tree_prepare has set it up.
       use kdtree2_module
+      use stale_tree_mod
       include 'starsmasher.h'
-      integer i,cnt,j
-      real*8 r2,d2
+      integer i,cnt,j,k,nf,m,gap
+      real*8 r2,d2,rq
       type(kdtree2_result) :: results(*)
+      type(kdtree2_result) :: tmp
       cnt=0
-      do j=1,n
-         d2=(x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
-         if(d2.le.r2) then
-            cnt=cnt+1
-            results(cnt)%idx=j
-            results(cnt)%dis=d2
-         endif
-      enddo
+      if(associated(stree) .and. sn.eq.n) then
+         rq=sqrt(r2)+2.d0*sdmax
+         call kdtree2_r_nearest_around_point(tp=stree,idxin=i,&
+              correltime=-1,r2=rq*rq*(1.d0+1.d-12),nfound=nf,nalloc=n,&
+              results=swork)
+         do k=1,nf
+            j=swork(k)%idx
+            d2=(x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
+            if(d2.le.r2) then
+               cnt=cnt+1
+               results(cnt)%idx=j
+               results(cnt)%dis=d2
+            endif
+         enddo
+!     index order (shell sort)
+         gap=cnt/2
+         do while(gap.gt.0)
+            do k=gap+1,cnt
+               tmp=results(k)
+               m=k
+               do while(m.gt.gap)
+                  if(results(m-gap)%idx.le.tmp%idx) exit
+                  results(m)=results(m-gap)
+                  m=m-gap
+               enddo
+               results(m)=tmp
+            enddo
+            gap=gap/2
+         enddo
+      else
+         do j=1,n
+            d2=(x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
+            if(d2.le.r2) then
+               cnt=cnt+1
+               results(cnt)%idx=j
+               results(cnt)%dis=d2
+            endif
+         enddo
+      endif
+      return
+      end
+!***********************************************************************
+      subroutine stale_tree_prepare(hsmall)
+!     Measure how far particles have moved since the kept tree was built,
+!     and rebuild it when that is more than a quarter of hsmall (the
+!     smallest smoothing length to be solved) or the particle number changed.
+      use kdtree2_module
+      use stale_tree_mod
+      include 'starsmasher.h'
+      real*8 hsmall,d2max
+      integer k
+      d2max=0.d0
+      if(associated(stree) .and. sn.eq.n) then
+         do k=1,n
+            d2max=max(d2max,(x(k)-sxb(1,k))**2+(y(k)-sxb(2,k))**2&
+                 +(z(k)-sxb(3,k))**2)
+         enddo
+      endif
+      sdmax=sqrt(d2max)
+      if(.not.associated(stree) .or. sn.ne.n .or. sdmax.gt.0.25d0*hsmall) then
+         if(associated(stree)) call kdtree2_destroy(stree)
+         if(allocated(sxb)) deallocate(sxb)
+         if(allocated(swork)) deallocate(swork)
+         allocate(sxb(3,n),swork(n))
+         do k=1,n
+            sxb(1,k)=x(k)
+            sxb(2,k)=y(k)
+            sxb(3,k)=z(k)
+         enddo
+         stree => kdtree2_create(sxb,sort=.false.,rearrange=.true.)
+         sn=n
+         sdmax=0.d0
+         nrebuild=nrebuild+1
+      endif
+      ncalls=ncalls+1
       return
       end
