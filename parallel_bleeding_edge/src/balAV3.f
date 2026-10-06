@@ -348,20 +348,9 @@ c     rho of inactive particles are predicted from it)
       endif
 
       mylength=n_upper-n_lower+1
-      do irank=0,nprocs-1
-         if(myrank.ne.irank)then
-            call mpi_gatherv(udot(n_lower), mylength, mpi_double_precision,
-     $           udot, recvcounts,displs, mpi_double_precision, irank,
-     $           mpi_comm_world, ierr)
-         else
-            call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $           udot, recvcounts,displs, mpi_double_precision, irank,
-     $           mpi_comm_world, ierr)
-         endif
-      enddo
-c      call mpi_allgatherv(mpi_in_place, mylength, mpi_double_precision,
-c     $     udot, recvcounts,displs, mpi_double_precision, 
-c     $     mpi_comm_world, ierr)
+c     one collective gives every rank the whole array (formerly one gather per rank)
+      call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,udot,
+     $     recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
 
       if(ncooling.ne.0) then
 c     to get the pressure scale height, we will need the v{x,y,z}dot arrays *without* the
@@ -469,23 +458,11 @@ c     using eos table, solve for u_eq such that temperature t=teq
          endif
 
          mylength=n_upper-n_lower+1
-         do irank=0,nprocs-1
-            if(myrank.ne.irank)then
-               call mpi_gatherv(tthermal(n_lower), mylength, mpi_double_precision,
-     $              tthermal, recvcounts,displs, mpi_double_precision, irank,
-     $              mpi_comm_world, ierr)
-               call mpi_gatherv(ueq(n_lower), mylength, mpi_double_precision,
-     $              ueq, recvcounts,displs, mpi_double_precision, irank,
-     $              mpi_comm_world, ierr)
-            else
-               call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $              tthermal, recvcounts,displs, mpi_double_precision, irank,
-     $              mpi_comm_world, ierr)
-               call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,
-     $              ueq, recvcounts,displs, mpi_double_precision, irank,
-     $              mpi_comm_world, ierr)
-            endif
-         enddo
+c     one collective gives every rank the whole array (formerly one gather per rank)
+         call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,tthermal,
+     $     recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
+         call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,ueq,
+     $     recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
       endif
 
 c      write(6,'(a)')'hydrompi_complete'

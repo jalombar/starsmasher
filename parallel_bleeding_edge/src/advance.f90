@@ -55,17 +55,9 @@
          if(tswitchtou.lt.0.d0) tswitchuse=treloff
          if(t.ge.tswitchuse) then
             mylength=n_upper-n_lower+1
-            do irank=0,nprocs-1
-               if(myrank.ne.irank)then
-                  call mpi_gatherv(rho(n_lower), mylength,&
-                       mpi_double_precision, rho, recvcounts, displs,&
-                       mpi_double_precision, irank, mpi_comm_world, ierr)
-               else
-                  call mpi_gatherv(mpi_in_place, mylength,&
-                       mpi_double_precision, rho, recvcounts, displs,&
-                       mpi_double_precision, irank, mpi_comm_world, ierr)
-               endif
-            enddo
+            ! one collective gives every rank the whole array (formerly one gather per rank)
+            call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,rho,&
+                 recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
             if(nintvar.eq.3) then
 !     ln A back to u: invert the buoyancy for the temperature, then take the
 !     energy of an ideal gas plus radiation at that temperature.
@@ -801,17 +793,9 @@
 ! make mpi call to insure all processors doing gravity have the same
 ! hp values (only nodes doing gravity need the hp values):
       mylength=n_upper-n_lower+1
-      do irank=0,ngravprocs-1
-         if(myrank.ne.irank) then
-            call mpi_gatherv(hp(n_lower), mylength, mpi_double_precision,&
-                 hp, recvcounts, displs, mpi_double_precision, irank,&
-                 mpi_comm_world, ierr)
-         else
-            call mpi_gatherv(mpi_in_place, mylength, mpi_double_precision,&
-                 hp, recvcounts, displs, mpi_double_precision, irank,&
-                 mpi_comm_world, ierr)
-         endif
-      enddo
+      ! one collective gives every rank the whole array (formerly one gather per rank)
+      call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,hp,&
+           recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
 
       call pressure
       if(nblock.eq.1) then
