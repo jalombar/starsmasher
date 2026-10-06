@@ -435,7 +435,7 @@
       integer mylength,irank,ierr
       real*8 dxfrac
       logical usebrute
-      integer nsolve
+      integer nsolve,nloop,iprev,iw
       real*8 hsmall
 
       if(myrank.eq.nprocs-1) call cpu_time(time1)
@@ -458,14 +458,21 @@
          do k=n_lower,n_upper
             if(actblk(k) .or. refblk(k)) nsolve=nsolve+1
          enddo
+         if(blkdist) nsolve=nwmine
          usebrute=(20*nsolve.lt.(n_upper-n_lower+1))
       endif
       if(.not.usebrute) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.) ! this is how you create a tree.
       if(usebrute) then
          hsmall=1.d30
-         do k=n_lower,n_upper
-            if(actblk(k) .or. refblk(k)) hsmall=min(hsmall,hp(k))
-         enddo
+         if(blkdist) then
+            do k=1,nwmine
+               hsmall=min(hsmall,hp(wmine(k)))
+            enddo
+         else
+            do k=n_lower,n_upper
+               if(actblk(k) .or. refblk(k)) hsmall=min(hsmall,hp(k))
+            enddo
+         endif
          call stale_tree_prepare(hsmall)
       endif
 !     the above have replaced the call to linkedlists
@@ -488,13 +495,32 @@
          dxfrac=2.d-5
       endif
 
-      do i=n_lower,n_upper
+!     block steps (blkdist): this rank solves its round-robin share of the
+!     active and refreshed particles (wmine), otherwise its own index range
+      if(blkdist) then
+         nloop=nwmine
+      else
+         nloop=n_upper-n_lower+1
+      endif
+      if(blkdist) then
+         do k=1,ntot
+            nn(k)=0
+         enddo
+      endif
+      iprev=0
+      do iw=1,nloop
+         if(blkdist) then
+            i=wmine(iw)
+         else
+            i=n_lower+iw-1
+         endif
 
-         if(i.eq.n_lower) then
+         if(iprev.eq.0) then
             first(i)=0
          else
-            first(i)=first(i-1)+nn(i-1)
+            first(i)=first(iprev)+nn(iprev)
          endif
+         iprev=i
 
 !     block timesteps: only active particles re-solve h, and inactive ones keep
 !     the values predicted in advance_block
@@ -823,11 +849,22 @@
 ! hp values (only nodes doing gravity need the hp values):
       mylength=n_upper-n_lower+1
       ! one collective gives every rank the whole array (formerly one gather per rank)
-      call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,hp,&
+      if(.not.blkdist) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,hp,&
            recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
 
       call pressure
-      if(nblock.eq.1) then
+      if(blkdist) then
+!     each listed particle's values from the rank that solved it
+         call sync_w(hp)
+         call sync_w(rho)
+         call sync_w(por2)
+         call sync_w(bonet_omega)
+         call sync_w(bonet_0mega)
+         call sync_w(bonet_psi)
+         call sync_w(hdynco)
+         call sync_w(hdynlast)
+         call sync_wi(nn)
+      else if(nblock.eq.1) then
          call sync_all(hp)
          call sync_all(rho)
          call sync_all(por2)
@@ -991,10 +1028,28 @@
 !     compute smoothed acceleration of particle i:
       include 'starsmasher.h'                                         
       real*8 r2,h3,h2,hpi
-      integer itab,j,in,i
+      integer itab,j,in,i,iw,nloop
       real*8 invh2
 
-      do i=n_lower,n_upper
+!     block steps (blkdist): computed for this rank's share, which holds the
+!     neighbour lists, then shared.  Particles not solved this substep have
+!     no list and get zero, as they always did.
+      if(blkdist) then
+         do i=1,ntot
+            vxdotsm(i)=0.d0
+            vydotsm(i)=0.d0
+            vzdotsm(i)=0.d0
+         enddo
+         nloop=nwmine
+      else
+         nloop=n_upper-n_lower+1
+      endif
+      do iw=1,nloop
+         if(blkdist) then
+            i=wmine(iw)
+         else
+            i=n_lower+iw-1
+         endif
          vxdotsm(i)=0.d0
          vydotsm(i)=0.d0
          vzdotsm(i)=0.d0
@@ -1021,6 +1076,11 @@
          vydotsm(i)=vydotsm(i)/(h3*rho(i))
          vzdotsm(i)=vzdotsm(i)/(h3*rho(i))
       enddo
+      if(blkdist) then
+         call sync_w(vxdotsm)
+         call sync_w(vydotsm)
+         call sync_w(vzdotsm)
+      endif
 
       return
       end

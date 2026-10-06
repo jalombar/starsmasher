@@ -26,6 +26,13 @@
       real*8 dtpart(nmax)
       logical actblk(nmax),refblk(nmax)
       common/blockdt/dtpart,actblk,refblk
+!     nblock=1: this substep's active and refreshed particles (wall, the same
+!     on every rank) dealt out round-robin, wmine being this rank's share.
+!     blkdist is true while block steps use these lists instead of each
+!     rank's own index range.
+      integer nwall,nwmine,wall(nmax),wmine(nmax)
+      logical mywork(nmax),blkdist
+      common/blockwork/nwall,nwmine,wall,wmine,mywork,blkdist
       integer ngrav_lower,ngrav_upper,ngravprocs
       common/ngravlimits/ngrav_lower,ngrav_upper,ngravprocs
       real*8 vxdotsm(nmax),vydotsm(nmax),vzdotsm(nmax)

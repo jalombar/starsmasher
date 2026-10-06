@@ -16,7 +16,7 @@ c=======================================================================
       real*8 csij,udbij,fi,ci,r2,
      $     abscurli,divvi,vxi,vyi,vzi,ci2,ami,por2i,h5,
      $     h2,hpi,csiju,csijgc
-      integer itab,j,in,i,ierr
+      integer itab,j,in,i,ierr,iw,nloop
       real*8 uijmax(nmax)
       common/uijmax/ uijmax
       real*8 dwijin,pijin,sxijin,syijin,szijin,divin, diwkin
@@ -96,8 +96,19 @@ c     strength as in other implementations of sph, we multiply by 2 here.
       alpha1 = -2.d0 * alpha
       beta1  =  2.d0 * beta
 
-c     for each particle:
-      do i=n_lower,n_upper
+c     for each particle (block steps with blkdist: this rank's round-robin
+c     share of the particles to be solved, otherwise its own index range):
+      if(blkdist) then
+         nloop=nwmine
+      else
+         nloop=n_upper-n_lower+1
+      endif
+      do iw=1,nloop
+         if(blkdist) then
+            i=wmine(iw)
+         else
+            i=n_lower+iw-1
+         endif
 c     block steps (nblock=1): only particles with a neighbour list from this
 c     substep take part, i.e. the active ones and the inactive ones that
 c     were refreshed because an active particle lies inside their kernel.
@@ -344,13 +355,22 @@ c     kernel term on active gas inside it is found directly.
          endif
 c     div v of the particles solved here is needed on every rank (the h and
 c     rho of inactive particles are predicted from it)
-         call sync_all(divv)
+         if(blkdist) then
+            call sync_w(divv)
+            call sync_w(uijmax)
+         else
+            call sync_all(divv)
+         endif
       endif
 
       mylength=n_upper-n_lower+1
 c     one collective gives every rank the whole array (formerly one gather per rank)
-      call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,udot,
-     $     recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
+      if(blkdist) then
+         call sync_w(udot)
+      else
+         call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,udot,
+     $        recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
+      endif
 
       if(ncooling.ne.0) then
 c     to get the pressure scale height, we will need the v{x,y,z}dot arrays *without* the

@@ -7,7 +7,7 @@ c***********************************************************************
       real*8 dtiacc,dtivel,dtvelmin(2),dtaccmin(2),dtiacc4,dtacc4min(2)
       real*8 dtvelcomin(2),dtacccomin(2)
       real*8 mydt
-      integer i,j
+      integer i,j,irank
       real*8 uijmax(nmax)
       common/uijmax/ uijmax
       real*8 rij,vij,vdotij
@@ -85,46 +85,57 @@ c               dtiu=cn3*u(i)/dabs(udot(i) + (ueq(i)-u(i))*(1-exp(-dth/tthermal(
      $            +1.d0/dtiacc4)**(-1.d0))
             if(nblock.eq.1) dtpart(i)=min(dtpart(i),(1.d0/dtivel
      $           +1.d0/dtiacc+1.d0/dtiu+1.d0/dtiacc4)**(-1.d0))
-         else
-            do j=1,ntot
-               if(j.ne.i)then
+         endif
+      enddo
 
-c     Could consider changing hp(i) to hp(j) in the next line, but if we
-c     do that then the smoothing lengths will need to be shared over all
-c     processes in advance.f90.  Currently, smoothing lengths are shared
-c     only to the gravity processes since they are the only processes
-c     that need them.
-                  rij=((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
+
+c     point particles (u=0): the pairwise limits cn5, cn6 (and the softening
+c     term cn7) against every other particle.  Each rank takes the pairs whose
+c     partner j it owns, so the work is shared instead of falling on the rank
+c     that owns the point particle, and the minima are combined below.  hp of
+c     a point particle is broadcast from its owner first, since otherwise only
+c     the gravity processes are sure to hold its current value.
+      do i=1,ntot
+         if(u(i).ne.0.d0) cycle
+         do irank=0,nprocs-1
+            if(i.gt.displs(irank+1) .and.
+     $           i.le.displs(irank+1)+recvcounts(irank+1)) then
+               call mpi_bcast(hp(i),1,mpi_double_precision,irank,
+     $              mpi_comm_world,ierr)
+               exit
+            endif
+         enddo
+         do j=n_lower,n_upper
+            if(j.ne.i)then
+               rij=((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
      $                 +cn7*hp(i)**2)**0.5d0
-                  vij= ((vx(i)-vx(j))**2
+               vij= ((vx(i)-vx(j))**2
      $                 +(vy(i)-vy(j))**2
      $                 +(vz(i)-vz(j))**2)**0.5d0
-                  vdotij= ((vxdot(i)-vxdot(j))**2
+               vdotij= ((vxdot(i)-vxdot(j))**2
      $                 +(vydot(i)-vydot(j))**2
      $                 +(vzdot(i)-vzdot(j))**2)**0.5d0
-                  dtivel=cn5*rij/vij
-                  dtiacc=cn6*(rij/vdotij)**0.5d0
-                  
-                  if(dtivel.lt.mydtvelco(1)) then
-                     mydtvelco(1)=dtivel
-                     mydtvelco(2)=j
-                  endif
-                  if(dtiacc.lt.mydtaccco(1)) then
-                     mydtaccco(1)=dtiacc
-                     mydtaccco(2)=j
-                  endif
-                  mydt=min(mydt,(1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
+               dtivel=cn5*rij/vij
+               dtiacc=cn6*(rij/vdotij)**0.5d0
+               if(dtivel.lt.mydtvelco(1)) then
+                  mydtvelco(1)=dtivel
+                  mydtvelco(2)=j
+               endif
+               if(dtiacc.lt.mydtaccco(1)) then
+                  mydtaccco(1)=dtiacc
+                  mydtaccco(2)=j
+               endif
+               mydt=min(mydt,(1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
 c     block steps: the pairwise limit protects both partners, since gas
 c     particles have no acceleration criterion of their own (cn2=cn4=1e30)
-                  if(nblock.eq.1) then
-                     dtpart(i)=min(dtpart(i),
+               if(nblock.eq.1) then
+                  dtpart(i)=min(dtpart(i),
      $                    (1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
-                     dtpart(j)=min(dtpart(j),
+                  dtpart(j)=min(dtpart(j),
      $                    (1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
-                  endif
                endif
-            enddo
-         endif
+            endif
+         enddo
       enddo
 
 
