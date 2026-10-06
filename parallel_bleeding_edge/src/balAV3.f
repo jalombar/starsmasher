@@ -448,7 +448,9 @@ c      write(6,'(a)')'hydrompi_complete'
          if(nusegpus.eq.1)then
             call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
          else
-            if(nblock.eq.1) then
+c     block steps: gravity only on the active particles, unless all are
+c     active, when the symmetric pair loop does half the pair evaluations
+            if(nblock.eq.1 .and. .not.all(actblk(1:ntot))) then
                call get_gravity_active
             else
                call get_gravity_using_cpus
