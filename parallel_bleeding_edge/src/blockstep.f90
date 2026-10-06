@@ -35,6 +35,11 @@
       logical active(nmax)
       integer i,j,in,k,knat,kmx,ierr,nact,nwake,nalist
       integer alist(nmax)
+!     refresh marking: below this many active particles, the direct loop
+!     over active particles is cheaper than building and searching a tree
+!     (and the tree is never built for fewer than 8, which kdtree2 needs)
+      integer nreftree
+      parameter(nreftree=64)
       integer(kind=8) nwaketot,nsub,nacttot,nreftot
       save nwaketot,nsub,nacttot,nreftot
       data nwaketot,nsub,nacttot,nreftot/0,0,0,0/
@@ -199,17 +204,22 @@
                alist(nalist)=i
             endif
          enddo
-         do j=1,ntot
-            if(active(j) .or. u(j).eq.0.d0) cycle
-            do in=1,nalist
-               i=alist(in)
-               if((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2&
-                    .lt.4.d0*hp(j)**2) then
-                  refblk(j)=.true.
-                  exit
-               endif
+         if(nalist.ge.max(nreftree,8)) then
+!     many active particles: search a tree of the active ones instead
+            call refresh_by_tree(nalist,alist)
+         else
+            do j=1,ntot
+               if(active(j) .or. u(j).eq.0.d0) cycle
+               do in=1,nalist
+                  i=alist(in)
+                  if((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2&
+                       .lt.4.d0*hp(j)**2) then
+                     refblk(j)=.true.
+                     exit
+                  endif
+               enddo
             enddo
-         enddo
+         endif
          nacttot=nacttot+nact
          nreftot=nreftot+count(refblk(1:ntot))
          call build_worklists
@@ -526,5 +536,49 @@
       do k=1,nwall
          iarr(wall(k))=ibuf(k)
       enddo
+      return
+      end
+
+!***********************************************************************
+      subroutine refresh_by_tree(nalist,alist)
+!     Mark for refreshing every inactive gas particle j with an active
+!     particle inside its kernel (r < 2 h_j), as the direct loop in
+!     advance_block does, but with a kd tree of the nalist active particles.
+!     The tree is searched with a radius larger by a part in 1e12, and each
+!     candidate is then tested with the direct loop's own expression, so
+!     exactly the same particles are marked.
+      use kdtree2_module
+      include 'starsmasher.h'
+      integer nalist,alist(nmax)
+      real(kdkind), allocatable :: ad(:,:)
+      real(kdkind), target :: qv(3)
+      type(kdtree2), pointer :: atree
+      type(kdtree2_result), allocatable :: res(:)
+      integer j,k,i,nf
+      allocate(ad(3,nalist),res(nalist))
+      do k=1,nalist
+         ad(1,k)=x(alist(k))
+         ad(2,k)=y(alist(k))
+         ad(3,k)=z(alist(k))
+      enddo
+      atree => kdtree2_create(ad,sort=.false.,rearrange=.true.)
+      do j=1,ntot
+         if(actblk(j) .or. u(j).eq.0.d0) cycle
+         qv(1)=x(j)
+         qv(2)=y(j)
+         qv(3)=z(j)
+         call kdtree2_r_nearest(tp=atree,qv=qv,r2=4.d0*hp(j)**2*(1.d0+1.d-12),&
+              nfound=nf,nalloc=nalist,results=res)
+         do k=1,nf
+            i=alist(res(k)%idx)
+            if((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2&
+                 .lt.4.d0*hp(j)**2) then
+               refblk(j)=.true.
+               exit
+            endif
+         enddo
+      enddo
+      call kdtree2_destroy(atree)
+      deallocate(ad,res)
       return
       end
