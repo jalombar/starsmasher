@@ -79,7 +79,8 @@ c  initialize dv/dt before accumulating:
          myVXDOTgc(I)=0.d0
          myVYDOTgc(I)=0.d0
          myVZDOTgc(I)=0.d0
-         uijmax(i)=0.d0
+c     block steps: an inactive particle keeps its uijmax (tstep uses it)
+         if(actblk(i)) uijmax(i)=0.d0
          udot(i)=0.d0
       end do
 
@@ -97,6 +98,14 @@ c     strength as in other implementations of sph, we multiply by 2 here.
 
 c     for each particle:
       do i=n_lower,n_upper
+c     block steps (nblock=1): only particles with a neighbour list from this
+c     substep take part, i.e. the active ones and the inactive ones that
+c     were refreshed because an active particle lies inside their kernel.
+c     Each list gives the terms of particle i's kernel, which act on i and
+c     on its neighbour j, and only active particles keep their results.
+c     This finds every term on an active particle.  With shared steps every
+c     particle is active (actblk), so nothing is skipped.
+         if(.not.(actblk(i) .or. refblk(i))) cycle
          hpi=hp(i)
          hpitilde=hpi - hfloor
          h2=hpi**2
@@ -122,6 +131,7 @@ c     calculate gradwij's to all neighbors:
          nni    = nn(i)
          do in=1,nni
             j=list(offset+in)
+            if(.not.(actblk(i) .or. actblk(j))) cycle
        
             dx = x(i) - x(j)
             dy = y(i) - y(j)
@@ -208,7 +218,7 @@ c     hydro part
                   udot(i)=udot(i)+am(j)*pijin*dwijin*divin
                endif
 
-               uijmax(i)=max(uijmax(i),
+               if(actblk(i)) uijmax(i)=max(uijmax(i),
      $              (por2i + 0.5d0 * pijin)*rho(i))
 c               uijmax(j)=max(uijmax(j),
 c     $              (por2i + 0.5d0 * pijin)*rho(i))
@@ -300,6 +310,42 @@ c     before pressure has ever filled it.
 
       enddo
 c      write(6,'(a)')'hydrompi'
+
+      if(nblock.eq.1) then
+c     block steps: a point particle is never refreshed, so when it is
+c     inactive it has no list this substep.  With dynamic softening, its
+c     kernel term on active gas inside it is found directly.
+         if(dynhco.ge.1 .and. ngr.ne.0) then
+            do i=n_lower,n_upper
+               if(u(i).ne.0.d0 .or. actblk(i) .or. refblk(i)) cycle
+               invh2=1.d0/hp(i)**2
+               do j=1,ntot
+                  if(.not.actblk(j) .or. u(j).eq.0.d0) cycle
+                  dx=x(i)-x(j)
+                  dy=y(i)-y(j)
+                  dz=z(i)-z(j)
+                  r2=dx*dx+dy*dy+dz*dz
+                  if(r2.ge.4.d0*hp(i)**2) cycle
+                  diwkin=dgtab(int(ctab*r2*invh2)+1)*invh2
+                  if(hcolim) then
+                     if(r2.lt.4.d0*hdynco(i)**2) then
+                        diwkin=dgtab(int(ctab*r2/hdynco(i)**2)+1)
+     $                       /hdynco(i)**2
+                     else
+                        diwkin=0.d0
+                     endif
+                  endif
+                  csijgc=-0.5d0*diwkin*bonet_psi(i)/(bonet_0mega(i)*am(j))
+                  myvxdotgc(j)=myvxdotgc(j)+am(i)*csijgc*dx
+                  myvydotgc(j)=myvydotgc(j)+am(i)*csijgc*dy
+                  myvzdotgc(j)=myvzdotgc(j)+am(i)*csijgc*dz
+               enddo
+            enddo
+         endif
+c     div v of the particles solved here is needed on every rank (the h and
+c     rho of inactive particles are predicted from it)
+         call sync_all(divv)
+      endif
 
       mylength=n_upper-n_lower+1
       do irank=0,nprocs-1

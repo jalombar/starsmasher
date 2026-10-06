@@ -20,9 +20,9 @@
       logical hcolim
       common/dynhcolim/hcolim
 !     nblock=1: block (power-of-2) timesteps, see blockstep.f90
-      integer nblock,nbinmax,nblockfull,nblimit,nblockref
+      integer nblock,nbinmax,nblockfull,nblimit
       real*8 dtmaxblk,dtforce
-      common/blockpars/dtmaxblk,dtforce,nblock,nbinmax,nblockfull,nblimit,nblockref
+      common/blockpars/dtmaxblk,dtforce,nblock,nbinmax,nblockfull,nblimit
       real*8 dtpart(nmax)
       logical actblk(nmax),refblk(nmax)
       common/blockdt/dtpart,actblk,refblk

@@ -226,7 +226,7 @@ GROUPS = [
                       'bbh_e0','bbh_trueanomaly','bbh_argperi','bbh_inclination',
                       'bbh_longitude']),
  ('Timestep control', ['nintvar','cn1','cn2','cn3','cn4','cn5','cn6','cn7',
-                      'nblock','nbinmax','dtmaxblk','nblimit','nblockref','nblockfull',
+                      'nblock','nbinmax','dtmaxblk','nblimit','nblockfull',
                       'dtforce']),
  ('Parallelism and GPUs',
                      ['ngravprocs','qthreads','ppn','computeexclusivemode','gflag']),
