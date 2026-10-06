@@ -226,6 +226,15 @@ neighbours consistent:
   The hydrodynamic forces then come from the same routine as with shared
   steps, using the neighbour lists of the active and refreshed particles.
 
+When only a few particles are active, the work of a substep is arranged so
+that its cost depends on those particles rather than on the whole star.  Their
+neighbours are found in a search tree that is kept across substeps and rebuilt
+only when particles have moved too far for it to be trusted, with a search
+radius enlarged to guarantee that every current neighbour is found.  The active
+and refreshed particles are dealt out evenly across MPI ranks, whatever their
+particle numbers, and the black hole to gas timestep check is shared the same
+way.
+
 The black hole to gas timestep limits from ``cn5``, ``cn6`` and ``cn7`` are
 applied to both members of each pair.  Energies are written only when all
 particles are in step, every ``dtmaxblk``.  Output files and restarts work the
@@ -237,10 +246,10 @@ Block timesteps need a dynamical run (``nrelax=0``) with ``nintvar=2``,
 stops with a message otherwise.  They have been tested with the CPU gravity
 build only.
 
-In a star and black hole encounter, block timesteps used 4 to 6 times less CPU
-time than shared steps.  They needed ``cn5`` and ``cn6`` tightened together
-(``cn5=cn6=0.0025`` rather than ``0.01``) to conserve energy as well as the
-shared-step run.  Tightening either one alone was not enough.
+In a star and black hole encounter, block timesteps should use a few times less CPU
+time than shared steps.  They may need ``cn5`` and ``cn6`` tightened together
+(say, ``cn5=cn6=0.0025`` rather than ``0.01``) to conserve energy as well as the
+shared-step run.
 
 ``nblockfull`` and ``dtforce`` exist for testing only.  ``nblockfull=1``
 recomputes every particle's smoothing length and hydrodynamics at every
