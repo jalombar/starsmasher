@@ -73,6 +73,7 @@
          do i=1,ntot
             if(u(i).eq.0.d0) divv(i)=0.d0
          enddo
+         call build_worklists
          call rho_and_h
          if(ngr.ne.0) call gravforce
          call uvdots
@@ -171,6 +172,7 @@
          do i=1,ntot
             refblk(i)=.not.active(i)
          enddo
+         call build_worklists
          call rho_and_h
          if(ngr.ne.0) call gravforce
          call uvdots
@@ -210,6 +212,7 @@
          enddo
          nacttot=nacttot+nact
          nreftot=nreftot+count(refblk(1:ntot))
+         call build_worklists
          call rho_and_h
 !     forces on the active particles (uvdots handles block steps through
 !     actblk/refblk, and inactive particles' results are discarded below)
@@ -296,11 +299,23 @@
       logical active(nmax)
       integer kbin(nmax),knew(nmax)
       integer(kind=8) tick,nticks
-      integer i,j,in,k,knat,ierr
+      integer i,j,in,k,knat,ierr,iw,nloop
       do i=1,ntot
          knew(i)=-1
       enddo
-      do i=n_lower,n_upper
+!     block steps (blkdist): each active particle is handled by the rank that
+!     holds its neighbour list (its round-robin share), otherwise by its owner
+      if(blkdist) then
+         nloop=nwmine
+      else
+         nloop=n_upper-n_lower+1
+      endif
+      do iw=1,nloop
+         if(blkdist) then
+            i=wmine(iw)
+         else
+            i=n_lower+iw-1
+         endif
          if(.not.active(i)) cycle
          knat=0
          do while(dtmaxblk/dble(2_8**knat).gt.dtpart(i) .and. knat.lt.nbinmax)
@@ -337,7 +352,7 @@
 !     pair contributes only to the active particle i (no reaction on j), so
 !     inactive particles' gx,gy,gz,grpot are left at zero here.
       include 'starsmasher.h'
-      integer i,j
+      integer i,j,kact
       real*8 dr1,dr2,dr3,r2,rinv,rinv2,amj,twohpi,twohpj,fourhpi2,fourhpj2
       real*8 mrinv1,mrinv3,invq1,invq2,qq1,qq2,q21,q22
       real*8 acc1,acc2,pot1,pot2,mj11,mj12,mj21,mj22,g1,g2,gacc,gpot
@@ -349,8 +364,13 @@
          gz(i)=0.d0
          grpot(i)=0.d0
       enddo
-      do i=ngrav_lower,ngrav_upper
+!     the active particles are dealt out round-robin over the gravity ranks,
+!     so the work is even however they are numbered
+      kact=0
+      do i=1,ntot
          if(.not.actblk(i)) cycle
+         kact=kact+1
+         if(mod(kact-1,ngravprocs).ne.myrank) cycle
          twohpi=2*hp(i)
          fourhpi2=twohpi*twohpi
          do j=1,ntot
@@ -438,5 +458,73 @@
       integer ierr
       if(nprocs.gt.1) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,&
            arr,recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
+      return
+      end
+!***********************************************************************
+      subroutine build_worklists
+!     This substep's particles to be solved (active or refreshed), in index
+!     order, identical on every rank, and this rank's round-robin share.
+      include 'starsmasher.h'
+      integer i
+      nwall=0
+      nwmine=0
+      do i=1,ntot
+         mywork(i)=.false.
+         if(actblk(i) .or. refblk(i)) then
+            nwall=nwall+1
+            wall(nwall)=i
+            if(mod(nwall-1,nprocs).eq.myrank) then
+               nwmine=nwmine+1
+               wmine(nwmine)=i
+               mywork(i)=.true.
+            endif
+         endif
+      enddo
+      blkdist=.true.
+      return
+      end
+!***********************************************************************
+      subroutine sync_w(arr)
+!     arr of the listed particles (wall) as computed by the rank each was
+!     dealt to: the others contribute exact zeros to the sum.
+      include 'starsmasher.h'
+      include 'mpif.h'
+      real*8 arr(nmax),buf(nwall)
+      integer k,ierr
+      if(nprocs.eq.1 .or. nwall.eq.0) return
+      do k=1,nwall
+         if(mywork(wall(k))) then
+            buf(k)=arr(wall(k))
+         else
+            buf(k)=0.d0
+         endif
+      enddo
+      call mpi_allreduce(mpi_in_place,buf,nwall,mpi_double_precision,&
+           mpi_sum,mpi_comm_world,ierr)
+      do k=1,nwall
+         arr(wall(k))=buf(k)
+      enddo
+      return
+      end
+!***********************************************************************
+      subroutine sync_wi(iarr)
+!     integer version of sync_w
+      include 'starsmasher.h'
+      include 'mpif.h'
+      integer iarr(nmax),ibuf(nwall)
+      integer k,ierr
+      if(nprocs.eq.1 .or. nwall.eq.0) return
+      do k=1,nwall
+         if(mywork(wall(k))) then
+            ibuf(k)=iarr(wall(k))
+         else
+            ibuf(k)=0
+         endif
+      enddo
+      call mpi_allreduce(mpi_in_place,ibuf,nwall,mpi_integer,&
+           mpi_sum,mpi_comm_world,ierr)
+      do k=1,nwall
+         iarr(wall(k))=ibuf(k)
+      enddo
       return
       end

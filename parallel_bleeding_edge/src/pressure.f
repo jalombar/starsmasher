@@ -2,7 +2,7 @@
       include 'starsmasher.h'
       real*8 pgas,prad
       real*8 rhocgs,ucgs,beta1,temperature,gam1,useeostable
-      integer i
+      integer i,iw,nil,ilist(nmax)
 !     Subroutine calculating pressure.
 !     
 !     The calculation is dependent on the equation of state used
@@ -24,22 +24,38 @@
 !     TODO (jhwang) - Maybe separate the logic explicitly for each
 !     equation of state for readability?
 
+c     block steps (blkdist): this rank's share of the particles to be solved,
+c     otherwise its own index range
+      if(blkdist) then
+         nil=nwmine
+         do iw=1,nil
+            ilist(iw)=wmine(iw)
+         enddo
+      else
+         nil=n_upper-n_lower+1
+         do iw=1,nil
+            ilist(iw)=n_lower+iw-1
+         enddo
+      endif
       if(neos.eq.0) then
          if(nintvar.eq.1) then
-            do i=n_lower,n_upper
+            do iw=1,nil
+               i=ilist(iw)
 c     p=a*rho^gam, so p/rho^2=a*rho^(gam-2.d0)
                por2(i)=u(i)*rho(i)**(gam-2.d0)
             enddo
 
          else
-            do i=n_lower,n_upper
+            do iw=1,nil
+               i=ilist(iw)
 c     p=(gam-1)*rho*u, so p/rho^2=(gam-1)*u/rho
                if(u(i).ne.0.d0) por2(i)=(gam-1)*u(i)/rho(i)
             enddo
          endif
 
       else if(neos.eq.1) then
-         do i=n_lower,n_upper
+         do iw=1,nil
+            i=ilist(iw)
 c     block steps: only active particles and refreshed neighbours need P
             if(nblock.eq.1 .and. nblockfull.eq.0 .and.
      $           .not.(actblk(i).or.refblk(i))) cycle
@@ -93,7 +109,8 @@ c     rather than silent; for a radiation-dominated envelope it will be large.
          enddo
 
       else if(neos.eq.2) then
-         do i=n_lower,n_upper
+         do iw=1,nil
+            i=ilist(iw)
 c     block steps: only active particles and refreshed neighbours need P
             if(nblock.eq.1 .and. nblockfull.eq.0 .and.
      $           .not.(actblk(i).or.refblk(i))) cycle

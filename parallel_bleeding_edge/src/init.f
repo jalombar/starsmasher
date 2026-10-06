@@ -740,6 +740,7 @@ c     block timesteps: every particle counts as active until the block
 c     stepper starts (the start-up force calculation needs all of them)
       actblk=.true.
       refblk=.false.
+      blkdist=.false.
       close(12)
 
 c     A tjumpahead the user has actually chosen is stored negated, which is how
