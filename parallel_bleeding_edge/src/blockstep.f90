@@ -204,7 +204,16 @@
          nacttot=nacttot+nact
          nreftot=nreftot+count(refblk(1:ntot))
          call rho_and_h
-         call uvdots_active
+         if(nact.eq.ntot) then
+!     every particle active: the shared-step routines compute the same
+!     forces from neighbour lists, much faster than the direct loops of
+!     uvdots_active.  derivs_all keeps curlabs current for later substeps.
+            if(ngr.ne.0) call gravforce
+            call uvdots
+            call derivs_all
+         else
+            call uvdots_active
+         endif
       endif
 
 !     inactive particles keep the accelerations of the start of their step,
