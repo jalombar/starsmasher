@@ -612,7 +612,7 @@ c      end
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
      $     nintvar,tswitchtou,ngravprocs,qthreads,gflag,mbh,runit,munit,
      $     dynhco,hcomin,hcomax,hcopnorm,
-     $     nblock,nbinmax,dtmaxblk,dtforce,nblockfull,nblimit,nblockref,
+     $     nblock,nbinmax,dtmaxblk,dtforce,nblockfull,nblimit,
      $     gravconst,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
@@ -670,7 +670,6 @@ c     set some default values, so that they don't necessarily have to be set in 
       nblock=0                 ! 0: one shared timestep. 1: block (power-of-2) timesteps, for dynamical runs only (see the docs for the settings it needs)
       nbinmax=20               ! nblock=1: smallest step is dtmaxblk/2**nbinmax
       dtmaxblk=-1d0            ! nblock=1: largest step (<=0: use dtout)
-      nblockref=1              ! nblock=1: 1 refreshes h,rho,chi,psi,divv of inactive neighbours of active particles
       nblimit=2                ! nblock=1: a step may be at most 2**nblimit times a neighbour's
       nblockfull=0             ! nblock=1 testing: 1 recomputes h and hydro for all particles every substep
       dtforce=-1d0             ! testing only: >0 forces the shared timestep to this value

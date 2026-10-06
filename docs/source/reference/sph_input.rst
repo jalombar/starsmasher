@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **89** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **88** settings.
 
 
 .. _sph-input-time-and-output:
@@ -376,10 +376,6 @@ Timestep control
      - ``2``
      - every run
      - nblock=1: a step may be at most 2\*\*nblimit times a neighbour's
-   * - ``nblockref``
-     - ``1``
-     - every run
-     - nblock=1: 1 refreshes h,rho,chi,psi,divv of inactive neighbours of active particles
    * - ``nblockfull``
      - ``0``
      - every run

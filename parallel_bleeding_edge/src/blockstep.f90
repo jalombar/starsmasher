@@ -68,9 +68,14 @@
             actblk(i)=.true.
             refblk(i)=.false.
          enddo
+!     point particles: zero div v before the first h solve (a value read
+!     from a dump written before div v was guarded may be NaN)
+         do i=1,ntot
+            if(u(i).eq.0.d0) divv(i)=0.d0
+         enddo
          call rho_and_h
-         call derivs_all
-         call uvdots_active
+         if(ngr.ne.0) call gravforce
+         call uvdots
          call tstep
          do i=1,ntot
             active(i)=.true.
@@ -161,7 +166,11 @@
          actblk(i)=active(i)
       enddo
       if(nblockfull.eq.1) then
-!     testing: h, rho and hydro recomputed for all particles
+!     testing: h, rho and hydro recomputed for all particles (every
+!     inactive particle counts as refreshed, so uvdots uses its list)
+         do i=1,ntot
+            refblk(i)=.not.active(i)
+         enddo
          call rho_and_h
          if(ngr.ne.0) call gravforce
          call uvdots
@@ -181,39 +190,31 @@
          do i=1,ntot
             refblk(i)=.false.
          enddo
-         if(nblockref.eq.1) then
-            nalist=0
-            do i=1,ntot
-               if(active(i)) then
-                  nalist=nalist+1
-                  alist(nalist)=i
+         nalist=0
+         do i=1,ntot
+            if(active(i)) then
+               nalist=nalist+1
+               alist(nalist)=i
+            endif
+         enddo
+         do j=1,ntot
+            if(active(j) .or. u(j).eq.0.d0) cycle
+            do in=1,nalist
+               i=alist(in)
+               if((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2&
+                    .lt.4.d0*hp(j)**2) then
+                  refblk(j)=.true.
+                  exit
                endif
             enddo
-            do j=1,ntot
-               if(active(j) .or. u(j).eq.0.d0) cycle
-               do in=1,nalist
-                  i=alist(in)
-                  if((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2&
-                       .lt.4.d0*hp(j)**2) then
-                     refblk(j)=.true.
-                     exit
-                  endif
-               enddo
-            enddo
-         endif
+         enddo
          nacttot=nacttot+nact
          nreftot=nreftot+count(refblk(1:ntot))
          call rho_and_h
-         if(nact.eq.ntot) then
-!     every particle active: the shared-step routines compute the same
-!     forces from neighbour lists, much faster than the direct loops of
-!     uvdots_active.  derivs_all keeps curlabs current for later substeps.
-            if(ngr.ne.0) call gravforce
-            call uvdots
-            call derivs_all
-         else
-            call uvdots_active
-         endif
+!     forces on the active particles (uvdots handles block steps through
+!     actblk/refblk, and inactive particles' results are discarded below)
+         if(ngr.ne.0) call gravforce
+         call uvdots
       endif
 
 !     inactive particles keep the accelerations of the start of their step,
@@ -428,27 +429,14 @@
       return
       end
 !***********************************************************************
-      subroutine derivs_all
-!     div v and |curl v| for every gas particle (start-up of block steps)
+      subroutine sync_all(arr)
+!     Every rank computes arr for its own particles (n_lower..n_upper).
+!     Gather the full array onto every rank.
       include 'starsmasher.h'
-      double precision divv(nmax)
-      common/commdivv/divv
-      real*8 curlabs(nmax)
-      common/blockcurl/curlabs
-      real*8 cx,cy,cz,dv
-      integer i
-      do i=n_lower,n_upper
-!     point particles: zero (a value read from an older dump may be NaN)
-         if(u(i).eq.0.d0) then
-            divv(i)=0.d0
-            curlabs(i)=0.d0
-            cycle
-         endif
-         call getderivs(i,cx,cy,cz,dv)
-         divv(i)=dv
-         curlabs(i)=sqrt(cx**2+cy**2+cz**2)
-      enddo
-      call sync_all(divv)
-      call sync_all(curlabs)
+      include 'mpif.h'
+      real*8 arr(nmax)
+      integer ierr
+      if(nprocs.gt.1) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,&
+           arr,recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
       return
       end

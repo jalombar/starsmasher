@@ -220,9 +220,11 @@ neighbours consistent:
 * ``nblimit`` (default 2) keeps every particle's step within a factor
   ``2**nblimit`` of its neighbours' steps, and a particle whose neighbour
   suddenly needs a much shorter step is woken up early (Saitoh & Makino 2009).
-* ``nblockref=1`` (the default) re-solves the smoothing length, density and
-  related sums of any inactive particle that is a neighbour of an active one,
-  so that the active particles see up-to-date values.
+* Any inactive particle with an active particle inside its kernel is
+  refreshed: its smoothing length, density and related sums are re-solved at
+  the current positions, so that the active particles see up-to-date values.
+  The hydrodynamic forces then come from the same routine as with shared
+  steps, using the neighbour lists of the active and refreshed particles.
 
 The black hole to gas timestep limits from ``cn5``, ``cn6`` and ``cn7`` are
 applied to both members of each pair.  Energies are written only when all
