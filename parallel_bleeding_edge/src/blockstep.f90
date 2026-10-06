@@ -429,7 +429,12 @@
       real*8 cx,cy,cz,dv
       integer i
       do i=n_lower,n_upper
-         if(u(i).eq.0.d0) cycle
+!     point particles: zero (a value read from an older dump may be NaN)
+         if(u(i).eq.0.d0) then
+            divv(i)=0.d0
+            curlabs(i)=0.d0
+            cycle
+         endif
          call getderivs(i,cx,cy,cz,dv)
          divv(i)=dv
          curlabs(i)=sqrt(cx**2+cy**2+cz**2)

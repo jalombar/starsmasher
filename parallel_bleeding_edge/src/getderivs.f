@@ -20,6 +20,9 @@ c     "gather" part of the sum (i-j pair contributes to curl v_i):
       curlvyi=0.d0
       curlvzi=0.d0
       divvi=0.d0
+c     a point particle with no gas inside its kernel has rho=0, and the
+c     divisions below would give 0/0.  Its div v and curl v are zero.
+      if(rhoi.le.0.d0) return
       do in=1,nn(i)
          j=list(first(i)+in)
          if(u(j).ne.0.d0) then
