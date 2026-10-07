@@ -26,6 +26,10 @@
       real*8 dtpart(nmax)
       logical actblk(nmax),refblk(nmax)
       common/blockdt/dtpart,actblk,refblk
+!     nblock=1: true after a substep that ends at a full synchronization,
+!     when every particle is in step (checkpt writes only then)
+      logical blksync
+      common/blocksync/blksync
 !     nblock=1: this substep's active and refreshed particles (wall, the same
 !     on every rank) dealt out round-robin, wmine being this rank's share.
 !     blkdist is true while block steps use these lists instead of each

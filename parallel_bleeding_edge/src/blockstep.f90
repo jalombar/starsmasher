@@ -283,6 +283,7 @@
          if(u(i).ne.0.d0) u(i)=uh(i)+(t+0.5d0*dt-tmid)*udot(i)
       enddo
       t=t0b+dble(tick)*dtick+0.5d0*dt
+      blksync=(mod(tick,nticks).eq.0)
       nsub=nsub+1
       if(myrank.eq.0 .and. mod(tick,nticks).eq.0) then
          write(69,*)'block sync t=',t,' finest bin=',maxval(kbin(1:ntot)),&

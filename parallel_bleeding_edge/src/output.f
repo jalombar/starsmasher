@@ -3,6 +3,11 @@ c     writes checkpointing file.
 c     if itype=0, write to externally defined unit 88.
 c     if itype=1, write to local 'restart.sph' file if nit is
 c     a multiple of nitch.
+c     With block steps (nblock=1) nit counts substeps, and between full
+c     synchronizations most particles hold velocities and u predicted
+c     for the current substep.  So write instead at the first full
+c     synchronization at least nitch substeps after the last checkpoint,
+c     where the state is exactly what an out*.sph dump holds.
       include 'starsmasher.h'                                          
       include 'mpif.h'
       integer nitch,itype
@@ -10,9 +15,19 @@ c     a multiple of nitch.
       real*8 divv(nmax)
       common/commdivv/divv
       integer mylength, ierr
+      integer nitlast
+      save nitlast
+      data nitlast/0/
+      logical writeit
 
 c      if (mod(nit,nitch).eq.0 .or. t.ge.32661.425d0) then
-      if (mod(nit,nitch).eq.0) then
+      if(nblock.eq.1) then
+         writeit=blksync .and. nit-nitlast.ge.nitch
+      else
+         writeit=mod(nit,nitch).eq.0
+      endif
+      if (writeit) then
+         nitlast=nit
 
 c     myrank=0 needs the rho, divv values to make the output file
          mylength=n_upper-n_lower+1
