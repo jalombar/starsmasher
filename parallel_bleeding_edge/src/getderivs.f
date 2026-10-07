@@ -27,7 +27,7 @@ c     divisions below would give 0/0.  Its div v and curl v are zero.
          j=list(first(i)+in)
          if(u(j).ne.0.d0) then
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
-            itab=int(ctaboverh2*r2)+1
+            itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
             dwijin=dwtab(itab)
             curlxin=(z(i)-z(j))*(vy(i)-vy(j))
      $           -(y(i)-y(j))*(vz(i)-vz(j))

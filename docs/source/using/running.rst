@@ -243,7 +243,7 @@ restarts work the same way in both modes, so a run can be restarted with or
 without block timesteps.
 
 Block timesteps need a dynamical run (``nrelax=0``) with ``nintvar=2``,
-``ncooling=0``, ``hfloor=0``, ``nkernel=2`` and ``nselfgravity=1``, and the code
+``ncooling=0``, ``nkernel=2`` and ``nselfgravity=1``, and the code
 stops with a message otherwise.  They have been tested with the CPU gravity
 build only.
 

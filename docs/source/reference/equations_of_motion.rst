@@ -179,6 +179,36 @@ timestep, towards zero.  ``hcomin`` or ``hcomax`` of zero or less removes that
 limit, and neither is set by default.  With neither limit set, ``dynhco=2``
 runs exactly as ``dynhco=1``.
 
+With ``dynhco=3`` a smooth floor applies to every particle, SPH and point
+particles alike.  Each particle solves the constraint above for
+:math:`\tilde h_i`, and its smoothing length is
+
+.. math::
+
+   h_i = \left(\tilde h_i^{\,p} + h_{\rm floor}^p\right)^{1/p},
+
+with :math:`h_{\rm floor}` set by ``hfloor`` and :math:`p` by ``hcopnorm``.  A
+point particle's length is in addition capped at ``hcomax`` as above, so that
+the gravity of a black hole is exact beyond :math:`2h_{\rm comax}` while a star
+is still far away.  Because :math:`h_i` depends on positions only through
+:math:`\tilde h_i`, every correction term keeps the form of Gaburov et al.
+(2010), with :math:`\nabla G` and :math:`\chi_i` evaluated at :math:`\tilde
+h_i`, the kernel and the softened potential at :math:`h_i`, and :math:`\chi_i`
+divided by :math:`dh_i/d\tilde h_i`.  That derivative goes to zero once
+:math:`\tilde h_i \ll h_{\rm floor}`, so the correction terms fade out smoothly
+when gas crowds into a black hole's kernel.  With the additive floor
+:math:`h_i=\tilde h_i+h_{\rm floor}` (``hfloor`` with ``dynhco`` below 3) the
+derivative stays 1, and the correction terms vary on the length
+:math:`\tilde h_i`, which can become far smaller than any timestep resolves.
+
+In a 4945-particle encounter of a 0.4 solar mass star with a 30 solar mass black
+hole at periapse 0.1, gas collapsed into a clump of size :math:`10^{-5}` at the
+black hole and the energy jumped by more than 20 times its total with
+``dynhco=2``, ``hcomin=0.05``.  With ``dynhco=3``, ``hfloor=0.025`` (with or
+without ``hcomax=0.5``) the energy changed by about :math:`2\times10^{-5}`, or
+0.1 per cent, from periapse to five time units later, and the substeps
+needed per ``dtmaxblk`` fell from 288000 to about 20000.
+
 Blackollider
 ------------
 
