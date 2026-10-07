@@ -59,8 +59,7 @@
          t0b=t-0.5d0*dt
          t=t0b
          tick=0
-         if(nintvar.ne.2 .or. hfloor.ne.0.d0) &
-              stop 'nblock=1 needs nintvar=2 and hfloor=0'
+         if(nintvar.ne.2) stop 'nblock=1 needs nintvar=2'
 !     The velocities and u in hand are half-step values of the shared-step
 !     scheme for the current global dt.  Take them back to time t.
          do i=1,ntot
@@ -186,7 +185,13 @@
          do i=1,ntot
             if(.not.active(i) .and. u(i).ne.0.d0) then
                rho(i)=rho(i)*exp(-divv(i)*dtt)
-               hp(i)=hp(i)*exp(divv(i)*dtt/3.d0)
+!     (h=htilde+hfloor, and it is htilde that follows the density)
+               if(dynhco.eq.3) then
+                  hdynco(i)=hdynco(i)*exp(divv(i)*dtt/3.d0)
+                  hp(i)=(hdynco(i)**hcopnorm+hfloor**hcopnorm)**(1.d0/hcopnorm)
+               else
+                  hp(i)=hfloor+(hp(i)-hfloor)*exp(divv(i)*dtt/3.d0)
+               endif
             endif
          enddo
 !     inactive particles j with an active particle inside their kernel

@@ -109,7 +109,7 @@ The particles
    * - ``hfloor``
      - ``0d0``
      - every run
-     - hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
+     - hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.  With dynhco=3 instead the smooth floor hp(i)=(hptilde(i)^p+hfloor^p)^(1/p), p=hcopnorm
 
 .. _sph-input-equation-of-state-and-physics:
 
@@ -261,7 +261,7 @@ Compact object and black hole
    * - ``dynhco``
      - ``0``
      - every run
-     - 0: point particles (u=0) keep the constant softening hco. 1: their softening is solved from eq.(A1) like an SPH smoothing length. 2: as 1 but smoothly limited to [hcomin,hcomax]
+     - 0: point particles (u=0) keep the constant softening hco. 1: their softening is solved from eq.(A1) like an SPH smoothing length. 2: as 1 but smoothly limited to [hcomin,hcomax]. 3: every particle's h=(htilde^p+hfloor^p)^(1/p) with htilde from eq.(A1), and point particles also capped at hcomax
    * - ``hcomin``
      - ``0d0``
      - every run
@@ -269,11 +269,11 @@ Compact object and black hole
    * - ``hcomax``
      - ``0d0``
      - every run
-     - dynhco=2: upper limit on a point particle's softening length (<=0: no limit)
+     - dynhco=2 or 3: upper limit on a point particle's softening length (<=0: no limit)
    * - ``hcopnorm``
      - ``8d0``
      - every run
-     - dynhco=2: sharpness p of the smooth limits h=((h\_dyn^p+hcomin^p)^(-1)+hcomax^(-p))^(-1/p)
+     - dynhco=2 or 3: sharpness p of the smooth limits h=((h\_dyn^p+hcomin^p)^(-1)+hcomax^(-p))^(-1/p)
    * - ``bbh_m1``
      - ``-1d0``
      - ``hyp``

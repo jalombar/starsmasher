@@ -46,7 +46,7 @@ c     variables used for radiative cooling portion of the code:
       real*8 zeroin,mucgs
       common/ueqstuff/rhocgs,teq,mucgs
       real*8 grpottot(nmax),uraddoti
-      real*8 hpitilde,h2tilde,invh2tilde
+      real*8 hpitilde,h2tilde,invh2tilde,htil
       integer itabtilde
 
       if(nav.eq.0) then
@@ -119,6 +119,7 @@ c     particle is active (actblk), so nothing is skipped.
          if(.not.(actblk(i) .or. refblk(i))) cycle
          hpi=hp(i)
          hpitilde=hpi - hfloor
+         if(dynhco.eq.3) hpitilde=hdynco(i)
          h2=hpi**2
          h2tilde=hpitilde**2
          h5=hpi*h2**2
@@ -151,7 +152,8 @@ c     calculate gradwij's to all neighbors:
             dvy = vyi - vy(j)
             dvz = vzi - vz(j)
             r2 = dx*dx + dy*dy + dz*dz 
-            itab=int(ctab*r2*invh2)+1
+c     a capped point particle's list reaches beyond 2h (to 2*htilde)
+            itab=int(ctab*min(r2*invh2,4.d0))+1
 
             if(r2.lt.4d0*h2tilde) then
                itabtilde=int(ctab*r2*invh2tilde)+1
@@ -329,14 +331,17 @@ c     kernel term on active gas inside it is found directly.
          if(dynhco.ge.1 .and. ngr.ne.0) then
             do i=n_lower,n_upper
                if(u(i).ne.0.d0 .or. actblk(i) .or. refblk(i)) cycle
-               invh2=1.d0/hp(i)**2
+c     grad G at htilde, the length that solves eq. (a1)
+               htil=hp(i)-hfloor
+               if(dynhco.eq.3) htil=hdynco(i)
+               invh2=1.d0/htil**2
                do j=1,ntot
                   if(.not.actblk(j) .or. u(j).eq.0.d0) cycle
                   dx=x(i)-x(j)
                   dy=y(i)-y(j)
                   dz=z(i)-z(j)
                   r2=dx*dx+dy*dy+dz*dz
-                  if(r2.ge.4.d0*hp(i)**2) cycle
+                  if(r2.ge.4.d0*htil**2) cycle
                   diwkin=dgtab(int(ctab*r2*invh2)+1)*invh2
                   if(hcolim) then
                      if(r2.lt.4.d0*hdynco(i)**2) then

@@ -663,17 +663,17 @@ c     set some default values, so that they don't necessarily have to be set in 
       ngr=3                    ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
       hco=-1d30                ! softening/smoothing length for compact object or core particle (<0 for auto-set)
       mco=-1d30                ! mass of compact object or core particle
-      dynhco=0                 ! 0: point particles (u=0) keep the constant softening hco. 1: their softening is solved from eq.(A1) like an SPH smoothing length. 2: as 1 but smoothly limited to [hcomin,hcomax]
+      dynhco=0                 ! 0: point particles (u=0) keep the constant softening hco. 1: their softening is solved from eq.(A1) like an SPH smoothing length. 2: as 1 but smoothly limited to [hcomin,hcomax]. 3: every particle's h=(htilde^p+hfloor^p)^(1/p) with htilde from eq.(A1), and point particles also capped at hcomax
       hcomin=0d0               ! dynhco=2: lower limit on a point particle's softening length (<=0: no limit)
-      hcomax=0d0               ! dynhco=2: upper limit on a point particle's softening length (<=0: no limit)
-      hcopnorm=8d0             ! dynhco=2: sharpness p of the smooth limits h=((h_dyn^p+hcomin^p)^(-1)+hcomax^(-p))^(-1/p)
+      hcomax=0d0               ! dynhco=2 or 3: upper limit on a point particle's softening length (<=0: no limit)
+      hcopnorm=8d0             ! dynhco=2 or 3: sharpness p of the smooth limits h=((h_dyn^p+hcomin^p)^(-1)+hcomax^(-p))^(-1/p)
       nblock=0                 ! 0: one shared timestep. 1: block (power-of-2) timesteps, for dynamical runs only (see the docs for the settings it needs)
       nbinmax=20               ! nblock=1: smallest step is dtmaxblk/2**nbinmax
       dtmaxblk=-1d0            ! nblock=1: largest step (<=0: use dtout)
       nblimit=2                ! nblock=1: a step may be at most 2**nblimit times a neighbour's
       nblockfull=0             ! nblock=1 testing: 1 recomputes h and hydro for all particles every substep
       dtforce=-1d0             ! testing only: >0 forces the shared timestep to this value
-      hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.
+      hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.  With dynhco=3 instead the smooth floor hp(i)=(hptilde(i)^p+hfloor^p)^(1/p), p=hcopnorm
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
       trelax=1.d30             ! drag timescale.  0 derives it from the model, a very large value disables the drag
       sep0=200                 ! initial separation of two stars in a binary or collision calculation, and the separation a scan starts from and holds until tscanon

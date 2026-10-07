@@ -416,7 +416,7 @@
       ! dynhco=2 with limits: last unlimited softening solution of each point particle, so
       ! its solve restarts next to the root instead of from a clamped value
       real*8 hdynlast(nmax)
-      real*8 hlowco,hbhco,facco,chico
+      real*8 hlowco,hbhco,facco,chico,facfl
       save hdynlast
       data hdynlast/nmax*0.d0/
       integer maxit,i,j
@@ -542,7 +542,15 @@
               hp(i)=hdynlast(i)
 
          ! Change hp(i) to mean hptilde(i) while solving eq.(A1) of GLPZ 2010.
-         hp(i)=hp(i) - hfloor
+         if(dynhco.eq.3) then
+            ! smooth floor h=(htilde^p+hfloor^p)^(1/p): start from the last
+            ! htilde, or after a restart from h itself (a dump's h solves
+            ! eq. (A1) when it was written without the floor, and inverting
+            ! the floor can give a guess far too small to drift from)
+            if(hdynco(i).gt.0.d0) hp(i)=hdynco(i)
+         else
+            hp(i)=hp(i) - hfloor
+         endif
 
          xacc=2.d-6*hp(i)
          hpguess=max(hp(i)*(1.d0+divv(i)*dt/3.d0),xacc)
@@ -714,7 +722,22 @@
 60908    hp(i)=ezrtsafe
 
          ! Change hp(i) back to the true smoothing length now that done solving eq. (A1) of GLPZ 2010.  
-         hp(i) = hp(i) + hfloor
+         if(dynhco.eq.3) then
+            ! h depends on positions only through htilde, so chi is divided
+            ! by dh/dhtilde=(htilde/h)^(p-1) below
+            ! a point particle is also capped at hcomax (if >0):
+            ! h=(hlow^(-p)+hcomax^(-p))^(-1/p), so gravity from the black hole
+            ! is exact beyond 2*hcomax however far its neighbours are
+            hdynco(i)=hp(i)
+            hlowco=(hp(i)**hcopnorm+hfloor**hcopnorm)**(1.d0/hcopnorm)
+            hbhco=hlowco
+            if(u(i).eq.0.d0 .and. hcomax.gt.0.d0) hbhco=&
+                 (hlowco**(-hcopnorm)+hcomax**(-hcopnorm))**(-1.d0/hcopnorm)
+            facfl=(hdynco(i)/hlowco)**(hcopnorm-1.d0)*(hbhco/hlowco)**(hcopnorm+1.d0)
+            hp(i)=hbhco
+         else
+            hp(i) = hp(i) + hfloor
+         endif
 
          ! dynhco=2 with limits (hcolim): the softening used is a smooth function of the solution
          ! h_dyn of eq. (A1):  hlow=(h_dyn^p+hcomin^p)^(1/p),
@@ -763,6 +786,8 @@
 !cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
 
          r2=4.d0*hp(i)**2.d0
+!     dynhco=3: the list must also reach 2*htilde for chi when h is capped
+         if(dynhco.eq.3 .and. u(i).eq.0.d0) r2=4.d0*max(hp(i),hdynco(i))**2
          if(r2.le.r2last) then
             ! there's no need to search the entire tree, because the
             ! h we are trying is smaller than the last h we tried!
@@ -792,6 +817,15 @@
          call bonetsumwithphi(i,rho(i), bonet_omega(i),&
               bonet_0mega(i),&
               bonet_psi(i), bonet_wn(i))
+         if(dynhco.eq.3) then
+            if(facfl.gt.1.d-12) then
+               bonet_0mega(i)=bonet_0mega(i)/facfl
+            else
+               bonet_0mega(i)=1.d0
+               bonet_omega(i)=0.d0
+               bonet_psi(i)=0.d0
+            endif
+         endif
          ! hcolim: psi is at the h used (bonetsumwithphi). Replace chi by
          ! chi(h_dyn)/(dh/dh_dyn) so that psi/chi in balAV3 is psi*dh/dh_dyn/chi(h_dyn)
          if(u(i).eq.0.d0 .and. hcolim) then
@@ -921,7 +955,7 @@
         dy = y(i) - y(j)
         dz = z(i) - z(j)
         r2 = dx*dx + dy*dy + dz*dz;
-        itab=int(ctaboverh2*r2) + 1
+        itab=int(min(ctaboverh2*r2,4.d0*ctab)) + 1
         bonet1_wn     = bonet1_wn    + fac*gtab(itab)
         bonet1_0mega  = bonet1_0mega - fac*dgdhtab(itab)
       enddo
@@ -957,6 +991,7 @@
          bonet1_wn    = 0.d0
          
          hpitilde=hpi - hfloor
+         if(dynhco.eq.3) hpitilde=hdynco(i)
          h2tilde=hpitilde**2
          ctaboverh2tilde=ctab/h2tilde
          h3=hpi*h2
@@ -965,22 +1000,28 @@
          do in=1,nn(i)
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
-            itab=int(ctaboverh2*r2)+1
+            itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
 
             ! the u(j).eq.0 is necessary in the next line because we always do gravity
             ! with point particles.  A point particle i likewise always does gravity
             ! with everything, but it has no self-potential term, so skip j=i then.
+            ! the list can reach beyond 2h (h capped below htilde), where
+            ! the kernel and its tables end
+            if(r2.lt.4.d0*h2) then
             if((nselfgravity.eq.1 .or. u(j).eq.0.d0 .or. u(i).eq.0.d0)&
                  .and. .not.(u(i).eq.0.d0 .and. j.eq.i))&
                  bonet1_psi   = bonet1_psi   + am(j)*dphidhtab(itab)
+            endif
             if(u(j).ne.0.d0) then
                if(r2.lt.4d0*h2tilde) then
                   itabtilde=int(ctaboverh2tilde*r2)+1
                   bonet1_wn    = bonet1_wn    + gtab(itabtilde)
                   bonet1_0mega = bonet1_0mega - dgdhtab(itabtilde)
                endif
+               if(r2.lt.4.d0*h2) then
                bonet1_rho   = bonet1_rho   + am(j)*wtab(itab)
                bonet1_omega = bonet1_omega + am(j)*dwdhtab(itab)
+               endif
             endif
          enddo
          bonet1_rho   = bonet1_rho/h3
@@ -992,7 +1033,7 @@
          do in=1,nn(i)
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
-            itab=int(ctaboverh2*r2)+1
+            itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
             if(u(j).ne.0.d0) then
                bonet1_rho   = bonet1_rho   + am(j)*wtab(itab)
             endif
@@ -1063,7 +1104,7 @@
             j=list(first(i)+in)
             if(u(j).ne.0.d0)then
                r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
-               itab=int(ctab*r2*invh2)+1
+               itab=int(ctab*min(r2*invh2,4.d0))+1
                vxdotsm(i)=vxdotsm(i)+am(j)*&
                     wtab(itab)*vxdot(j)
                vydotsm(i)=vydotsm(i)+am(j)*&
