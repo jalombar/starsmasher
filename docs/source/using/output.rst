@@ -18,8 +18,9 @@ Every run writes these:
 
 ``restartrad.sph``
    The same format as ``out*.sph``, rewritten every 1000 iterations as a
-   checkpoint.  If it is present in the directory when a run starts, the code
-   continues from it rather than beginning afresh.
+   checkpoint (with block timesteps, at the first moment all particles are in
+   step after 1000 substeps).  If it is present in the directory when a run
+   starts, the code continues from it rather than beginning afresh.
 
 A run with a negative ``tf`` writes one more, and a run that jumps ahead on its
 orbit writes two others:
@@ -286,7 +287,10 @@ text editor.
 ~~~~~~~~~~~~~~~~~~
 
 The same format as ``out*.sph``, written every 1000 iterations and overwriting
-the previous one, so a run that dies loses at most that much work.
+the previous one, so a run that dies loses at most that much work.  With block
+timesteps (``nblock=1``) it is written instead at the first moment all particles
+are in step (every ``dtmaxblk``) at least 1000 substeps after the previous one,
+so that it holds exactly what an ``out*.sph`` written then would.
 
 If it is present in the directory when a run starts, the code continues from it
 instead of starting afresh.  That makes it a deliberate control as well as a

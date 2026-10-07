@@ -237,9 +237,10 @@ way.
 
 The black hole to gas timestep limits from ``cn5``, ``cn6`` and ``cn7`` are
 applied to both members of each pair.  Energies are written only when all
-particles are in step, every ``dtmaxblk``.  Output files and restarts work the
-same way in both modes, so a run can be restarted with or without block
-timesteps.
+particles are in step, every ``dtmaxblk``, and so is ``restartrad.sph``: at the
+first such time at least 1000 substeps after the previous one.  Output files and
+restarts work the same way in both modes, so a run can be restarted with or
+without block timesteps.
 
 Block timesteps need a dynamical run (``nrelax=0``) with ``nintvar=2``,
 ``ncooling=0``, ``hfloor=0``, ``nkernel=2`` and ``nselfgravity=1``, and the code
