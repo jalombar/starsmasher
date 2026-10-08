@@ -30,7 +30,7 @@ approximation against runs that integrate the orbit in full.
 `Godet et al. (2014), ApJ 793, 105
 <https://ui.adsabs.harvard.edu/abs/2014ApJ...793..105G/abstract>`_ use the same
 treatment for the repeated partial stripping of a donor by an intermediate-mass black hole in
-HLX-1.  Their Section 6.1 states it compactly: once the donor "has retreated
+HLX-1.  Their Section 6.1 explains that once the donor "has retreated
 sufficiently far from the black hole to become stabilized (typically about 100
 dynamical timescales after periapsis), we employ the analytic Kepler two-body
 result to advance the orbit to the same separation but now with the donor
@@ -42,8 +42,7 @@ before deciding what to do about artificial viscosity.
 
 `Kıroğlu et al. (2023), ApJ 948, 89
 <https://ui.adsabs.harvard.edu/abs/2023ApJ...948...89K/abstract>`_ call it
-orbital regularization in their Section 2.2, and say most clearly why it is
-needed: for :math:`M_{\rm BH} > 100\,M_\odot` at :math:`r_p = r_{\rm T}` the
+orbital regularization in their Section 2.2: for :math:`M_{\rm BH} > 100\,M_\odot` at :math:`r_p = r_{\rm T}` the
 remnant comes away with :math:`e > 0.999` and :math:`a > 10^4\,R_\odot`, an
 orbital period of order ten years, or :math:`\sim 10^5` dynamical timescales.
 They also record the choices that go with it: jump once the star has receded far
@@ -56,15 +55,28 @@ debris bound to the black hole is treated as accreted, which is harmless when
 Turning it on
 -------------
 
-All four parameters below are set in ``sph.input``.
+All five parameters below are set in ``sph.input``.  Set ``tjumpahead`` or
+``rjump`` to arm a jump. The rest refine it.
 
 ``tjumpahead``
    The time at which the jump happens.  The default, ``1d30``, never fires.  Any
    other value is a deliberate request and is honoured.  The code stores it
    negated, and that negative sign is what tells ``changetf``, which revises the
    run's own schedule at every output, to leave the jump time alone.  ``main.f``
-   compares against its absolute value, so you write it positive and never see
-   the sign.
+   compares against its absolute value.
+
+``rjump``
+   A separation instead of a time.  At every output, once the two bodies are at
+   least ``rjump`` apart, on a bound orbit, and moving away from each other, the
+   jump is scheduled for the next iteration.  The default, ``1d30``, never fires.
+   Because ``main.f`` re-arms the trigger after each jump, a run with ``rjump``
+   set jumps again on every passage that recedes past it, with no restart in
+   between, which is what a sequence of repeated partial disruptions needs.  The
+   test is made in ``changetf``, so setting ``rjump`` also makes the code
+   analyse the system at every output and write ``ecc.sph``, as a negative
+   ``tf`` does; unlike a negative ``tf``, it leaves ``tf`` alone.  Each test is
+   logged to ``log*.sph`` as ``ecc12,dotproduct,dbg,rjump=``, and a jump it
+   triggers as ``MIGHT AS WELL JUMP!``.
 
 ``throwaway``
    Whether the debris is discarded.  The default is ``.true.``, which is what
@@ -80,17 +92,10 @@ All four parameters below are set in ``sph.input``.
    the code revise its own stopping time, and makes it analyse the system at
    every output and write ``ecc.sph``, which is how you follow the orbit.
 
-That is the whole interface.  Put ``tjumpahead`` in ``sph.input`` and run; the
-jump fires on the first iteration past it.  It can go in from the start, or be
+That is the whole interface.  Put ``tjumpahead`` in ``sph.input`` and run.  Or put in ``rjump``, and every
+passage jumps once the star has receded that far.  It can go in from the start, or be
 added later and the run resumed from ``restartrad.sph``, which is useful when
 you would rather look at the first passage before committing to a jump time.
-
-.. note::
-
-   ``changetf`` can in principle schedule a jump on its own: when it sees a
-   bound pair receding with an apocentre past 1000 code units it logs ``FUTURE
-   CANDIDATE FOR JUMPING AHEAD``.  The line that would set a jump time there is
-   commented out, so nothing follows from it, and the choice stays with you.
 
 Choosing when to jump
 ---------------------
@@ -102,7 +107,7 @@ were trying to avoid.
 A separation that works
 ~~~~~~~~~~~~~~~~~~~~~~~
 
-The prescription behind the published intermediate-mass black hole runs is a
+The prescription used in the published intermediate-mass black hole runs is a
 separation,
 
 .. math::
@@ -141,60 +146,6 @@ For :math:`M_{\rm BH}/M_* = 5, 10, 100, 200, 500` and 1000 the coefficient
 :math:`1.7(M_{\rm BH}/M_*)^{1/3}` comes to 2.9, 3.7, 7.9, 9.9, 13.5 and 17.  At
 the low end that is only a few tidal radii, close enough that the star may not
 have finished being disrupted, so look at a snapshot before trusting the number.
-
-Turning a separation into a time
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-
-**Barker's equation is not required.**  ``tjumpahead`` is a time and nothing
-else, and the code knows nothing of :math:`r_{\rm jump}` or of Barker's
-equation.  If you already know how long you want to wait (because you watched
-the first passage go by, or because a previous run of the same
-encounter told you) then write that time in and skip to the next section.
-What follows is only the way to turn a separation you have picked into a time,
-which you need when you are choosing the jump time before the run exists.
-
-The first
-passage is near enough parabolic for Barker's equation, the parabolic
-counterpart of Kepler's equation (`Pathan 2008, Math. Gaz. 92, 39
-<https://www.cambridge.org/core/journals/mathematical-gazette/article/abs/eulers-and-barkers-equations-a-geometric-derivation-of-the-time-of-flight-along-parabolic-trajectories/3AEDFC36C19C75A01F91984247A603E4>`_,
-or Section 4.5 of Bate, Mueller & White, *Fundamentals of Astrodynamics*).
-Written in terms of :math:`x = r/r_p` it gives the time since pericentre as
-
-.. math::
-
-   t = \frac{\sqrt{2}}{6\pi}\,(x+2)\sqrt{x-1}\; t_{\rm orb}
-     = 0.07503\,(x+2)\sqrt{x-1}\; t_{\rm orb},
-   \qquad
-   t_{\rm orb} = 2\pi\sqrt{\frac{r_p^3}{GM_{\rm BH}}}.
-
-Putting :math:`x_{\rm jump} = 1.7(M_{\rm BH}/M_*)^{1/3}` into it gives
-:math:`t_{\rm jump} = 1.9\,t_{\rm orb}` for :math:`M_{\rm BH} = 100\,M_\odot`
-and :math:`5.7\,t_{\rm orb}` for :math:`1000\,M_\odot`, measured from
-pericentre.  The same expression run with the starting separation gives the time
-from the start of the run to pericentre, so the two together give a
-``tjumpahead`` before the run has been started.
-
-A worked example
-----------------
-
-The run below takes under an hour on one GPU and uses only files that come with
-the repository.  It sends the relaxed 8 :math:`M_\odot` star from
-``example_input/collision`` past a 100 :math:`M_\odot` black hole, which is what
-``hyp`` produces when ``sph.start2u`` is absent: the second body becomes a single
-point mass of mass ``mbh``.
-
-Working out the jump time
-~~~~~~~~~~~~~~~~~~~~~~~~~
-
-The star is :math:`R_* = 3.17\,R_\odot`, so
-:math:`r_{\rm T} = R_*(M_{\rm BH}/M_*)^{1/3} = 7.4`.  Taking :math:`r_p = 12`,
-a grazing pass at about :math:`1.6\,r_{\rm T}`, the prescription gives
-:math:`r_{\rm jump} = 1.7 \times 2.32 \times 12 = 47`.  With
-:math:`t_{\rm orb} = 2\pi\sqrt{12^3/100} = 26` code units, Barker's equation puts
-:math:`x = 47/12` at 20 code units after pericentre, and the starting separation
-:math:`x = 60/12` at 27 before it.  So the jump wants to happen around
-:math:`t = 47`; the orbit here is bound rather than exactly parabolic, which
-brings pericentre in a little earlier, and 45 is a round number close enough.
 
 Setting up
 ~~~~~~~~~~
@@ -639,6 +590,6 @@ a run left at the default and not with one that sets
 
 .. seealso::
 
-   :doc:`../reference/sph_input` for ``tjumpahead``, ``throwaway``,
+   :doc:`../reference/sph_input` for ``tjumpahead``, ``rjump``, ``throwaway``,
    ``internal_energy_fraction`` and ``tf``, and :doc:`output` for the files
    named here.

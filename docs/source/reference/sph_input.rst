@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **88** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **89** settings.
 
 
 .. _sph-input-time-and-output:
@@ -48,6 +48,10 @@ Time and output
      - ``1d30``
      - every run
      - time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
+   * - ``rjump``
+     - ``1d30``
+     - every run
+     - separation of the two stars beyond which a bound, receding orbit is skipped ahead by jumpahead, which advances it analytically around the Kepler two-body solution.  The default never fires; a smaller value turns on automatic jumping
    * - ``tscanon``
      - ``0``
      - every run

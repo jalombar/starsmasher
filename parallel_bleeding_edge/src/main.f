@@ -12,9 +12,9 @@ c *****************************************
       real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       integer i,ierr
-      common /jumpcomm/ tjumpahead
-      logical autotf
-      common/autotfblock/autotf
+      common /jumpcomm/ tjumpahead,rjump
+      logical autotf,autojump
+      common/autotfblock/autotf,autojump
 
       omeg=0.d0
       gonedynamic=.false.
@@ -94,8 +94,8 @@ c            beta=2.d0
 c     A negative tjumpahead means the user set the jump time deliberately, so
 c     honour it whatever tf is doing.  A positive one can only have come from
 c     changetf deciding a jump was worth scheduling, and that is a decision
-c     only a run with a negative tf is allowed to make.
-            if(autotf .or. tjumpahead.lt.0.d0) then
+c     only a run with a negative tf, or with rjump set, is allowed to make.
+            if(autotf .or. autojump .or. tjumpahead.lt.0.d0) then
                if(myrank.eq.0) write(69,*) 'jumpping ahead at time t=',t
                call jumpahead
             else

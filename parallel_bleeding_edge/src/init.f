@@ -19,7 +19,7 @@ c     initialization of run (new or restart)
       common/commdivv/divv
       real*8 amass1,amass2
       common/forcompbest/ amass1,amass2
-      common /jumpcomm/ tjumpahead
+      common /jumpcomm/ tjumpahead,rjump
       real*8 xcm,ycm,zcm,vxcm,vycm,vzcm,amtot
       real*8 erad,tjumpaheadold
       common/lostenergy/ erad
@@ -592,8 +592,8 @@ c      end
 ************************************************************************
       subroutine get_input
       include 'starsmasher.h'
-      logical autotf
-      common/autotfblock/autotf
+      logical autotf,autojump
+      common/autotfblock/autotf,autojump
       common/orbitalelements/e0,semimajoraxis,impactparameter,vinf2
       real*8 bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,bbh_longitude
@@ -601,7 +601,7 @@ c      end
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,bbh_longitude
       real*8 rhocgs,mucgs
       common/ueqstuff/rhocgs,teq,mucgs
-      common /jumpcomm/ tjumpahead
+      common /jumpcomm/ tjumpahead,rjump
       logical fileexists
       integer ierr
       real*8 displacex,displacey,displacez
@@ -624,7 +624,7 @@ c      end
      $     stellarevolutioncodetype,
      $     bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
-     $     bbh_longitude,rp
+     $     bbh_longitude,rp,rjump
       
       character*9 slurm_gpu_count_str
       integer slurm_gpu_count,actual_gpu_count
@@ -716,6 +716,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
+      rjump=1d30 ! separation of the two stars beyond which a bound, receding orbit is skipped ahead by jumpahead, which advances it analytically around the Kepler two-body solution.  The default never fires; a smaller value turns on automatic jumping
       startfile1='sph.start1u' ! first body of the encounter, in out*.sph format, usually the last snapshot of a relaxation
       startfile2='sph.start2u' ! second body, same format as startfile1.  If absent, a single point mass of mass mbh is used
       startfile3='sph.start3u' ! third body of a triple, same format as startfile1
@@ -847,8 +848,9 @@ c      endif
       endif
 
       autotf=.false.
-      if(tf.lt.0.d0) then
-         autotf=.true.
+      autojump=rjump.lt.1.d30
+      if(tf.lt.0.d0 .or. autojump) then
+         autotf=tf.lt.0.d0
          tf=abs(tf)
          open(23,file='ecc.sph')
          write(23,'(33a14)') 't    ','m1    ','m2    ',
@@ -860,7 +862,8 @@ c      endif
 c     enout writes the energies from either side of every jump to unit 34.
 c     Name the file, or they land in a stray fort.34.  The condition is the one
 c     main.f uses to decide whether a jump can happen at all.
-      if(myrank.eq.0 .and. (autotf .or. tjumpahead.lt.0.d0))
+      if(myrank.eq.0 .and. (autotf .or. autojump .or.
+     $     tjumpahead.lt.0.d0))
      $     open(34,file='jumpahead.sph')
 
       return
