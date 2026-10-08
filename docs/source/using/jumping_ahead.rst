@@ -56,7 +56,8 @@ debris bound to the black hole is treated as accreted, which is harmless when
 Turning it on
 -------------
 
-All four parameters below are set in ``sph.input``.
+All five parameters below are set in ``sph.input``.  Set ``tjumpahead`` or
+``rjump`` to arm a jump; the rest refine it.
 
 ``tjumpahead``
    The time at which the jump happens.  The default, ``1d30``, never fires.  Any
@@ -65,6 +66,19 @@ All four parameters below are set in ``sph.input``.
    run's own schedule at every output, to leave the jump time alone.  ``main.f``
    compares against its absolute value, so you write it positive and never see
    the sign.
+
+``rjump``
+   A separation instead of a time.  At every output, once the two bodies are at
+   least ``rjump`` apart, on a bound orbit, and moving away from each other, the
+   jump is scheduled for the next iteration.  The default, ``1d30``, never fires.
+   Because ``main.f`` re-arms the trigger after each jump, a run with ``rjump``
+   set jumps again on every passage that recedes past it, with no restart in
+   between, which is what a sequence of repeated partial disruptions needs.  The
+   test is made in ``changetf``, so setting ``rjump`` also makes the code
+   analyse the system at every output and write ``ecc.sph``, as a negative
+   ``tf`` does; unlike a negative ``tf``, it leaves ``tf`` alone.  Each test is
+   logged to ``log*.sph`` as ``ecc12,dotproduct,dbg,rjump=``, and a jump it
+   triggers as ``MIGHT AS WELL JUMP!``.
 
 ``throwaway``
    Whether the debris is discarded.  The default is ``.true.``, which is what
@@ -81,7 +95,8 @@ All four parameters below are set in ``sph.input``.
    every output and write ``ecc.sph``, which is how you follow the orbit.
 
 That is the whole interface.  Put ``tjumpahead`` in ``sph.input`` and run; the
-jump fires on the first iteration past it.  It can go in from the start, or be
+jump fires on the first iteration past it.  Or put in ``rjump``, and every
+passage jumps once the star has receded that far.  It can go in from the start, or be
 added later and the run resumed from ``restartrad.sph``, which is useful when
 you would rather look at the first passage before committing to a jump time.
 
@@ -91,6 +106,7 @@ you would rather look at the first passage before committing to a jump time.
    bound pair receding with an apocentre past 1000 code units it logs ``FUTURE
    CANDIDATE FOR JUMPING AHEAD``.  The line that would set a jump time there is
    commented out, so nothing follows from it, and the choice stays with you.
+   ``rjump`` is the way to hand that choice to the code.
 
 Choosing when to jump
 ---------------------
@@ -145,8 +161,10 @@ have finished being disrupted, so look at a snapshot before trusting the number.
 Turning a separation into a time
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-**Barker's equation is not required.**  ``tjumpahead`` is a time and nothing
-else, and the code knows nothing of :math:`r_{\rm jump}` or of Barker's
+**Barker's equation is not required.**  The simplest route is to put
+:math:`r_{\rm jump}` itself into ``sph.input`` as ``rjump``, and let the code
+watch for it.  ``tjumpahead``, by contrast, is a time and nothing
+else, and knows nothing of :math:`r_{\rm jump}` or of Barker's
 equation.  If you already know how long you want to wait (because you watched
 the first passage go by, or because a previous run of the same
 encounter told you) then write that time in and skip to the next section.
@@ -639,6 +657,6 @@ a run left at the default and not with one that sets
 
 .. seealso::
 
-   :doc:`../reference/sph_input` for ``tjumpahead``, ``throwaway``,
+   :doc:`../reference/sph_input` for ``tjumpahead``, ``rjump``, ``throwaway``,
    ``internal_energy_fraction`` and ``tf``, and :doc:`output` for the files
    named here.

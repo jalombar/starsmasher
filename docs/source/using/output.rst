@@ -22,8 +22,8 @@ Every run writes these:
    step after 1000 substeps).  If it is present in the directory when a run
    starts, the code continues from it rather than beginning afresh.
 
-A run with a negative ``tf`` writes one more, and a run that jumps ahead on its
-orbit writes two others:
+A run with a negative ``tf`` or with ``rjump`` set writes one more, and a run
+that jumps ahead on its orbit writes two others:
 
 ``ecc.sph``
    One row per output, tracking the two most massive components of the system:

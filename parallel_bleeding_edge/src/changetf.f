@@ -99,7 +99,7 @@ c      character*1 stara,starb,starc
       real*8 eintsave,eint,tjumpaheadold,dotproduct
       save eintsave
       data eintsave /-1.d30/
-      common /jumpcomm/ tjumpahead
+      common /jumpcomm/ tjumpahead,rjump
       real*8 dotproduct12
       integer mylength,ierr,irank
       real*8 ran1
@@ -1464,6 +1464,24 @@ c     $     ebin3ebin,mejecta
      $     xb,yb,zb,xg,yg,zg,
      $     dbg,am4/amtot,am4,
      $     abg,eccbg,mejecta
+
+c     Jump ahead as soon as the two stars are at least rjump apart on a bound
+c     orbit and moving away from each other.
+      dotproduct=(xb-xg)*(vxb-vxg)+
+     $     (yb-yg)*(vyb-vyg)+
+     $     (zb-zg)*(vzb-vzg)
+      if(myrank.eq.0) then
+         write(69,'(a,9g15.6)')
+     $        'ecc12,dotproduct,dbg,rjump=',ecc12,
+     $        dotproduct,dbg,rjump
+      endif
+      if( dbg.ge.rjump .and. ecc12.lt.1 .and.
+     $     dotproduct.gt.0 .and. amb*amg.gt.0) then
+         tjumpahead=t
+         if(myrank.eq.0) then
+            write(69,*) 'MIGHT AS WELL JUMP! GO AHEAD AND JUMP!'
+         endif
+      endif
 
 c asynchronize all variables:
       do i=1,n

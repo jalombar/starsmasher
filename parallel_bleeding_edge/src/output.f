@@ -73,7 +73,7 @@ c     binary dump files.
       integer iu,i
       real*8 divv(nmax)
       common/commdivv/divv
-      common /jumpcomm/ tjumpahead
+      common /jumpcomm/ tjumpahead,rjump
       real*8 erad
       common/lostenergy/ erad
       real*8 displacex, displacey,displacez
@@ -559,14 +559,15 @@ c     write binary dump file containing complete current results
       integer i
       character*3 iname
       common /inittcom/ iname
-      logical autotf
-      common/autotfblock/autotf
+      logical autotf,autojump
+      common/autotfblock/autotf,autojump
       real*8 divv(nmax)
       common/commdivv/divv
       integer mylength, ierr, mygravlength
       integer comm_worker
       common/gravworkers/comm_worker
       real*8 gtot(nmax)
+      real*8 tfsave
 
 c     myrank=0 needs the rho,divv values to make the output file
       mylength=n_upper-n_lower+1
@@ -709,12 +710,17 @@ c     the temperature came out of the ln A inversion just above
          endif
       endif
 
-      if(autotf) then
+c     changetf is where rjump is tested, so it runs whenever rjump is set.  It
+c     may only change tf, though, when the user asked for that with a negative
+c     tf; otherwise the tf from sph.input stands.
+      if(autotf .or. autojump) then
+         tfsave=tf
          if(myrank.eq.0)
      $        write(69,*)'*************calling changetf***************',t
          call changetf
          if(myrank.eq.0)
      $        write(69,*)'*************done w/ changetf***************',t
+         if(.not.autotf) tf=tfsave
       endif
       
       return
