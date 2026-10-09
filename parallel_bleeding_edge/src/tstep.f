@@ -16,6 +16,12 @@ c***********************************************************************
       real*8 mydtvelco(2),mydtaccco(2)
       integer idtvel,idtacc,idtu,idtacc4, ierr
       integer idtvelco,idtaccco
+c     block steps: smallest value of each column, and its particle, over the
+c     substeps since the last full synchronization
+      real*8 dtsblk(7),dtsnow(7)
+      integer indblk(6),indnow(6),k
+      save dtsblk,indblk
+      data dtsblk/7*1.d30/, indblk/6*0/
       
       if(nrelax.ne.1) then
          call vdotsm
@@ -166,11 +172,28 @@ c     mpi sync here dt should be min for all processes
          idtacc4=nint(dtacc4min(2))
          idtvelco=nint(dtvelcomin(2))
          idtaccco=nint(dtacccomin(2))
-         write(69,'(a4,9g10.3)')
-     $    'dts=',dtvelmin(1),dtaccmin(1),dtumin(1),dtacc4min(1),
-     $        dtvelcomin(1),dtacccomin(1),dt
-         write(69,'(a4,9g10.3)')
-     $    'indx',idtvel,idtacc,idtu,idtacc4,idtvelco,idtaccco
+         dtsnow=(/dtvelmin(1),dtaccmin(1),dtumin(1),dtacc4min(1),
+     $        dtvelcomin(1),dtacccomin(1),dt/)
+         indnow=(/idtvel,idtacc,idtu,idtacc4,idtvelco,idtaccco/)
+c     With block steps tstep runs every substep, so one pair of lines per
+c     call would flood the log.  Keep the smallest value of each column (and
+c     the particle that set it) and write them once per full synchronization.
+         if(nblock.eq.1) then
+            do k=1,6
+               if(dtsnow(k).lt.dtsblk(k)) then
+                  dtsblk(k)=dtsnow(k)
+                  indblk(k)=indnow(k)
+               endif
+            enddo
+            dtsblk(7)=min(dtsblk(7),dtsnow(7))
+            if(.not.blksync) return
+            dtsnow=dtsblk
+            indnow=indblk
+            dtsblk=1.d30
+            indblk=0
+         endif
+         write(69,'(a4,9g10.3)') 'dts=',dtsnow
+         write(69,'(a4,9g10.3)') 'indx',indnow
       endif
 
       return

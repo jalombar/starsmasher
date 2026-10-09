@@ -72,7 +72,8 @@ this is the file that says what the code thought it was doing at the time.
 .. dropdown:: The timestepping lines, and what to do when energy is not conserved
    :icon: clock
 
-   Every step writes a pair of lines::
+   Every step (every full synchronization with block timesteps, see below)
+   writes a pair of lines::
 
       dts= <dt1> <dt2> <dt3> <dt4> <dt5> <dt6> <dt>
       indx <i1>  <i2>  <i3>  <i4>  <i5>  <i6>
@@ -81,6 +82,16 @@ this is the file that says what the code thought it was doing at the time.
    then ``dt``, the step actually taken.  ``indx`` gives the particle
    responsible for each of those minima, which is what turns "the timestep
    collapsed" into "the timestep collapsed because of *this* particle".
+
+   With block timesteps (``nblock=1``) the timesteps are evaluated at every
+   substep, which can mean tens of thousands of times between full
+   synchronizations.  Rather than a pair of lines for each, the pair is written
+   once per full synchronization, just before the ``block sync`` line.  Each
+   column then holds the smallest value that criterion reached over all the
+   substeps since the previous synchronization, ``indx`` names the particle
+   that set it, and ``dt`` is the smallest step any particle wanted in that
+   interval.  The ``block sync`` line and bin histogram that follow say how
+   many substeps there were and how the particles were spread across steps.
 
    Four criteria apply to SPH particles and are combined as
    :math:`dt_{sph} = 1/(1/dt_1 + 1/dt_2 + 1/dt_3 + 1/dt_4)`:
