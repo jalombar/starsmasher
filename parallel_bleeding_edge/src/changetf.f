@@ -107,6 +107,12 @@ c      character*1 stara,starb,starc
       save idumb
       data idumb /-2391/
       real*8 orbital_period
+      logical pmbody,seentwo
+      save seentwo
+      data seentwo /.false./
+      real*8 tfcap,tfrestart
+      integer ndtoutafter
+      common/destroyedcom/tfcap,tfrestart,ndtoutafter
       
       state=''
 
@@ -165,15 +171,22 @@ c     one collective gives every rank the whole array (formerly one gather per r
             az3=az3+am(i)*vzdot(i)
          endif
       enddo
-      ax1=ax1/am1
-      ay1=ay1/am1
-      az1=az1/am1
-      ax2=ax2/am2
-      ay2=ay2/am2
-      az2=az2/am2
-      ax3=ax3/am3
-      ay3=ay3/am3
-      az3=az3/am3
+c     (an empty body, such as a destroyed star, keeps zero acceleration)
+      if(am1.gt.0.d0) then
+         ax1=ax1/am1
+         ay1=ay1/am1
+         az1=az1/am1
+      endif
+      if(am2.gt.0.d0) then
+         ax2=ax2/am2
+         ay2=ay2/am2
+         az2=az2/am2
+      endif
+      if(am3.gt.0.d0) then
+         ax3=ax3/am3
+         ay3=ay3/am3
+         az3=az3/am3
+      endif
 
 c      write(69,'(a,3g17.9)')'mass of star 1=',am1
 c      write(69,'(a,3g17.9)')'position of star 1=',x1,y1,z1
@@ -1138,6 +1151,30 @@ c            write(state,103) stara,starb
 
 
 
+
+c     A jump-ahead run whose star has been destroyed, leaving a point mass
+c     (the black hole) as the only body, has nothing left to jump for, and
+c     the tf in sph.input is usually far too late.  Run on for ndtoutafter
+c     (sph.input, default 100) more dump intervals, enough to watch the debris
+c     spread from the black hole, then stop.  output.f applies this end even
+c     when tf otherwise belongs to the user.  A run restarted after the
+c     destruction finds the end saved as tf in restartrad.sph (init.f).
+      if(numstars.ge.2) seentwo=.true.
+      if(rjump.lt.1.d30 .and. numstars.eq.1 .and. tfcap.ge.1.d30) then
+         pmbody=.false.
+         do i=1,n
+            if(u(i).eq.0.d0 .and. icomp(i).le.3) pmbody=.true.
+         enddo
+         if(pmbody) then
+            if(seentwo) then
+               tfcap=t+ndtoutafter*abs(dtout)
+            else
+               tfcap=tfrestart
+            endif
+            if(myrank.eq.0)write(69,*)'star destroyed by t=',t,
+     $           ': the run will end by t=',tfcap
+         endif
+      endif
 
       if(tf.ne.tfold) then
          eintsave=0.d0

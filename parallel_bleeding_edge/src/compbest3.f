@@ -39,13 +39,7 @@ c     numbers for a summary table
       data firstt /.true./
       integer numstars,numstarslast
       common/nsl/ numstarslast
-      real*8 am1last,am2last,am3last
-      save am1last,am2last,am3last
       real*8 rhomax1,rhomax2,rhomax3,rhomax4
-      integer swapcase,compa,compb,irhomaxtmp
-      real*8 massa, massb
-      logical checkifswapped
-      common/cis/ checkifswapped
       real*8 amenclosed(nmax)
       logical makeunboundstarcomp4
       real*8 e1,e2,e3,mu
@@ -214,7 +208,6 @@ c      write(69,*)'rhomaxes=',rhomax1,rhomax2,rhomax3,rhomax4
 c     iterate over component determination
       ncit=0
       nchng=1
-      swapcase=0
       do while (nchng.ne.0 .and. ncit.lt.ncitmax)
          nchng=0
 c         if(t.gt.122) write(69,*)ncit,t
@@ -312,7 +305,10 @@ c            if(icomp(i).eq.2) stop
             if (ic.ne.icomp(i)) then
 c     (particle assignment has changed)
 c     adjust components
-c     remove from old component
+c     remove from old component.  A body's centre is its densest particle
+c     when this call began; a particle that joins never replaces it, but a
+c     centre that leaves is replaced by the densest particle left behind.
+c     (Mergers are decided afterwards, in changetf.)
 
                if(am(i).gt.1d0 .and. myrank.eq.0) then
 c               if(.true.) then
@@ -368,57 +364,6 @@ c                     write(69,*)'removing',i,'from comp 3; new=',irhomax3
                   endif
                endif
 
-c     add to new component
-               if (ic.eq.1) then
-                  if(rho(i).gt.rho(irhomax1)) then
-                     if(icomp(i).ne.4 .and. myrank.eq.0)
-     $                    write(69,*)'in comp 1: replacing',irhomax1,
-     $                    'with',i,'from comp',icomp(i)
-                     irhomax1=i
-                     if(icomp(i).ne.4) then
-                        if(swapcase.ne.0 .and.
-     $                       swapcase.ne.icomp(i)+ic .and. myrank.eq.0)then
-                           write(69,*)'double swap???'
-c                           stop
-                        endif
-                        swapcase=icomp(i)+ic
-                        if(myrank.eq.0)write(69,*)'swapcase',i,icomp(i),ic
-                     endif
-                  endif
-               else if (ic.eq.2) then
-                  if(rho(i).gt.rho(irhomax2)) then
-                     if(icomp(i).ne.4 .and. myrank.eq.0)
-     $                    write(69,*)'in comp 2: replacing',irhomax2,
-     $                    'with',i,'from comp',icomp(i)
-                     irhomax2=i
-                     if(icomp(i).ne.4) then
-                        if(swapcase.ne.0 .and.
-     $                       swapcase.ne.icomp(i)+ic .and. myrank.eq.0)then
-                           write(69,*)'double swap???'
-c                           stop
-                        endif
-                        swapcase=icomp(i)+ic
-                        if(myrank.eq.0)write(69,*)'swapcase',i,icomp(i),ic
-                     endif
-                  endif
-               else if (ic.eq.3) then
-                  if(rho(i).gt.rho(irhomax3)) then
-                     if(icomp(i).ne.4 .and. myrank.eq.0)
-     $                    write(69,*)'in comp 3: replacing',irhomax3,
-     $                    'with',i,'from comp',icomp(i)
-                     irhomax3=i
-                     if(icomp(i).ne.4) then
-                        if(swapcase.ne.0 .and.
-     $                       swapcase.ne.icomp(i)+ic .and. myrank.eq.0)then
-                           write(69,*)'double swap???'
-c                           stop
-                        endif
-                        swapcase=icomp(i)+ic
-                        if(myrank.eq.0)write(69,*)'swapcase',i,icomp(i),ic
-                     endif
-                  endif
-               endif
-
 c               write(69,*)i,'is being moved from',icomp(i),'to',ic
 c               write(69,*)x(i),y(i),z(i)
 
@@ -438,56 +383,6 @@ c               write(69,*)x(i),y(i),z(i)
          endif
 
       enddo
-
-      if(swapcase.ne.0) then
-         if(swapcase.eq.3) then
-            compa=1
-            compb=2
-            irhomaxtmp=irhomax1
-            irhomax1=irhomax2
-            irhomax2=irhomaxtmp
-         elseif(swapcase.eq.4)then
-            compa=1
-            compb=3
-            irhomaxtmp=irhomax1
-            irhomax1=irhomax3
-            irhomax3=irhomaxtmp
-         elseif(swapcase.eq.5)then
-            compa=2
-            compb=3
-            irhomaxtmp=irhomax2
-            irhomax2=irhomax3
-            irhomax3=irhomaxtmp
-         else
-            write(69,*)'swapcase problem'
-            stop
-         endif
-         if(myrank.eq.0)write(69,*)'time to merge the stars at t=',t
-         if(compa.eq.1) massa=am1last
-         if(compa.eq.2) massa=am2last
-         if(compa.eq.3) massa=am3last
-         if(compb.eq.1) massb=am1last
-         if(compb.eq.2) massb=am2last
-         if(compb.eq.3) massb=am3last
-         if(myrank.eq.0)write(69,*)'will merge components to recover...'
-         if(myrank.eq.0)write(69,*)'last masses=',massa,massb
-         if(massa.gt.massb)then
-            if(myrank.eq.0)write(69,*)'switching all particles from',compb,'to',compa
-            do i=1,n
-               if(icomp(i).eq.compb)icomp(i)=compa
-            enddo
-         else
-            if(myrank.eq.0)write(69,*)'switching all particles from',compa,'to',compb
-            do i=1,n
-               if(icomp(i).eq.compa)icomp(i)=compb
-            enddo
-         endif
-         if(myrank.eq.0)write(69,*)'let us try again'
-         checkifswapped=.true.
-         firstt=.false.
-         return
-         goto 123
-      endif
 
       ncompsph1=0
       ncompsph2=0
@@ -582,9 +477,6 @@ c     orbit analysis, including the rjump test in changetf.
       endif
 
       numstarslast=numstars
-      am1last=am1
-      am2last=am2
-      am3last=am3
 
       if(myrank.eq.0)write(69,'(a,7a10)') '       ','mass   ','x   ','y   ','z   ',
      $     'vx   ','vy   ','vz   '

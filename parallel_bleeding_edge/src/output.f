@@ -568,6 +568,9 @@ c     write binary dump file containing complete current results
       common/gravworkers/comm_worker
       real*8 gtot(nmax)
       real*8 tfsave
+      real*8 tfcap,tfrestart
+      integer ndtoutafter
+      common/destroyedcom/tfcap,tfrestart,ndtoutafter
 
 c     myrank=0 needs the rho,divv values to make the output file
       mylength=n_upper-n_lower+1
@@ -605,9 +608,15 @@ c     this is here for the generation of col*.sph files
          if(nout.lt.10000) then
             write(outfn,1101) nout
  1101       format('out',i4.4,'.sph')
-         else
+         else if(nout.lt.100000) then
             write(outfn,2101) nout
  2101       format('out',i5.5,'.sph')
+         else if(nout.lt.1000000) then
+            write(outfn,3101) nout
+ 3101       format('out',i6.6,'.sph')
+         else
+            write(outfn,4101) nout
+ 4101       format('out',i7.7,'.sph')
          endif
          
          write (69,*) 'duout: writing file ',outfn,'at t=',t
@@ -721,6 +730,9 @@ c     tf; otherwise the tf from sph.input stands.
          if(myrank.eq.0)
      $        write(69,*)'*************done w/ changetf***************',t
          if(.not.autotf) tf=tfsave
+c     the end changetf sets once a jump-ahead run's star is destroyed holds
+c     even when tf is otherwise the user's
+         tf=min(tf,tfcap)
       endif
       
       return
