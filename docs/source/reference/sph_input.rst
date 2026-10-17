@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **89** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **90** settings.
 
 
 .. _sph-input-time-and-output:
@@ -531,4 +531,8 @@ Other settings
      - ``-1.d0``
      - every run
      - nintvar=12 or 32: time to hand over to u.  <0 means use treloff.
+   * - ``ndtoutafter``
+     - ``100``
+     - every run
+     - once a jump-ahead run (rjump set) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
 

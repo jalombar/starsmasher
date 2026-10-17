@@ -287,7 +287,8 @@ detrended.
 ~~~~~~~~~~~~
 
 The run settings followed by the full state of every particle, written every
-``dtout``.  These are the snapshots you visualise, and the starting point for a
+``dtout``.  The number in the name counts outputs, with four digits up to
+``out9999.sph`` and as many as needed (up to seven) after that.  These are the snapshots you visualise, and the starting point for a
 collision: the last snapshot of a relaxation is a relaxed star.
 
 They are Fortran ``unformatted`` files, which is to say binary records rather

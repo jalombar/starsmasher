@@ -1,82 +1,46 @@
       subroutine gettemperature(q,r,x3)
-c     subroutine to solve 4th order equations to determine the temperature x3
-c     for an equation of state with both ideal gas and radiation pressure.
-c     written by scott fleming 10/04/02 and james lombardi 2002-2003
-
-c     the fourth order equation comes from u_gas+ u_rad = u, with
-c     u_gas proportional to t and u_rad proportional to t^4
-
-c     in general, we can transform a 4th order equation to x^4+px^2+qx+r=0
-c     (see pages 57-58 of stillwell's "mathematics and its history" text)
-c     but we fortunately don't even have an x^2 term (that is, p=0).
-
-c     follow stillwell, we can transform this into a cubic equation:
-c     first solve for y by using the fact that b^2-4ac=0
-c     equation is then:  y^3=ry+q^2/8
-c     using the solution of cubic equations found in stillwell page 55:
+c     Temperature x3 for an equation of state with both ideal gas and
+c     radiation pressure: u_gas + u_rad = u, with u_gas proportional to T and
+c     u_rad proportional to T^4, gives the quartic
+c
+c        x^4 + q x + r = 0,   q = qconst*rho/mu > 0,   r = -u*rho/arad < 0.
+c
+c     f(x) = x^4+qx+r increases and is convex for x>0, so it has exactly one
+c     positive root, and Newton's method started above that root comes down
+c     onto it monotonically.  Both x^4 and qx are at most -r at the root, so
+c     x0 = min((-r)^(1/4), -r/q) lies above it, and by no more than a factor
+c     of about 2 (at the root one of the two terms is at least -r/2), so
+c     Newton converges to machine precision within 6 or so iterations.
+c
+c     This replaces the closed-form solution (Stillwell's reduction to a
+c     resolvent cubic, by Scott Fleming and James Lombardi, 2002-2003), which
+c     loses accuracy as radiation comes to dominate: the error in T reaches
+c     ~1e-4 when the gas holds 1e-6 of the internal energy, ~2% at 1e-7 and
+c     ~100% below 1e-9, and roundoff can make the square root at its last
+c     step negative, returning NaN.  That NaN, from a hot, nearly isolated
+c     particle orbiting close to a black hole, stopped a run by making the
+c     timestep NaN.
 
       implicit none
-      real*8 q,r,k,b,piece1,piece2
-      real*8 y1,y2,yy,aa,b2,c2,x3,kh
-c      real*8 piece2old,x3old
+      real*8 q,r,x3,dx
+      integer it
 
-      k = 0.125d0*q**2
-      kh=0.5d0*k
-      if(kh**2-(r/3.d0)**3.le.0.d0)then
-         write(69,*) k,r,kh**2-(r/3.d0)**3
-         stop 'bad input: imaginary results?'
+c     no internal energy (or a negative one, which has no temperature); a
+c     NaN goes on through, so that it shows
+      if(r.ge.0.d0) then
+         x3=0.d0
+         return
       endif
 
-      piece1 = kh+(kh**2-(r/3.d0)**3)**0.5d0
-c      piece2old = kh-(kh**2-(r/3.d0)**3)**0.5d0
-      piece2 = (r/3.d0)**3.d0/piece1
+      x3=(-r)**0.25d0
+      if(q.gt.0.d0) x3=min(x3,-r/q)
+      do it=1,50
+         dx=(x3**4+q*x3+r)/(4.d0*x3**3+q)
+         x3=x3-dx
+         if(abs(dx).le.1.d-15*x3) return
+      enddo
 
-c      write(69,*)piece2old,piece2
-
-      y1 = piece1**(1.d0/3.d0)
-      
-c     fortran can't handle cube roots of neg. #'s
-      y2 = -dabs(piece2)**(1.d0/3.d0)
-      yy = y1+y2
-
-c     equation to solve: (x^2+p+y)^2=ax^2+bx+c
-c     now take square root of both sides with:
-
-      aa = 2.d0*yy
-      b = -q
-c      c = -r+y**2
-
-c     re-writing ax^2+bx+c as a square then solving the equation we
-c     obtain 2 results:
-c     x^2 + (-(a^(1/2)))x + (-b/(2(a)^(1/2))+p+y) = 0 (1)
-c     or
-c     x^2 + (a^(1/2))x + (b/(2(a)^(1/2))+p+y) = 0     (2)
-
-c     our solution we're interested in:
-      b2 = aa**0.5d0
-      c2 = 0.5d0*b/b2 + yy
-
-c     therefore, we once again have x^2+bx+c=0, and our answer we want is:
-c      x3old = 0.5d0*(-b2 + (b2**2-4.d0*c2)**0.5d0)
-      x3 = -2.d0*c2/(b2 + (b2**2-4.d0*c2)**0.5d0)
-
-c      write(69,*) 'temperature components', x3old, x3
-
-      if(piece1.lt.0.d0) write(69,*)
-     $     'piece 1 lt 0',k,r,piece1,piece2
-c      if(piece1.eq.-piece2)then
-      if(b2.eq.0.d0)then
-c         write(69,*)
-c     $        'piece 1 eq -piece 2 (rad pressure dominates)',
-c     $        k,r,piece1,piece2,b2,c2,x3,(-r)**0.25d0
-         x3=(-r -q*( -r-q*(-r)**0.25d0 )**0.25d0)**0.25d0
-c         write(69,*) x3
-c         write(69,*) piece1,piece2
-      endif
-      if(piece2.ge.0.d0) x3=-(r+(r/q)**4)/q
-      
       end
-      
 
 
       subroutine getlna_from_u(ucgs,rhocgs,mucgs,alna)

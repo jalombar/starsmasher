@@ -1113,9 +1113,12 @@
                     wtab(itab)*vzdot(j)
             endif
          enddo
-         vxdotsm(i)=vxdotsm(i)/(h3*rho(i))
-         vydotsm(i)=vydotsm(i)/(h3*rho(i))
-         vzdotsm(i)=vzdotsm(i)/(h3*rho(i))
+!     (a point mass has rho=0, and only gas particles use vdotsm)
+         if(rho(i).gt.0.d0) then
+            vxdotsm(i)=vxdotsm(i)/(h3*rho(i))
+            vydotsm(i)=vydotsm(i)/(h3*rho(i))
+            vzdotsm(i)=vzdotsm(i)/(h3*rho(i))
+         endif
       enddo
       if(blkdist) then
          call sync_w(vxdotsm)
