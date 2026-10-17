@@ -28,7 +28,7 @@ c     numbers for a summary table
       logical db,pp
       character*18 fname
       integer ncomp1,ncomp2,ncomp3,ncomp4,corepts,corepts1
-      integer ncompsph1,ncompsph2
+      integer ncompsph1,ncompsph2,ncomppm1,ncomppm2
       real*8 amtiny
       integer irhomax4,irhomax1,irhomax2,irhomax3
       save irhomax4,irhomax1,irhomax2,irhomax3
@@ -491,6 +491,8 @@ c               write(69,*)x(i),y(i),z(i)
 
       ncompsph1=0
       ncompsph2=0
+      ncomppm1=0
+      ncomppm2=0
       ncomp1=0
       ncomp2=0
       ncomp3=0
@@ -499,10 +501,18 @@ c               write(69,*)x(i),y(i),z(i)
       do i=1,n
          if (icomp(i).eq.1) then
             ncomp1=ncomp1+1
-            if(u(i).ne.0) ncompsph1=ncompsph1+1
+            if(u(i).ne.0) then
+               ncompsph1=ncompsph1+1
+            else
+               ncomppm1=ncomppm1+1
+            endif
          else if (icomp(i).eq.2) then
             ncomp2=ncomp2+1
-            if(u(i).ne.0) ncompsph2=ncompsph2+1
+            if(u(i).ne.0) then
+               ncompsph2=ncompsph2+1
+            else
+               ncomppm2=ncomppm2+1
+            endif
          else if (icomp(i).eq.3) then
             ncomp3=ncomp3+1
          else if (icomp(i).eq.4) then
@@ -511,8 +521,14 @@ c               write(69,*)x(i),y(i),z(i)
          endif
       enddo
 
-c     A component will need at least 5 SPH particles to count
-      if(ncompsph1.ge.1 .and. ncompsph1.le.4) then
+c     A component will need at least 5 SPH particles to count, unless it
+c     holds a point mass: a black hole with a few bound SPH particles, or
+c     none, is still a body.  Without that exception, the first few gas
+c     particles to become bound to a black hole would send it, along with
+c     them, to component 4, and since point masses never change component
+c     (see 9/3/04 above) it would stay there for good, ending any further
+c     orbit analysis, including the rjump test in changetf.
+      if(ncompsph1.ge.1 .and. ncompsph1.le.4 .and. ncomppm1.eq.0) then
          do i=1,n
             if (icomp(i).eq.1) then
                icomp(i)=4
@@ -528,7 +544,7 @@ c     A component will need at least 5 SPH particles to count
          vy1=0
          vz1=0
       endif
-      if(ncompsph2.ge.1 .and. ncompsph2.le.4) then
+      if(ncompsph2.ge.1 .and. ncompsph2.le.4 .and. ncomppm2.eq.0) then
          do i=1,n
             if (icomp(i).eq.2) then
                icomp(i)=4
