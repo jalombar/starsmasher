@@ -55,7 +55,7 @@ debris bound to the black hole is treated as accreted, which is harmless when
 Turning it on
 -------------
 
-All five parameters below are set in ``sph.input``.  Set ``tjumpahead`` or
+All six parameters below are set in ``sph.input``.  Set ``tjumpahead`` or
 ``rjump`` to arm a jump. The rest refine it.
 
 ``tjumpahead``
@@ -74,9 +74,20 @@ All five parameters below are set in ``sph.input``.  Set ``tjumpahead`` or
    between, which is what a sequence of repeated partial disruptions needs.  The
    test is made in ``changetf``, so setting ``rjump`` also makes the code
    analyse the system at every output and write ``ecc.sph``, as a negative
-   ``tf`` does; unlike a negative ``tf``, it leaves ``tf`` alone.  Each test is
+   ``tf`` does; unlike a negative ``tf``, it leaves ``tf`` alone, except to end
+   the run once the star has been destroyed (see ``ndtoutafter``).  Each test is
    logged to ``log*.sph`` as ``ecc12,dotproduct,dbg,rjump=``, and a jump it
    triggers as ``MIGHT AS WELL JUMP!``.
+
+``ndtoutafter``
+   How long a run with ``rjump`` set goes on once its star has been destroyed,
+   in units of ``dtout``.  The default is ``100``.  When the star is gone and a
+   point mass is the only body left, there is nothing more to jump for, and the
+   ``tf`` in ``sph.input`` is usually far too late, so the run stops
+   ``ndtoutafter*dtout`` later (or at ``tf``, if that comes first) instead of
+   writing snapshots of the debris for the rest of ``tf``.  The moment is logged
+   as ``star destroyed by t=``.  The end time is saved as ``tf`` in the
+   snapshots, so a run restarted after the destruction keeps it.
 
 ``throwaway``
    Whether the debris is discarded.  The default is ``.true.``, which is what
@@ -326,7 +337,11 @@ two-body binding test applied particle by particle.
 
 Each component :math:`j` has a mass :math:`M_j` and a centre.  The centre of the
 star is its **densest particle**; the centre of the black hole and whatever is
-bound to it is the **point particle itself**.  Particle :math:`i` counts as
+bound to it is the **point particle itself**.  The centres are found at the
+start of each call.  A particle that joins a component during the iteration
+never replaces its centre, however dense it is; if the centre particle itself
+leaves, the densest particle remaining takes over.  Mergers are not decided
+here but afterwards, in ``changetf``.  Particle :math:`i` counts as
 bound to component :math:`j` when
 
 .. math::
@@ -355,7 +370,11 @@ repeated, until a pass moves nobody.  That loop is the ``nit``/``nchng`` table
 in ``log0.sph``.
 
 A body left holding between one and four SPH particles is dissolved
-into the ejecta, on the grounds that it is not a star.
+into the ejecta, on the grounds that it is not a star, unless it holds a point
+mass: a black hole with a few bound gas particles, or none, is still a body.
+(Without that exception the first few particles bound to the black hole would
+send it, for good, into component 4, and the orbit could no longer be
+followed.)
 
 Kremer et al. use :math:`f_u = 1`.  The default here is ``0``, following
 Section 3.2 of `Nandez, Ivanova & Lombardi (2014), ApJ 786, 39
