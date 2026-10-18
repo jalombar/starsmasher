@@ -114,6 +114,7 @@ SCRIPT_TITLES = {
     'grs': 'a general-relativistic setup',
     'rin': 'a restart from an existing dump',
     'txt': 'particles laid out from an ASCII image',
+    'pbx': 'particles in a periodic box, read from a dump',
 }
 
 
@@ -231,6 +232,7 @@ GROUPS = [
  ('Parallelism and GPUs',
                      ['ngravprocs','qthreads','ppn','computeexclusivemode','gflag']),
  ('Units',           ['runit','munit','gravconst']),
+ ('Periodic box',    ['boxx','boxy','boxz']),
  ('Input files',     ['startfile1','startfile2','startfile3','binaryfile','triplefile',
                       'bpbhfile','imagefile','advectedfile',
                       'eosfile','opacityfile','profilefile',
@@ -241,6 +243,11 @@ GROUPS = [
 GROUP_NOTES = {
  'Units': ['These three set the physical meaning of every code unit; see',
            ':ref:`code units <code-units>` for what the derived units work out to.'],
+ 'Periodic box': ['A positive period makes that direction periodic: positions are wrapped',
+                  'into the box and every pair separation uses the nearest periodic image.',
+                  'Each 2h must stay below half of each period.  A periodic run needs',
+                  '``ngr=0`` and ``nblock=0``, and is usually started with ``INAME=\'pbx\'``,',
+                  'which reads the particles from ``startfile1``.'],
 }
 
 def main():

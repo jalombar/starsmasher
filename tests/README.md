@@ -30,6 +30,8 @@ it. Pass `--exe /path/to/..._sph` to test an executable you have already built.
 | `cpu_gpu` | The CPU and GPU builds agree. |
 | `guard_neighbors` | Exhausting the neighbour list stops the run with a message rather than corrupting memory. |
 | `guard_ngravprocs` | Asking for more gravity processes than there are GPUs is clamped, not fatal. |
+| `periodic` | A fully periodic box conserves momentum and energy and has no density seam at its faces. |
+| `guard_periodic` | A periodic box too small for the kernel stops the run with a message. |
 
 The last four exist because each corresponds to a real defect: results that
 depended on rank count, a CPU/GPU disagreement, an unbounded write past the end

@@ -386,6 +386,8 @@ c     so that is the caller's to get right, as it already is for nintvar=1.
             call grsph
          elseif(iname.eq.'txt')then
             call asciiimage
+         elseif(iname.eq.'pbx')then
+            call periodicbox
          else
             if(myrank.eq.0) write(69,*)'init: unknown name',iname
             stop
@@ -635,7 +637,8 @@ c      end
      $     stellarevolutioncodetype,
      $     bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
-     $     bbh_longitude,rp,rjump,rjumpfactor,rjumppercent,ndtoutafter
+     $     bbh_longitude,rp,rjump,rjumpfactor,rjumppercent,ndtoutafter,
+     $     boxx,boxy,boxz
       
       character*9 slurm_gpu_count_str
       integer slurm_gpu_count,actual_gpu_count
@@ -745,6 +748,9 @@ c     set some default values, so that they don't necessarily have to be set in 
       throwaway=.true. ! when skipping ahead, discard the debris and the material the accretor has taken, keeping only the surviving body and the point masses
       internal_energy_fraction=0d0 ! how much of a particle's specific internal energy counts toward unbinding it when compbest3 sorts particles into components.  0 leaves it out, as Nandez, Ivanova & Lombardi (2014) argue for; 1 counts all of it, as in Kremer et al. (2022)
       stellarevolutioncodetype=1 ! which code wrote profilefile, since the column layouts differ
+      boxx=0d0 ! period in x of a periodic box running from -boxx/2 to boxx/2.  0 leaves x open
+      boxy=0d0 ! period in y, as for boxx
+      boxz=0d0 ! period in z, as for boxx
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
@@ -761,6 +767,15 @@ c     stepper starts (the start-up force calculation needs all of them)
       refblk=.false.
       blkdist=.false.
       close(12)
+
+c     periodic box: the nearest-image separations assume no gravity (which
+c     would need an Ewald sum) and the shared timestep
+      periodic=boxx.gt.0.d0 .or. boxy.gt.0.d0 .or. boxz.gt.0.d0
+      if(periodic .and. (ngr.ne.0 .or. nblock.eq.1)) then
+         if(myrank.eq.0) write(69,*)
+     $        'init: a periodic box needs ngr=0 and nblock=0'
+         stop 'init: periodic box needs ngr=0 and nblock=0'
+      endif
 
 c     A tjumpahead the user has actually chosen is stored negated, which is how
 c     changetf is told to leave it alone.  Without that, changetf clears the
