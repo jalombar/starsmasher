@@ -22,7 +22,7 @@ Every run writes these:
    step after 1000 substeps).  If it is present in the directory when a run
    starts, the code continues from it rather than beginning afresh.
 
-A run with a negative ``tf`` or with ``rjump`` set writes one more, and a run
+A run with a negative ``tf`` or with automatic jumping on writes one more, and a run
 that jumps ahead on its orbit writes two others:
 
 ``ecc.sph``
@@ -324,7 +324,8 @@ Written when ``tf`` is negative
 
 A negative ``tf`` lets the code revise its own stopping time, and to do that it
 analyses the system at every output.  ``ecc.sph`` is the record of that
-analysis: plain text, one row per output, fifteen columns.
+analysis: plain text, one row per output, twenty-six columns.  A run with
+automatic jumping on writes it too.
 
 .. list-table::
    :header-rows: 1
@@ -347,6 +348,19 @@ analysis: plain text, one row per output, fifteen columns.
      - semimajor axis and eccentricity of the orbit between the two
    * - 15
      - the part of that mass which is unbound from the system as well
+   * - 16-21
+     - their centre-of-mass velocities, three each
+   * - 22-23
+     - the radius enclosing 99% of each one's mass, binned as ``rstar99`` in
+       ``massAndMore.out``.  Measured only when ``rjumpfactor`` sets the jump
+       separation, and 0 otherwise
+   * - 24
+     - the larger of the two tidal radii :math:`r_{99}(M_{\rm other}/M)^{1/3}`,
+       0 when not measured
+   * - 25
+     - ``rjump``, the jump separation in use (``1d30`` when jumping is off)
+   * - 26
+     - the period of their orbit when it is bound, and 0 otherwise
 
 The first of the two components is the more massive one, which in a star and
 black hole encounter means the black hole *together with whatever is bound to

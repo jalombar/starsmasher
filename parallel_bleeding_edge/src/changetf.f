@@ -99,7 +99,10 @@ c      character*1 stara,starb,starc
       real*8 eintsave,eint,tjumpaheadold,dotproduct
       save eintsave
       data eintsave /-1.d30/
-      common /jumpcomm/ tjumpahead,rjump
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor
+      logical autotf,autojump
+      common/autotfblock/autotf,autojump
+      real*8 r99b,r99g,rtidal99,rmassfraction
       real*8 dotproduct12
       integer mylength,ierr,irank
       real*8 ran1
@@ -683,6 +686,7 @@ c               endif
          eccbg=-1.d0
       endif
 
+      orbital_period=0.d0
       if(numstars.eq.2 .and. ecc12.ge.0 .and. ecc12.lt.1) then
          orbital_period=2*pi*a12**1.5d0*(mass1+mass2)**(-0.5d0)
          if(myrank.eq.0)write(69,*)'bound orbit with orbital period=',
@@ -1160,7 +1164,7 @@ c     spread from the black hole, then stop.  output.f applies this end even
 c     when tf otherwise belongs to the user.  A run restarted after the
 c     destruction finds the end saved as tf in restartrad.sph (init.f).
       if(numstars.ge.2) seentwo=.true.
-      if(rjump.lt.1.d30 .and. numstars.eq.1 .and. tfcap.ge.1.d30) then
+      if(autojump .and. numstars.eq.1 .and. tfcap.ge.1.d30) then
          pmbody=.false.
          do i=1,n
             if(u(i).eq.0.d0 .and. icomp(i).le.3) pmbody=.true.
@@ -1497,10 +1501,32 @@ c     $     xb,yb,zb,xg,yg,zg,xr,yr,zr,
 c     $     dbg,dbr,dgr,am4/amtot,am4,
 c     $     abg,eccbg,abr,eccbr,agr,eccgr,abin3,eccbin3,
 c     $     ebin3ebin,mejecta
+c     With rjumpfactor set, rjump follows the bodies as they are now: it is
+c     rjumpfactor times the larger of the two tidal radii r99*(M_other/M)^(1/3),
+c     with r99 the radius enclosing 99% of a body's mass.  For a star and a
+c     black hole that is the star's, and it grows as the star puffs up.
+      r99b=0.d0
+      r99g=0.d0
+      rtidal99=0.d0
+      if(rjumpfactor.gt.0.d0 .and. amb*amg.gt.0.d0) then
+         r99b=rmassfraction(icomp,blue,xb,yb,zb,amb,0.99d0)
+         r99g=rmassfraction(icomp,green,xg,yg,zg,amg,0.99d0)
+         rtidal99=max(r99b*(amg/amb)**(1.d0/3.d0),
+     $        r99g*(amb/amg)**(1.d0/3.d0))
+         rjump=rjumpfactor*rtidal99
+         if(myrank.eq.0) write(69,'(a,4g15.6)')
+     $        'r99b,r99g,rtidal99,rjump=',r99b,r99g,rtidal99,rjump
+      endif
+
+c     The columns after mejecta are only ones changetf has already worked
+c     out: velocities, the 99% radii and tidal radius behind rjump (0 when
+c     rjump is fixed), rjump itself, and the period of a bound pair (0 otherwise).
       write(23,'(33g14.6)') t,amb,amg,
      $     xb,yb,zb,xg,yg,zg,
      $     dbg,am4/amtot,am4,
-     $     abg,eccbg,mejecta
+     $     abg,eccbg,mejecta,
+     $     vxb,vyb,vzb,vxg,vyg,vzg,
+     $     r99b,r99g,rtidal99,rjump,orbital_period
 
 c     Jump ahead as soon as the two stars are at least rjump apart on a bound
 c     orbit and moving away from each other.
@@ -1533,4 +1559,48 @@ c asynchronize all variables:
 
       return
 
+      end
+
+************************************************************************
+      real*8 function rmassfraction(icomp,k,xc,yc,zc,amk,frac)
+c     Radius about (xc,yc,zc) that encloses the fraction frac of the mass amk
+c     of component k, binned as massandmore_bh3.py bins rstar95 and rstar99:
+c     nbins bins out to the farthest particle, which falls in bin nbins+1 and
+c     is not counted, and the middle of the first bin to reach the fraction.
+c     A few heavy particles can leave the binned mass short of the fraction,
+c     and then only the farthest particle's radius encloses it.
+      include 'starsmasher.h'
+      integer icomp(nmax),k
+      real*8 xc,yc,zc,amk,frac
+      integer nbins
+      parameter(nbins=10000)
+      real*8 mbin(nbins),rmax,rad
+      integer i,ib
+
+      rmax=0.d0
+      do i=1,n
+         if(icomp(i).eq.k) rmax=max(rmax,
+     $        sqrt((x(i)-xc)**2+(y(i)-yc)**2+(z(i)-zc)**2))
+      enddo
+      rmassfraction=rmax
+      if(rmax.le.0.d0) return
+      do ib=1,nbins
+         mbin(ib)=0.d0
+      enddo
+      do i=1,n
+         if(icomp(i).eq.k) then
+            rad=sqrt((x(i)-xc)**2+(y(i)-yc)**2+(z(i)-zc)**2)
+            ib=int(rad/rmax*nbins+1.d0)
+            if(ib.le.nbins) mbin(ib)=mbin(ib)+am(i)
+         endif
+      enddo
+      do ib=2,nbins
+         mbin(ib)=mbin(ib)+mbin(ib-1)
+      enddo
+      do ib=1,nbins
+         if(mbin(ib).ge.frac*amk) then
+            rmassfraction=rmax*(ib-0.5d0)/nbins
+            return
+         endif
+      enddo
       end

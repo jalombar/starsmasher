@@ -12,7 +12,7 @@ c *****************************************
       real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       integer i,ierr
-      common /jumpcomm/ tjumpahead,rjump
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor
       logical autotf,autojump
       common/autotfblock/autotf,autojump
 
@@ -96,11 +96,11 @@ c     honour it whatever tf is doing.  A positive one can only have come from
 c     changetf deciding a jump was worth scheduling, and that is a decision
 c     only a run with a negative tf, or with rjump set, is allowed to make.
             if(autotf .or. autojump .or. tjumpahead.lt.0.d0) then
-               if(myrank.eq.0) write(69,*) 'jumpping ahead at time t=',t
+               if(myrank.eq.0) write(69,*) 'jumping ahead at time t=',t
                call jumpahead
             else
                if(myrank.eq.0) write(69,*)
-     $              'we might have jumpped ahead but decided not to'
+     $              'we might have jumped ahead but decided not to'
             endif
             tjumpahead=1.d30
          endif
