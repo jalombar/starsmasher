@@ -73,7 +73,7 @@ c     binary dump files.
       integer iu,i
       real*8 divv(nmax)
       common/commdivv/divv
-      common /jumpcomm/ tjumpahead,rjump
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor
       real*8 erad
       common/lostenergy/ erad
       real*8 displacex, displacey,displacez
@@ -719,7 +719,7 @@ c     the temperature came out of the ln A inversion just above
          endif
       endif
 
-c     changetf is where rjump is tested, so it runs whenever rjump is set.  It
+c     changetf is where rjump is tested, so it runs whenever jumping is on.  It
 c     may only change tf, though, when the user asked for that with a negative
 c     tf; otherwise the tf from sph.input stands.
       if(autotf .or. autojump) then

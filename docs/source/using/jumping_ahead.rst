@@ -55,8 +55,8 @@ debris bound to the black hole is treated as accreted, which is harmless when
 Turning it on
 -------------
 
-All six parameters below are set in ``sph.input``.  Set ``tjumpahead`` or
-``rjump`` to arm a jump. The rest refine it.
+All seven parameters below are set in ``sph.input``.  Set ``tjumpahead``,
+``rjump`` or ``rjumpfactor`` to arm a jump. The rest refine it.
 
 ``tjumpahead``
    The time at which the jump happens.  The default, ``1d30``, never fires.  Any
@@ -77,10 +77,32 @@ All six parameters below are set in ``sph.input``.  Set ``tjumpahead`` or
    ``tf`` does; unlike a negative ``tf``, it leaves ``tf`` alone, except to end
    the run once the star has been destroyed (see ``ndtoutafter``).  Each test is
    logged to ``log*.sph`` as ``ecc12,dotproduct,dbg,rjump=``, and a jump it
-   triggers as ``MIGHT AS WELL JUMP!``.
+   triggers as ``MIGHT AS WELL JUMP!``.  Set ``rjump`` or ``rjumpfactor``, not
+   both; the code stops if it finds both.
+
+``rjumpfactor``
+   The jump separation in units of the current tidal radius, instead of the
+   fixed ``rjump``.  The default, ``0``, never fires; a value such as ``10``
+   turns on automatic jumping exactly as ``rjump`` does.  At every output the code finds,
+   for each of the two bodies, the radius :math:`r_{99}` about its centre of
+   mass that encloses 99% of its mass, and sets
+
+   .. math::
+
+      r_{\rm jump} = f\,\max\left[r_{99,1}\left(\frac{M_2}{M_1}\right)^{1/3},\;
+                                    r_{99,2}\left(\frac{M_1}{M_2}\right)^{1/3}\right],
+
+   which for a star and a black hole is :math:`f\,r_{99,*}(M_{\rm BH}/M_*)^{1/3}`.
+   Because it is remeasured, a star that has been puffed up by earlier passages
+   has to recede farther before it jumps, and so has longer to settle.
+   :math:`r_{99}` is binned exactly as ``rstar99`` in ``massAndMore.out``, so the
+   two can be compared directly.  Each value is logged to ``log*.sph`` as
+   ``r99b,r99g,rtidal99,rjump=``.  As the star recedes and settles, its
+   :math:`r_{99}` shrinks, and ``rjump`` with it, so the jump comes once the
+   separation and the falling ``rjump`` cross.
 
 ``ndtoutafter``
-   How long a run with ``rjump`` set goes on once its star has been destroyed,
+   How long a run with automatic jumping on goes on once its star has been destroyed,
    in units of ``dtout``.  The default is ``100``.  When the star is gone and a
    point mass is the only body left, there is nothing more to jump for, and the
    ``tf`` in ``sph.input`` is usually far too late, so the run stops
@@ -222,7 +244,7 @@ Everything that follows is from ``log0.sph``.  First the announcement, then
 
 .. code-block:: text
 
-    jumpping ahead at time t=   45.000532609753130
+    jumping ahead at time t=   45.000532609753130
     ...
               nit        nchng           m1           m2           m3
                 0        19702  7.98693      100.012      0.00000

@@ -22,7 +22,7 @@ c     initialization of run (new or restart)
       real*8 tfcap,tfrestart
       integer ndtoutafter
       common/destroyedcom/tfcap,tfrestart,ndtoutafter
-      common /jumpcomm/ tjumpahead,rjump
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor
       real*8 xcm,ycm,zcm,vxcm,vycm,vzcm,amtot
       real*8 erad,tjumpaheadold
       common/lostenergy/ erad
@@ -611,7 +611,7 @@ c      end
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,bbh_longitude
       real*8 rhocgs,mucgs
       common/ueqstuff/rhocgs,teq,mucgs
-      common /jumpcomm/ tjumpahead,rjump
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor
       logical fileexists
       integer ierr
       real*8 displacex,displacey,displacez
@@ -634,7 +634,7 @@ c      end
      $     stellarevolutioncodetype,
      $     bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
-     $     bbh_longitude,rp,rjump,ndtoutafter
+     $     bbh_longitude,rp,rjump,rjumpfactor,ndtoutafter
       
       character*9 slurm_gpu_count_str
       integer slurm_gpu_count,actual_gpu_count
@@ -726,8 +726,9 @@ c     set some default values, so that they don't necessarily have to be set in 
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
-      ndtoutafter=100 ! once a jump-ahead run (rjump set) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
-      rjump=1d30 ! separation of the two stars beyond which a bound, receding orbit is skipped ahead by jumpahead, which advances it analytically around the Kepler two-body solution.  The default never fires; a smaller value turns on automatic jumping
+      ndtoutafter=100 ! once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
+      rjump=1d30 ! fixed separation of the two stars beyond which a bound, receding orbit is skipped ahead by jumpahead, which advances it analytically around the Kepler two-body solution.  The default never fires.  Set this or rjumpfactor, not both, to turn on automatic jumping
+      rjumpfactor=0d0 ! the alternative to rjump: a value above 0 makes the jump separation rjumpfactor times the larger tidal radius r99*(M_other/M)^(1/3) of the two bodies, where r99 encloses 99% of a body's mass.  It is remeasured at every output, so a star puffed up by earlier passages must recede farther before it jumps.  The default never fires
       startfile1='sph.start1u' ! first body of the encounter, in out*.sph format, usually the last snapshot of a relaxation
       startfile2='sph.start2u' ! second body, same format as startfile1.  If absent, a single point mass of mass mbh is used
       startfile3='sph.start3u' ! third body of a triple, same format as startfile1
@@ -745,6 +746,8 @@ c     set some default values, so that they don't necessarily have to be set in 
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
+      if(rjump.lt.1.d30 .and. rjumpfactor.gt.0.d0)
+     $     stop 'init: set rjump or rjumpfactor in sph.input, not both'
 c     dynamic softening: the limits apply only with dynhco=2 and at least one
 c     of them set.  Otherwise dynhco=2 runs exactly as dynhco=1.
       hcolim=dynhco.eq.2 .and. (hcomin.gt.0.d0 .or. hcomax.gt.0.d0)
@@ -859,7 +862,9 @@ c      endif
       endif
 
       autotf=.false.
-      autojump=rjump.lt.1.d30
+      autojump=rjump.lt.1.d30 .or. rjumpfactor.gt.0.d0
+      if(myrank.eq.0 .and. rjumpfactor.gt.0.d0) write(69,*)
+     $     'rjump will be',rjumpfactor,'times the larger tidal radius'
       tfcap=1.d30
       tfrestart=1.d30
       if(tf.lt.0.d0 .or. autojump) then
@@ -869,7 +874,10 @@ c      endif
          write(23,'(33a14)') 't    ','m1    ','m2    ',
      $     'x1    ','y1    ','z1    ','x2    ','y2    ','z2    ',
      $     'd12    ','am4/amtot    ','am4    ',
-     $     'a12    ','ecc12    ','mejecta    '
+     $     'a12    ','ecc12    ','mejecta    ',
+     $     'vx1    ','vy1    ','vz1    ','vx2    ','vy2    ','vz2    ',
+     $     'rstar99_1    ','rstar99_2    ','rtidal99    ',
+     $     'rjump    ','orb_period    '
       endif
 
 c     enout writes the energies from either side of every jump to unit 34.

@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **90** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **91** settings.
 
 
 .. _sph-input-time-and-output:
@@ -51,7 +51,11 @@ Time and output
    * - ``rjump``
      - ``1d30``
      - every run
-     - separation of the two stars beyond which a bound, receding orbit is skipped ahead by jumpahead, which advances it analytically around the Kepler two-body solution.  The default never fires; a smaller value turns on automatic jumping
+     - fixed separation of the two stars beyond which a bound, receding orbit is skipped ahead by jumpahead, which advances it analytically around the Kepler two-body solution.  The default never fires.  Set this or rjumpfactor, not both, to turn on automatic jumping
+   * - ``rjumpfactor``
+     - ``0d0``
+     - every run
+     - the alternative to rjump: a value above 0 makes the jump separation rjumpfactor times the larger tidal radius r99\*(M\_other/M)^(1/3) of the two bodies, where r99 encloses 99% of a body's mass.  It is remeasured at every output, so a star puffed up by earlier passages must recede farther before it jumps.  The default never fires
    * - ``tscanon``
      - ``0``
      - every run
@@ -534,5 +538,5 @@ Other settings
    * - ``ndtoutafter``
      - ``100``
      - every run
-     - once a jump-ahead run (rjump set) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
+     - once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
 
