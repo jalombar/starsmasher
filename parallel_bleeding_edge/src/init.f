@@ -682,7 +682,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       n=100000                 ! desired number of particles.  if n<0 then |n|=number of particles *per solar mass*.  used only if making a new star.
       gflag=1                   ! set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes, or 2 for G=(1-q^3)^2 with q=r/2h, which decreases strictly with r so that the h solution has no flat stretches. It gives about 3*nnopt neighbours within 2h, so it needs about half the nnopt of gflag=1 for the same neighbour count
       nnopt=22+gflag                 ! controls neighbor number.  leave it at 22 to get almost 40 neighbors.
-      nav=3                    ! artificial viscosity (av) flag.  leave it at 3 to get a hybrid balsara-monaghan av.
+      nav=3                    ! artificial viscosity (av) flag.  3: hybrid balsara-monaghan av with alpha and beta.  4: dissipation from a riemann solver between each pair of particles, with no alpha or beta
       alpha=1                  ! av coefficient for term linear in mu
       beta=2                   ! av coefficient for mu^2 term
       ngr=3                    ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.

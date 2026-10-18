@@ -143,7 +143,7 @@ Equation of state and physics
    * - ``nav``
      - ``3``
      - every run
-     - artificial viscosity (av) flag.  leave it at 3 to get a hybrid balsara-monaghan av.
+     - artificial viscosity (av) flag.  3: hybrid balsara-monaghan av with alpha and beta.  4: dissipation from a riemann solver between each pair of particles, with no alpha or beta
    * - ``alpha``
      - ``1``
      - every run

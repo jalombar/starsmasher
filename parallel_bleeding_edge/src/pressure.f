@@ -1,7 +1,10 @@
       subroutine pressure
+      use riemann_data
       include 'starsmasher.h'
       real*8 pgas,prad
       real*8 rhocgs,ucgs,beta1,temperature,gam1,useeostable
+      real*8 ptab,dlpr,dlpu,eps
+      parameter(eps=0.01d0)
       integer i,iw,nil,ilist(nmax)
 !     Subroutine calculating pressure.
 !     
@@ -23,6 +26,9 @@
 !
 !     TODO (jhwang) - Maybe separate the logic explicitly for each
 !     equation of state for readability?
+
+c     nav=4 needs each particle's Gamma_1 (gam1p) for its Riemann problems
+      if(nav.eq.4) call riemann_alloc
 
 c     block steps (blkdist): this rank's share of the particles to be solved,
 c     otherwise its own index range
@@ -102,6 +108,7 @@ c     rather than silent; for a radiation-dominated envelope it will be large.
                   stop 'gam1 value does not make sense'
                endif               
                por2(i)=(pgas+prad)/rho(i)**2/punit
+               if(nav.eq.4) gam1p(i)=gam1
 
             else
                por2(i)=0.d0
@@ -124,8 +131,23 @@ c     block steps: only active particles and refreshed neighbours need P
                   ucgs=u(i)*gravconst*munit/runit
                endif
 
-               por2(i)=useeostable(ucgs,rhocgs,meanmolecular(i),3)
-     $              /rho(i)**2/punit
+               ptab=useeostable(ucgs,rhocgs,meanmolecular(i),3)
+               por2(i)=ptab/rho(i)**2/punit
+               if(nav.eq.4) then
+c     Gamma_1=(dlnp/dlnrho)_s from the table by central differences: at
+c     constant entropy du=(p/rho^2)drho, so
+c     Gamma_1=(dlnp/dlnrho)_u+(p/(rho*u))(dlnp/dlnu)_rho
+                  dlpr=log(useeostable(ucgs,rhocgs*(1.d0+eps),
+     $                 meanmolecular(i),3)/useeostable(ucgs,
+     $                 rhocgs*(1.d0-eps),meanmolecular(i),3))
+     $                 /log((1.d0+eps)/(1.d0-eps))
+                  dlpu=log(useeostable(ucgs*(1.d0+eps),rhocgs,
+     $                 meanmolecular(i),3)/useeostable(ucgs*(1.d0-eps),
+     $                 rhocgs,meanmolecular(i),3))
+     $                 /log((1.d0+eps)/(1.d0-eps))
+                  gam1p(i)=min(max(dlpr+ptab/(rhocgs*ucgs)*dlpu,
+     $                 1.05d0),3.d0)
+               endif
 
             else
                por2(i)=0.d0
