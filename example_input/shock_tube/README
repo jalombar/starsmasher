@@ -1,0 +1,19 @@
+Periodic shock tube (Lombardi et al. 1999, J. Comput. Phys. 152, 687, sec. 5).
+
+Two slabs of gamma-law gas at rest fill a periodic cell -1/2 < x <= 1/2 with
+cross-section 1 x 1: rho=1, p=1 on the left half and a lower density and
+pressure on the right.  Each of the two interfaces launches a shock and a
+rarefaction.  The three cases of the paper are lowM (low Mach number),
+highM (high Mach number) and gam3 (gamma=3).
+
+  python3 shocktube.py --case lowM --n 10000 --np 2
+
+builds and relaxes the two slabs (lowM/slab_l, lowM/slab_r), puts them side
+by side (make_ic.py combine) and runs the shock tube to t=5 in lowM/tube.
+It needs numpy and scipy, and the CPU executable built in
+parallel_bleeding_edge (or give --exe).  With 10^4 particles on two ranks
+the whole thing takes roughly 10 to 20 minutes.
+
+The periodic box is selected by iname='pbx' in sph.init, with its size in
+boxx, boxy and boxz in sph.input.  sphio.py reads and writes the out*.sph
+dumps, for example to plot rho, p and v_x against x.
