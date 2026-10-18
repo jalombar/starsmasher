@@ -278,11 +278,19 @@ c     the velocity along r_hat: (dd.grad) v . r_hat
                      enddo
                   enddo
                   call riemann_limit(vir,vjr,si,sj,vr,vl)
-                  call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
-     $                 gam1p(i),pstar)
-                  call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,pr,
-     $                 gam1p(i),pstat)
-                  pijin=2.d0*(pstar-pstat)/rho(i)**2
+c     navsw selects a switch: 2 or 3 drops receding pairs, 1 or 3
+c     multiplies by balsara's f_i as in nav=3
+                  if((navsw.eq.2 .or. navsw.eq.3) .and. divin.ge.0.d0) then
+                     pijin=0.d0
+                  else
+                     call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
+     $                    gam1p(i),pstar)
+                     call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,pr,
+     $                    gam1p(i),pstat)
+                     pijin=2.d0*(pstar-pstat)/rho(i)**2
+                     if(navsw.eq.1 .or. navsw.eq.3) pijin=pijin*abs(divvi)/
+     $                    (abs(divvi)+abscurli+0.00001d0*ci*invh)
+                  endif
                endif
 c     hydro correction part.  here we are implementing corrections as shown
 c     in equations (a11) and (a12) of gaburov et al. (2010):
