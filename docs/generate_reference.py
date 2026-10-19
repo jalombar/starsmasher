@@ -228,7 +228,7 @@ GROUPS = [
                       'bbh_longitude']),
  ('Timestep control', ['nintvar','cn1','cn2','cn3','cn4','cn5','cn6','cn7',
                       'nblock','nbinmax','dtmaxblk','nblimit','nblockfull',
-                      'dtforce']),
+                      'dtforce','nstartramp']),
  ('Parallelism and GPUs',
                      ['ngravprocs','qthreads','ppn','computeexclusivemode','gflag']),
  ('Units',           ['runit','munit','gravconst']),

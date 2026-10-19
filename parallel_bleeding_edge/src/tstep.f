@@ -16,6 +16,11 @@ c***********************************************************************
       real*8 mydtvelco(2),mydtaccco(2)
       integer idtvel,idtacc,idtu,idtacc4, ierr
       integer idtvelco,idtaccco
+c     start-up ramp (see below)
+      logical ramp,firstcall
+      real*8 dtlast
+      save ramp,firstcall,dtlast
+      data ramp/.false./, firstcall/.true./, dtlast/0.d0/
 c     block steps: smallest value of each column, and its particle, over the
 c     substeps since the last full synchronization
       real*8 dtsblk(7),dtsnow(7)
@@ -151,6 +156,35 @@ c     mpi sync here dt should be min for all processes
       if(dtforce.gt.0.d0) dt=dtforce
       if(nblock.eq.1) call mpi_allreduce(mpi_in_place,dtpart,ntot,
      $     mpi_double_precision,mpi_min,mpi_comm_world,ierr)
+
+c     start-up ramp (nstartramp=1).  A run that starts at t=0 from rest has
+c     udot=0, so the u/udot limit (cn3) cannot act on the first step,
+c     although du/dt grows as soon as the particles move.  Across an
+c     initial discontinuity the first step would be ~10 times what cn3
+c     allows one step later.  So the first step is 1/64 of what the limits
+c     give, and each later step may at most double, until the limits
+c     themselves are the smaller.  On by default only for new shock-tube
+c     runs (see init.f), so that other runs are unchanged.  A restart has
+c     t>0 at its first call and never ramps.
+      if(nstartramp.eq.1 .and. dtforce.le.0.d0) then
+         if(firstcall) then
+            firstcall=.false.
+            ramp=t.eq.0.d0
+            if(ramp) dt=dt/64.d0
+         elseif(ramp) then
+            if(dt.gt.2.d0*dtlast) then
+               dt=2.d0*dtlast
+            else
+               ramp=.false.
+            endif
+         endif
+         dtlast=dt
+         if(ramp .and. nblock.eq.1) then
+            do i=1,ntot
+               dtpart(i)=min(dtpart(i),dt)
+            enddo
+         endif
+      endif
 
       call mpi_reduce(mydtvel,dtvelmin,1,mpi_2double_precision,
      $     mpi_minloc,0,mpi_comm_world,ierr)

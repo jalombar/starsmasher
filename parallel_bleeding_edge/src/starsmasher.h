@@ -23,6 +23,9 @@
       integer nblock,nbinmax,nblockfull,nblimit
       real*8 dtmaxblk,dtforce
       common/blockpars/dtmaxblk,dtforce,nblock,nbinmax,nblockfull,nblimit
+!     nstartramp=1: ramp up the shared timestep at the start (see tstep.f)
+      integer nstartramp
+      common/startramp/nstartramp
       real*8 dtpart(nmax)
       logical actblk(nmax),refblk(nmax)
       common/blockdt/dtpart,actblk,refblk
