@@ -18,7 +18,7 @@
 !     particles keep the accelerations from the start of their step), so this
 !     checks the bookkeeping, not the speed.
       include 'starsmasher.h'
-      real*8 sep2
+      real*8 reach,sep2
       include 'mpif.h'
       integer kbin(nmax)
       integer(kind=8) tstart(nmax),slen(nmax),tick,nticks,tnext,span,tend,snew
@@ -200,7 +200,9 @@
 !     (r < 2 h_j) re-solve h, rho, omega, chi, psi and div v / curl v at the
 !     current positions: the active particles' j-side pair terms (and the
 !     h_j half of the softened gravity) use exactly these.  Their
-!     accelerations and kicks are unchanged
+!     accelerations and kicks are unchanged.  nav=4 also uses the state and
+!     gradients of every j inside an active particle's own kernel (the
+!     pair's Riemann problem), so there the test is r < 2 max(h_i,h_j)
          do i=1,ntot
             refblk(i)=.false.
          enddo
@@ -219,7 +221,7 @@
                if(active(j) .or. u(j).eq.0.d0) cycle
                do in=1,nalist
                   i=alist(in)
-                  if(sep2(i,j).lt.4.d0*hp(j)**2) then
+                  if(sep2(i,j).lt.4.d0*reach(i,j)**2) then
                      refblk(j)=.true.
                      exit
                   endif
@@ -549,8 +551,9 @@
 !***********************************************************************
       subroutine refresh_by_tree(nalist,alist)
 !     Mark for refreshing every inactive gas particle j with an active
-!     particle inside its kernel (r < 2 h_j), as the direct loop in
-!     advance_block does, but with a kd tree of the nalist active particles.
+!     particle inside its kernel (r < 2 h_j, or r < 2 max(h_i,h_j) for
+!     nav=4), as the direct loop in advance_block does, but with a kd tree
+!     of the nalist active particles.
 !     The tree is searched with a radius larger by a part in 1e12, and each
 !     candidate is then tested with the direct loop's own expression, so
 !     exactly the same particles are marked.
@@ -562,8 +565,14 @@
       type(kdtree2), pointer :: atree
       type(kdtree2_result), allocatable :: res(:)
       integer j,k,i,nf,ix,iy,iz,nsx,nsy,nsz
-      real*8 sep2,rad
+      real*8 hamax,reach,sep2,rad
       allocate(ad(3,nalist),res(nalist))
+      hamax=0.d0
+      if(nav.eq.4) then
+         do k=1,nalist
+            hamax=max(hamax,hp(alist(k)))
+         enddo
+      endif
       do k=1,nalist
          ad(1,k)=x(alist(k))
          ad(2,k)=y(alist(k))
@@ -572,7 +581,7 @@
       atree => kdtree2_create(ad,sort=.false.,rearrange=.true.)
       do j=1,ntot
          if(actblk(j) .or. u(j).eq.0.d0) cycle
-         rad=2.d0*hp(j)
+         rad=2.d0*max(hp(j),hamax)
 !     in a periodic box j is also looked up at its images across each face
 !     within rad of it (the tree holds the active particles once)
          nsx=0
@@ -595,7 +604,7 @@
                  nfound=nf,nalloc=nalist,results=res)
             do k=1,nf
                i=alist(res(k)%idx)
-               if(sep2(i,j).lt.4.d0*hp(j)**2) then
+               if(sep2(i,j).lt.4.d0*reach(i,j)**2) then
                   refblk(j)=.true.
                   exit
                endif
@@ -606,6 +615,19 @@
       enddo
       call kdtree2_destroy(atree)
       deallocate(ad,res)
+      return
+      end
+
+      real*8 function reach(i,j)
+!     the smoothing length that decides whether active particle i makes
+!     inactive particle j refresh (see advance_block)
+      include 'starsmasher.h'
+      integer i,j
+      if(nav.eq.4) then
+         reach=max(hp(i),hp(j))
+      else
+         reach=hp(j)
+      endif
       return
       end
 
