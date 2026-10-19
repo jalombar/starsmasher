@@ -769,12 +769,12 @@ c     stepper starts (the start-up force calculation needs all of them)
       close(12)
 
 c     periodic box: the nearest-image separations assume no gravity (which
-c     would need an Ewald sum) and the shared timestep
+c     would need an Ewald sum)
       periodic=boxx.gt.0.d0 .or. boxy.gt.0.d0 .or. boxz.gt.0.d0
-      if(periodic .and. (ngr.ne.0 .or. nblock.eq.1)) then
+      if(periodic .and. ngr.ne.0) then
          if(myrank.eq.0) write(69,*)
-     $        'init: a periodic box needs ngr=0 and nblock=0'
-         stop 'init: periodic box needs ngr=0 and nblock=0'
+     $        'init: a periodic box needs ngr=0'
+         stop 'init: periodic box needs ngr=0'
       endif
 
 c     A tjumpahead the user has actually chosen is stored negated, which is how

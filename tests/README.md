@@ -31,6 +31,7 @@ it. Pass `--exe /path/to/..._sph` to test an executable you have already built.
 | `guard_neighbors` | Exhausting the neighbour list stops the run with a message rather than corrupting memory. |
 | `guard_ngravprocs` | Asking for more gravity processes than there are GPUs is clamped, not fatal. |
 | `periodic` | A fully periodic box conserves momentum and energy and has no density seam at its faces. |
+| `periodic_block` | Block timesteps in a periodic box agree with shared ones and keep every particle in the box. |
 | `guard_periodic` | A periodic box too small for the kernel stops the run with a message. |
 
 The last four exist because each corresponds to a real defect: results that

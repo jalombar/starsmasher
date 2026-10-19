@@ -36,6 +36,10 @@ something changed.  These tell you whether the answer is right.
      - A fully periodic box conserves momentum to round-off and energy closely,
        keeps every particle inside the box, and shows no density seam at its
        faces.
+   * - ``periodic_block``
+     - Block timesteps in a periodic box, with a hot half on shorter steps,
+       give the same densities as shared timesteps to within 1% and keep
+       every particle inside the box.
    * - ``guard_periodic``
      - A periodic box too small for the kernel (2h beyond half a period) stops
        the run with a message rather than missing neighbours.

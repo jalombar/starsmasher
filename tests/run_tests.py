@@ -293,6 +293,37 @@ def t_periodic(ctx):
             % (t1, pmax / (mtot * vrms), dE,
                sum(rho_face) / len(rho_face) / (sum(rho_in) / len(rho_in))))
 
+def t_periodic_block(ctx):
+    """Block timesteps in a periodic box agree with shared ones and keep every particle in the box."""
+    pts, L = hcp_box(10, 10, 10, 0.1, 4)
+    n = len(pts)
+    # a hot half drives a flow across the faces and puts the two halves on
+    # different timestep bins, so that block steps really are mixed
+    parts = [dict(x=p[0], y=p[1], z=p[2], am=L[0] * L[1] * L[2] / n, hp=1.0,
+                  u=4.0 if p[0] > 0 else 1.0) for p in pts]
+    out = {}
+    for tag, nblock in (('shared', 0), ('block', 1)):
+        d = ctx.dir('periodic_block_' + tag)
+        write_dump(os.path.join(d, 'box.sph'), parts)
+        s = dict(PBOX, tf=0.5, dtout=0.5, nblock=nblock, boxx=L[0], boxy=L[1], boxz=L[2])
+        p, e = run(ctx.exe, d, np=ctx.np, init="'pbx'", **s)
+        dumps = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+        if len(dumps) < 2:
+            raise Fail('the %s run wrote too few dumps\n' % tag + p.stdout[-800:])
+        out[tag] = read_dump(os.path.join(d, dumps[-1])), energies(e)
+    (tb, last), rows = out['block']
+    for q in last:
+        if any(abs(q[c]) > L[c] / 2 * (1 + 1e-12) for c in range(3)):
+            raise Fail('a particle left the box: %r' % (q[:3],))
+    close(rows[-1][4], rows[0][4], 1e-2, 'total energy with block steps')
+    (ts, ref), _ = out['shared']
+    drho = sum(abs(a[4] - b[4]) / b[4] for a, b in zip(last, ref)) / n
+    if drho > 0.01:
+        raise Fail('block and shared steps differ in density by %.2e on average (t=%.3f, %.3f)'
+                   % (drho, tb, ts))
+    return ('t=%.2f: mean |rho_block-rho_shared|/rho = %.1e, dE/E=%.1e'
+            % (tb, drho, abs(rows[-1][4] - rows[0][4]) / abs(rows[0][4])))
+
 def t_guard_periodic(ctx):
     """A periodic box too small for the kernel stops with a message."""
     d = ctx.dir('guard_periodic')
@@ -316,6 +347,7 @@ TESTS = {
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,
+    'periodic_block':   t_periodic_block,
     'guard_periodic':   t_guard_periodic,
 }
 

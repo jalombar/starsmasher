@@ -483,9 +483,10 @@
          my_array(:,n+k)=ximg(:,k)
       enddo
 !     block steps: when few particles on this rank need a neighbour search,
-!     search directly instead of building the tree over all particles
+!     search directly instead of building the tree over all particles (not
+!     in a periodic box, whose images only the full tree holds)
       usebrute=.false.
-      if(nblock.eq.1 .and. nblockfull.eq.0) then
+      if(nblock.eq.1 .and. nblockfull.eq.0 .and. .not.periodic) then
          nsolve=0
          do k=n_lower,n_upper
             if(actblk(k) .or. refblk(k)) nsolve=nsolve+1
