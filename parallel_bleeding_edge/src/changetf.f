@@ -99,10 +99,10 @@ c      character*1 stara,starb,starc
       real*8 eintsave,eint,tjumpaheadold,dotproduct
       save eintsave
       data eintsave /-1.d30/
-      common /jumpcomm/ tjumpahead,rjump,rjumpfactor
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
       logical autotf,autojump
       common/autotfblock/autotf,autojump
-      real*8 r99b,r99g,rtidal99,rmassfraction
+      real*8 rstarb,rstarg,rtidal,rmassfraction
       real*8 dotproduct12
       integer mylength,ierr,irank
       real*8 ran1
@@ -1502,31 +1502,32 @@ c     $     dbg,dbr,dgr,am4/amtot,am4,
 c     $     abg,eccbg,abr,eccbr,agr,eccgr,abin3,eccbin3,
 c     $     ebin3ebin,mejecta
 c     With rjumpfactor set, rjump follows the bodies as they are now: it is
-c     rjumpfactor times the larger of the two tidal radii r99*(M_other/M)^(1/3),
-c     with r99 the radius enclosing 99% of a body's mass.  For a star and a
-c     black hole that is the star's, and it grows as the star puffs up.
-      r99b=0.d0
-      r99g=0.d0
-      rtidal99=0.d0
+c     rjumpfactor times the larger of the two tidal radii R*(M_other/M)^(1/3),
+c     with R the radius enclosing rjumppercent percent of a body's mass.  For a
+c     star and a black hole that is the star's, and it grows as the star puffs up.
+      rstarb=0.d0
+      rstarg=0.d0
+      rtidal=0.d0
       if(rjumpfactor.gt.0.d0 .and. amb*amg.gt.0.d0) then
-         r99b=rmassfraction(icomp,blue,xb,yb,zb,amb,0.99d0)
-         r99g=rmassfraction(icomp,green,xg,yg,zg,amg,0.99d0)
-         rtidal99=max(r99b*(amg/amb)**(1.d0/3.d0),
-     $        r99g*(amb/amg)**(1.d0/3.d0))
-         rjump=rjumpfactor*rtidal99
+         rstarb=rmassfraction(icomp,blue,xb,yb,zb,amb,rjumppercent/100.d0)
+         rstarg=rmassfraction(icomp,green,xg,yg,zg,amg,
+     $        rjumppercent/100.d0)
+         rtidal=max(rstarb*(amg/amb)**(1.d0/3.d0),
+     $        rstarg*(amb/amg)**(1.d0/3.d0))
+         rjump=rjumpfactor*rtidal
          if(myrank.eq.0) write(69,'(a,4g15.6)')
-     $        'r99b,r99g,rtidal99,rjump=',r99b,r99g,rtidal99,rjump
+     $        'rstarb,rstarg,rtidal,rjump=',rstarb,rstarg,rtidal,rjump
       endif
 
 c     The columns after mejecta are only ones changetf has already worked
-c     out: velocities, the 99% radii and tidal radius behind rjump (0 when
-c     rjump is fixed), rjump itself, and the period of a bound pair (0 otherwise).
+c     out: velocities, the rjumppercent radii and tidal radius behind rjump (0
+c     when rjump is fixed), rjump itself, and the period of a bound pair (0 otherwise).
       write(23,'(33g14.6)') t,amb,amg,
      $     xb,yb,zb,xg,yg,zg,
      $     dbg,am4/amtot,am4,
      $     abg,eccbg,mejecta,
      $     vxb,vyb,vzb,vxg,vyg,vzg,
-     $     r99b,r99g,rtidal99,rjump,orbital_period
+     $     rstarb,rstarg,rtidal,rjump,orbital_period
 
 c     Jump ahead as soon as the two stars are at least rjump apart on a bound
 c     orbit and moving away from each other.

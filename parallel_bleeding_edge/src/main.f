@@ -12,7 +12,7 @@ c *****************************************
       real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       integer i,ierr
-      common /jumpcomm/ tjumpahead,rjump,rjumpfactor
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
       logical autotf,autojump
       common/autotfblock/autotf,autojump
 

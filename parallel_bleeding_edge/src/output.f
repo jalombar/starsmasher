@@ -73,7 +73,7 @@ c     binary dump files.
       integer iu,i
       real*8 divv(nmax)
       common/commdivv/divv
-      common /jumpcomm/ tjumpahead,rjump,rjumpfactor
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
       real*8 erad
       common/lostenergy/ erad
       real*8 displacex, displacey,displacez

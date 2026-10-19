@@ -84,22 +84,30 @@ All seven parameters below are set in ``sph.input``.  Set ``tjumpahead``,
    The jump separation in units of the current tidal radius, instead of the
    fixed ``rjump``.  The default, ``0``, never fires; a value such as ``10``
    turns on automatic jumping exactly as ``rjump`` does.  At every output the code finds,
-   for each of the two bodies, the radius :math:`r_{99}` about its centre of
-   mass that encloses 99% of its mass, and sets
+   for each of the two bodies, the radius :math:`R` about its centre of
+   mass that encloses ``rjumppercent`` percent of its mass (95% by default), and sets
 
    .. math::
 
-      r_{\rm jump} = f\,\max\left[r_{99,1}\left(\frac{M_2}{M_1}\right)^{1/3},\;
-                                    r_{99,2}\left(\frac{M_1}{M_2}\right)^{1/3}\right],
+      r_{\rm jump} = f\,\max\left[R_1\left(\frac{M_2}{M_1}\right)^{1/3},\;
+                                    R_2\left(\frac{M_1}{M_2}\right)^{1/3}\right],
 
-   which for a star and a black hole is :math:`f\,r_{99,*}(M_{\rm BH}/M_*)^{1/3}`.
+   which for a star and a black hole is :math:`f\,R_*(M_{\rm BH}/M_*)^{1/3}`.
    Because it is remeasured, a star that has been puffed up by earlier passages
    has to recede farther before it jumps, and so has longer to settle.
-   :math:`r_{99}` is binned exactly as ``rstar99`` in ``massAndMore.out``, so the
-   two can be compared directly.  Each value is logged to ``log*.sph`` as
-   ``r99b,r99g,rtidal99,rjump=``.  As the star recedes and settles, its
-   :math:`r_{99}` shrinks, and ``rjump`` with it, so the jump comes once the
+   :math:`R` is binned exactly as ``rstar95`` and ``rstar99`` in
+   ``massAndMore.out``, so with ``rjumppercent`` 95 or 99 the two can be compared
+   directly.  Each value is logged to ``log*.sph`` as
+   ``rstarb,rstarg,rtidal,rjump=``.  As the star recedes and settles, its
+   :math:`R` shrinks, and ``rjump`` with it, so the jump comes once the
    separation and the falling ``rjump`` cross.
+
+``rjumppercent``
+   The percentage of a body's mass enclosed by the radius :math:`R` in the tidal
+   radius that ``rjumpfactor`` multiplies.  The default is ``95``; ``99`` gives
+   the :math:`r_{99}` used before this parameter existed.  A smaller percentage
+   is less sensitive to the few particles thrown farthest out by a passage.
+   Ignored unless ``rjumpfactor`` is set.
 
 ``ndtoutafter``
    How long a run with automatic jumping on goes on once its star has been destroyed,
