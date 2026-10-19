@@ -351,11 +351,12 @@ automatic jumping on writes it too.
    * - 16-21
      - their centre-of-mass velocities, three each
    * - 22-23
-     - the radius enclosing 99% of each one's mass, binned as ``rstar99`` in
-       ``massAndMore.out``.  Measured only when ``rjumpfactor`` sets the jump
-       separation, and 0 otherwise
+     - the radius enclosing ``rjumppercent`` percent of each one's mass, binned
+       as ``rstar95`` and ``rstar99`` in ``massAndMore.out``, and labelled by the
+       percentage (``rstar95_1``, ``rstar95_2`` for the default 95).  Measured
+       only when ``rjumpfactor`` sets the jump separation, and 0 otherwise
    * - 24
-     - the larger of the two tidal radii :math:`r_{99}(M_{\rm other}/M)^{1/3}`,
+     - the larger of the two tidal radii :math:`R(M_{\rm other}/M)^{1/3}`,
        0 when not measured
    * - 25
      - ``rjump``, the jump separation in use (``1d30`` when jumping is off)

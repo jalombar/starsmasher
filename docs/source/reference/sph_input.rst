@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **91** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **92** settings.
 
 
 .. _sph-input-time-and-output:
@@ -55,7 +55,7 @@ Time and output
    * - ``rjumpfactor``
      - ``0d0``
      - every run
-     - the alternative to rjump: a value above 0 makes the jump separation rjumpfactor times the larger tidal radius r99\*(M\_other/M)^(1/3) of the two bodies, where r99 encloses 99% of a body's mass.  It is remeasured at every output, so a star puffed up by earlier passages must recede farther before it jumps.  The default never fires
+     - the alternative to rjump: a value above 0 makes the jump separation rjumpfactor times the larger tidal radius R\*(M\_other/M)^(1/3) of the two bodies, where R encloses rjumppercent percent of a body's mass.  It is remeasured at every output, so a star puffed up by earlier passages must recede farther before it jumps.  The default never fires
    * - ``tscanon``
      - ``0``
      - every run
@@ -535,6 +535,10 @@ Other settings
      - ``-1.d0``
      - every run
      - nintvar=12 or 32: time to hand over to u.  <0 means use treloff.
+   * - ``rjumppercent``
+     - ``95d0``
+     - every run
+     - the percentage of a body's mass enclosed by the radius R in the tidal radius that rjumpfactor multiplies.  Only used when rjumpfactor is set.  Must be above 0 and at most 100
    * - ``ndtoutafter``
      - ``100``
      - every run
