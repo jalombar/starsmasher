@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **95** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **96** settings.
 
 
 .. _sph-input-time-and-output:
@@ -392,6 +392,10 @@ Timestep control
      - ``-1d0``
      - every run
      - testing only: >0 forces the shared timestep to this value
+   * - ``nstartramp``
+     - ``-1``
+     - every run
+     - 1: a new run from t=0 takes a first step 1/64 of what the timestep limits give, then at most doubles each step (for initial discontinuities).  0: off.  <0: on only for a new shock-tube run (iname='pbx', nrelax=0)
 
 .. _sph-input-parallelism-and-gpus:
 

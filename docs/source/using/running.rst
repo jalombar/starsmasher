@@ -256,6 +256,15 @@ shared-step run.
 recomputes every particle's smoothing length and hydrodynamics at every
 substep, and ``dtforce`` replaces the shared timestep with a fixed value.
 
+A run that starts from rest at ``t=0`` across a discontinuity, such as a shock
+tube, has :math:`\dot u=0` at first, so the ``cn3`` limit cannot act on the
+first step and that step can be several times too long.  ``nstartramp=1``
+makes the first step 1/64 of what the limits allow and lets each later step at
+most double until the limits take over.  By default (``nstartramp=-1``) it is
+on only for a new shock-tube run, that is a periodic box read with
+``iname='pbx'`` and ``nrelax=0``, and ``nstartramp=0`` turns it off there too.
+A restart never ramps.
+
 Restarting
 ----------
 

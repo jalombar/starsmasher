@@ -334,6 +334,16 @@ c     get 3-letter code for type of initial condition from init file
          read(12,initt)
          close(12)
          if(myrank.eq.0) write(69,*)'init: new run, iname=',iname
+c     start-up timestep ramp: by default (nstartramp<0) on for a new
+c     shock-tube run, i.e. a periodic box read with iname='pbx' and no
+c     relaxation, and off otherwise.  A restart never ramps (tstep.f).
+         if(nstartramp.lt.0) then
+            if(iname.eq.'pbx' .and. nrelax.eq.0) then
+               nstartramp=1
+            else
+               nstartramp=0
+            endif
+         endif
 c     Only the stellar-evolution parent knows how to build ln A, because it has
 c     the profile's own density at each particle's radius to define the entropy
 c     from.  The routines that construct a polytrope keep their density in a
@@ -626,6 +636,7 @@ c      end
      $     nintvar,tswitchtou,ngravprocs,qthreads,gflag,mbh,runit,munit,
      $     dynhco,hcomin,hcomax,hcopnorm,
      $     nblock,nbinmax,dtmaxblk,dtforce,nblockfull,nblimit,
+     $     nstartramp,
      $     gravconst,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
@@ -687,6 +698,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       nblimit=2                ! nblock=1: a step may be at most 2**nblimit times a neighbour's
       nblockfull=0             ! nblock=1 testing: 1 recomputes h and hydro for all particles every substep
       dtforce=-1d0             ! testing only: >0 forces the shared timestep to this value
+      nstartramp=-1            ! 1: a new run from t=0 takes a first step 1/64 of what the timestep limits give, then at most doubles each step (for initial discontinuities).  0: off.  <0: on only for a new shock-tube run (iname='pbx', nrelax=0)
       hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.  With dynhco=3 instead the smooth floor hp(i)=(hptilde(i)^p+hfloor^p)^(1/p), p=hcopnorm
       nrelax=1                 ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation rotating frame with centrifugal and coriolis forces
       trelax=1.d30             ! drag timescale.  0 derives it from the model, a very large value disables the drag
