@@ -155,7 +155,7 @@ FOBJS = eos_table_data.o kdtree2.o advance.o balAV3.o            \
         initialize_hyperbolic_binary_single.o skipahead.o        \
         compbest3.o changetf.o tstep.o initialize_grsph.o        \
         eatem.o useeostable.o hunt.o usekappatable.o             \
-        initialize_asciiimage.o
+        initialize_asciiimage.o initialize_periodicbox.o
 
 CPUOBJS = $(FOBJS) cpu_grav.o
 GPUOBJS = $(FOBJS) $(GPU_GRAV_OBJ)

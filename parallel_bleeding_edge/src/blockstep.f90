@@ -18,6 +18,7 @@
 !     particles keep the accelerations from the start of their step), so this
 !     checks the bookkeeping, not the speed.
       include 'starsmasher.h'
+      real*8 sep2
       include 'mpif.h'
       integer kbin(nmax)
       integer(kind=8) tstart(nmax),slen(nmax),tick,nticks,tnext,span,tend,snew
@@ -146,6 +147,7 @@
          y(i)=y(i)+dtt*vhy(i)
          z(i)=z(i)+dtt*vhz(i)
       enddo
+      if(periodic) call pbcpositions
       tick=tnext
       t=t0b+dble(tick)*dtick
       dt=dtt                 ! rho_and_h predicts h with divv*dt/3
@@ -217,8 +219,7 @@
                if(active(j) .or. u(j).eq.0.d0) cycle
                do in=1,nalist
                   i=alist(in)
-                  if((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2&
-                       .lt.4.d0*hp(j)**2) then
+                  if(sep2(i,j).lt.4.d0*hp(j)**2) then
                      refblk(j)=.true.
                      exit
                   endif
@@ -560,7 +561,8 @@
       real(kdkind), target :: qv(3)
       type(kdtree2), pointer :: atree
       type(kdtree2_result), allocatable :: res(:)
-      integer j,k,i,nf
+      integer j,k,i,nf,ix,iy,iz,nsx,nsy,nsz
+      real*8 sep2,rad
       allocate(ad(3,nalist),res(nalist))
       do k=1,nalist
          ad(1,k)=x(alist(k))
@@ -570,21 +572,53 @@
       atree => kdtree2_create(ad,sort=.false.,rearrange=.true.)
       do j=1,ntot
          if(actblk(j) .or. u(j).eq.0.d0) cycle
-         qv(1)=x(j)
-         qv(2)=y(j)
-         qv(3)=z(j)
-         call kdtree2_r_nearest(tp=atree,qv=qv,r2=4.d0*hp(j)**2*(1.d0+1.d-12),&
-              nfound=nf,nalloc=nalist,results=res)
-         do k=1,nf
-            i=alist(res(k)%idx)
-            if((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2&
-                 .lt.4.d0*hp(j)**2) then
-               refblk(j)=.true.
-               exit
-            endif
+         rad=2.d0*hp(j)
+!     in a periodic box j is also looked up at its images across each face
+!     within rad of it (the tree holds the active particles once)
+         nsx=0
+         nsy=0
+         nsz=0
+         if(periodic) then
+            if(boxx.gt.0.d0 .and. abs(x(j)).gt.0.5d0*boxx-rad) nsx=1
+            if(boxy.gt.0.d0 .and. abs(y(j)).gt.0.5d0*boxy-rad) nsy=1
+            if(boxz.gt.0.d0 .and. abs(z(j)).gt.0.5d0*boxz-rad) nsz=1
+         endif
+         do ix=-nsx,nsx
+         do iy=-nsy,nsy
+         do iz=-nsz,nsz
+            if(refblk(j)) cycle
+            qv(1)=x(j)+ix*boxx
+            qv(2)=y(j)+iy*boxy
+            qv(3)=z(j)+iz*boxz
+            call kdtree2_r_nearest(tp=atree,qv=qv,&
+                 r2=rad**2*(1.d0+1.d-12),&
+                 nfound=nf,nalloc=nalist,results=res)
+            do k=1,nf
+               i=alist(res(k)%idx)
+               if(sep2(i,j).lt.4.d0*hp(j)**2) then
+                  refblk(j)=.true.
+                  exit
+               endif
+            enddo
+         enddo
+         enddo
          enddo
       enddo
       call kdtree2_destroy(atree)
       deallocate(ad,res)
+      return
+      end
+
+      real*8 function sep2(i,j)
+!     squared separation of particles i and j, through the nearest periodic
+!     image in a periodic box
+      include 'starsmasher.h'
+      integer i,j
+      real*8 dx,dy,dz
+      dx=x(i)-x(j)
+      dy=y(i)-y(j)
+      dz=z(i)-z(j)
+      if(periodic) call pbcwrap(dx,dy,dz)
+      sep2=dx*dx+dy*dy+dz*dz
       return
       end

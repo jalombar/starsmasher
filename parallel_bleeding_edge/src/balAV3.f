@@ -148,6 +148,7 @@ c     calculate gradwij's to all neighbors:
             dx = x(i) - x(j)
             dy = y(i) - y(j)
             dz = z(i) - z(j)
+            if(periodic) call pbcwrap(dx,dy,dz)
             dvx = vxi - vx(j)
             dvy = vyi - vy(j)
             dvz = vzi - vz(j)

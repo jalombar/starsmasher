@@ -272,6 +272,20 @@ which file actually mentions each variable.
      - ``0``
      - particle mass is proportional to rho^(1-equalmass), so equalmass=1 has equal mass particles and equalmass=0 is for constant number density.
 
+``pbx``, particles in a periodic box, read from a dump
+------------------------------------------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 26 20 54
+
+   * - Variable
+     - Default
+     - Meaning
+   * - ``startfile1``
+     - ``'sph.start1u'``
+     - first body of the encounter, in out\*.sph format, usually the last snapshot of a relaxation
+
 ``res``, a rescaling of an existing model
 -----------------------------------------
 

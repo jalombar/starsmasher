@@ -152,3 +152,11 @@
 !     advance.f90, which is free form, where a "c" in column 1 is a syntax error.
       real*8 trelax0auto,tdynauto
       common/trelaxautocom/trelax0auto,tdynauto
+
+!     Periodic box.  boxx>0 makes x periodic with period boxx, the box
+!     running from -boxx/2 to boxx/2, and likewise boxy and boxz; 0 leaves
+!     that direction open.  Pair separations then use the nearest periodic
+!     image (pbcwrap), which needs every 2h to be under half of each period.
+      real*8 boxx,boxy,boxz
+      logical periodic
+      common/pbcbox/boxx,boxy,boxz,periodic

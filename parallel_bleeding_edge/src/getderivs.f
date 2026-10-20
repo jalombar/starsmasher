@@ -7,6 +7,7 @@ c calculate curl and divergence of velocity
       double precision curlvxi,curlvyi,curlvzi,divvi
       integer i,in,itab,j
       double precision divin,tijin,ctaboverh2
+      double precision dx,dy,dz
 
       hpi=hp(i)
       h2=hpi**2
@@ -26,22 +27,26 @@ c     divisions below would give 0/0.  Its div v and curl v are zero.
       do in=1,nn(i)
          j=list(first(i)+in)
          if(u(j).ne.0.d0) then
-            r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
+            dx=x(i)-x(j)
+            dy=y(i)-y(j)
+            dz=z(i)-z(j)
+            if(periodic) call pbcwrap(dx,dy,dz)
+            r2=dx**2+dy**2+dz**2
             itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
             dwijin=dwtab(itab)
-            curlxin=(z(i)-z(j))*(vy(i)-vy(j))
-     $           -(y(i)-y(j))*(vz(i)-vz(j))
-            curlyin=(x(i)-x(j))*(vz(i)-vz(j))
-     $           -(z(i)-z(j))*(vx(i)-vx(j))
-            curlzin=(y(i)-y(j))*(vx(i)-vx(j))
-     $           -(x(i)-x(j))*(vy(i)-vy(j))
+            curlxin=dz*(vy(i)-vy(j))
+     $           -dy*(vz(i)-vz(j))
+            curlyin=dx*(vz(i)-vz(j))
+     $           -dz*(vx(i)-vx(j))
+            curlzin=dy*(vx(i)-vx(j))
+     $           -dx*(vy(i)-vy(j))
             curlvxi=curlvxi+am(j)*dwijin*curlxin
             curlvyi=curlvyi+am(j)*dwijin*curlyin
             curlvzi=curlvzi+am(j)*dwijin*curlzin
             
-            divin=(x(i)-x(j))*(vx(i)-vx(j))+
-     $           (y(i)-y(j))*(vy(i)-vy(j))+
-     $           (z(i)-z(j))*(vz(i)-vz(j))
+            divin=dx*(vx(i)-vx(j))+
+     $           dy*(vy(i)-vy(j))+
+     $           dz*(vz(i)-vz(j))
             tijin=dwijin*divin
             divvi=divvi-am(j)*tijin
          endif

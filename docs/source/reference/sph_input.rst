@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **92** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **95** settings.
 
 
 .. _sph-input-time-and-output:
@@ -456,6 +456,38 @@ These three set the physical meaning of every code unit; see
      - every run
      - newton's gravitational constant in cgs.  2018 CODATA value; older StarSmasher runs used 6.67390d-08
 
+.. _sph-input-periodic-box:
+
+Periodic box
+------------
+
+A positive period makes that direction periodic: positions are wrapped
+into the box and every pair separation uses the nearest periodic image.
+Each 2h must stay below half of each period.  A periodic run needs
+``ngr=0`` and ``nblock=0``, and is usually started with ``INAME='pbx'``,
+which reads the particles from ``startfile1``.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 19 16 20 45
+
+   * - Variable
+     - Default
+     - Applies to
+     - Meaning
+   * - ``boxx``
+     - ``0d0``
+     - every run
+     - period in x of a periodic box running from -boxx/2 to boxx/2.  0 leaves x open
+   * - ``boxy``
+     - ``0d0``
+     - every run
+     - period in y, as for boxx
+   * - ``boxz``
+     - ``0d0``
+     - every run
+     - period in z, as for boxx
+
 .. _sph-input-input-files:
 
 Input files
@@ -471,7 +503,7 @@ Input files
      - Meaning
    * - ``startfile1``
      - ``'sph.start1u'``
-     - ``2cr`` ``bhe`` ``bph`` ``bps`` ``hbs`` ``hyp`` ``res`` ``tri``
+     - ``2cr`` ``bhe`` ``bph`` ``bps`` ``hbs`` ``hyp`` ``pbx`` ``res`` ``tri``
      - first body of the encounter, in out\*.sph format, usually the last snapshot of a relaxation
    * - ``startfile2``
      - ``'sph.start2u'``

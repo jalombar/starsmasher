@@ -4,7 +4,7 @@
 Runs short calculations and checks them against expectations that must hold,
 rather than against stored output.  See tests/README.md.
 """
-import argparse, math, os, re, shutil, subprocess, sys, tempfile, time
+import argparse, math, os, random, re, shutil, struct, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC  = os.path.join(ROOT, 'parallel_bleeding_edge', 'src')
@@ -195,6 +195,149 @@ def t_startfiles(ctx):
         raise Fail('tri read %d particles, which is not three equal bodies' % ntot)
     return 'tri read three bodies (%d particles) from non-default file names' % ntot
 
+# ------------------------------------------------------- periodic boxes ---
+#
+# A periodic run starts from particles written by a script (iname='pbx'), in
+# the out*.sph layout: a header record, one record per particle, and ntot
+# again.  These helpers write and read that layout with nothing but struct.
+
+HEADER_FMT = '<2i5d2id i3d2i3di d i3d'
+PART_FMT = '<16d i d'
+
+def write_dump(path, parts):
+    """parts: list of dicts with x,y,z,am,hp,u and optionally vx,vy,vz."""
+    def rec(f, b):
+        f.write(struct.pack('<i', len(b)) + b + struct.pack('<i', len(b)))
+    hdr = struct.pack(HEADER_FMT, len(parts), 23, 0, 0, 0, 0, 0, 0, 0, 0,
+                      3, 1, 2, 1e30, 0, 0, 1e30, 0, 0, 0, 0, 0, 0, 0, 0)
+    with open(path, 'wb') as f:
+        rec(f, hdr)
+        for p in parts:
+            rec(f, struct.pack(PART_FMT, p['x'], p['y'], p['z'], p['am'], p['hp'],
+                               1.0, p.get('vx', 0), p.get('vy', 0), p.get('vz', 0),
+                               0, 0, 0, p['u'], 0, 0, 1.0, 0, 0))
+        rec(f, struct.pack('<i', len(parts)))
+
+def read_dump(path):
+    """(t, list of (x, y, z, am, rho, vx, vy, vz, u))"""
+    data = open(path, 'rb').read()
+    n = struct.unpack_from('<i', data, 4)[0]
+    t = struct.unpack_from('<d', data, 4 + 4 * 4 + 5 * 8)[0]
+    pos = 4 + struct.unpack_from('<i', data, 0)[0] + 4
+    out = []
+    for _ in range(n):
+        v = struct.unpack_from(PART_FMT, data, pos + 4)
+        out.append((v[0], v[1], v[2], v[3], v[5], v[6], v[7], v[8], v[12]))
+        pos += struct.calcsize(PART_FMT) + 8
+    return t, out
+
+def hcp_box(nx, ny, nz, jitter, seed):
+    """hcp lattice of unit spacing in a box commensurate with it (ny, nz
+    even), centred on the origin, slightly jittered."""
+    rng = random.Random(seed)
+    L = (nx, ny * math.sqrt(3) / 2, nz * math.sqrt(2.0 / 3.0))
+    pts = []
+    for k in range(nz):
+        for j in range(ny):
+            for i in range(nx):
+                p = [i + 0.5 * (j % 2) + 0.5 * (k % 2),
+                     (j + (k % 2) / 3.0) * math.sqrt(3) / 2,
+                     k * math.sqrt(2.0 / 3.0)]
+                pts.append([(p[d] + jitter * rng.uniform(-1, 1)) % L[d] - L[d] / 2
+                            for d in range(3)])
+    return pts, L
+
+PBOX = dict(ngr=0, neos=0, gam='1.6666666666666667d0', nintvar=2, nrelax=0,
+            startfile1="'box.sph'")
+
+def t_periodic(ctx):
+    """A periodic box conserves momentum and energy and has no seams at its faces."""
+    d = ctx.dir('periodic')
+    pts, L = hcp_box(10, 10, 10, 0.1, 1)
+    rng = random.Random(2)
+    n = len(pts)
+    vel = [[rng.gauss(0, 0.05) for _ in range(3)] for _ in pts]
+    mean = [sum(v[c] for v in vel) / n for c in range(3)]
+    parts = [dict(x=p[0], y=p[1], z=p[2], am=L[0] * L[1] * L[2] / n, hp=1.0, u=1.0,
+                  vx=v[0] - mean[0], vy=v[1] - mean[1], vz=v[2] - mean[2])
+             for p, v in zip(pts, vel)]
+    write_dump(os.path.join(d, 'box.sph'), parts)
+    # cn1 is small so that the leapfrog's own truncation error, which with
+    # the default takes ~5 steps across this box, does not mask the check
+    s = dict(PBOX, tf=1, dtout=1, cn1=0.05, boxx=L[0], boxy=L[1], boxz=L[2])
+    p, e = run(ctx.exe, d, np=ctx.np, init="'pbx'", **s)
+    dumps = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+    if len(dumps) < 2:
+        raise Fail('the periodic run wrote too few dumps\n' + p.stdout[-800:])
+    t0, first = read_dump(os.path.join(d, dumps[0]))
+    t1, last = read_dump(os.path.join(d, dumps[-1]))
+    # momentum: every pair force is antisymmetric, so the total stays zero
+    # to round-off however the particles move across the faces
+    mtot = sum(q[3] for q in last)
+    vrms = math.sqrt(sum(q[3] * (q[5] ** 2 + q[6] ** 2 + q[7] ** 2) for q in last) / mtot)
+    pmax = max(abs(sum(q[3] * q[5 + c] for q in last)) for c in range(3))
+    if pmax > 1e-10 * mtot * vrms:
+        raise Fail('total momentum drifted to %.3e (scale %.3e)' % (pmax, mtot * vrms))
+    rows = energies(e)
+    dE = abs(rows[-1][4] - rows[0][4]) / abs(rows[0][4])
+    close(rows[-1][4], rows[0][4], 1e-3, 'total energy')
+    for q in last:
+        if any(abs(q[c]) > L[c] / 2 * (1 + 1e-12) for c in range(3)):
+            raise Fail('a particle left the box: %r' % (q[:3],))
+    # a seam would show as a density step for particles near a face
+    rho_face = [q[4] for q in first if any(abs(q[c]) > L[c] / 2 - 1 for c in range(3))]
+    rho_in = [q[4] for q in first if all(abs(q[c]) < L[c] / 2 - 1 for c in range(3))]
+    close(sum(rho_face) / len(rho_face), sum(rho_in) / len(rho_in), 0.01,
+          'density near the faces against the interior')
+    return ('t=%.2f: momentum %.1e of scale, dE/E=%.1e, face/interior density %.4f'
+            % (t1, pmax / (mtot * vrms), dE,
+               sum(rho_face) / len(rho_face) / (sum(rho_in) / len(rho_in))))
+
+def t_periodic_block(ctx):
+    """Block timesteps in a periodic box agree with shared ones and keep every particle in the box."""
+    pts, L = hcp_box(10, 10, 10, 0.1, 4)
+    n = len(pts)
+    # a hot half drives a flow across the faces and puts the two halves on
+    # different timestep bins, so that block steps really are mixed
+    parts = [dict(x=p[0], y=p[1], z=p[2], am=L[0] * L[1] * L[2] / n, hp=1.0,
+                  u=4.0 if p[0] > 0 else 1.0) for p in pts]
+    out = {}
+    for tag, nblock in (('shared', 0), ('block', 1)):
+        d = ctx.dir('periodic_block_' + tag)
+        write_dump(os.path.join(d, 'box.sph'), parts)
+        s = dict(PBOX, tf=0.5, dtout=0.5, nblock=nblock, boxx=L[0], boxy=L[1], boxz=L[2])
+        p, e = run(ctx.exe, d, np=ctx.np, init="'pbx'", **s)
+        dumps = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+        if len(dumps) < 2:
+            raise Fail('the %s run wrote too few dumps\n' % tag + p.stdout[-800:])
+        out[tag] = read_dump(os.path.join(d, dumps[-1])), energies(e)
+    (tb, last), rows = out['block']
+    for q in last:
+        if any(abs(q[c]) > L[c] / 2 * (1 + 1e-12) for c in range(3)):
+            raise Fail('a particle left the box: %r' % (q[:3],))
+    close(rows[-1][4], rows[0][4], 1e-2, 'total energy with block steps')
+    (ts, ref), _ = out['shared']
+    drho = sum(abs(a[4] - b[4]) / b[4] for a, b in zip(last, ref)) / n
+    if drho > 0.01:
+        raise Fail('block and shared steps differ in density by %.2e on average (t=%.3f, %.3f)'
+                   % (drho, tb, ts))
+    return ('t=%.2f: mean |rho_block-rho_shared|/rho = %.1e, dE/E=%.1e'
+            % (tb, drho, abs(rows[-1][4] - rows[0][4]) / abs(rows[0][4])))
+
+def t_guard_periodic(ctx):
+    """A periodic box too small for the kernel stops with a message."""
+    d = ctx.dir('guard_periodic')
+    pts, L = hcp_box(4, 4, 4, 0.0, 3)
+    parts = [dict(x=p[0], y=p[1], z=p[2], am=L[0] * L[1] * L[2] / len(pts), hp=1.0, u=1.0)
+             for p in pts]
+    write_dump(os.path.join(d, 'box.sph'), parts)
+    s = dict(PBOX, tf=0.1, dtout=0.1, boxx=L[0], boxy=L[1], boxz=L[2])
+    p, _ = run(ctx.exe, d, np=ctx.np, init="'pbx'", **s)
+    text = p.stdout + p.stderr
+    if 'exceeds periodic padding' not in text:
+        raise Fail('expected the padding guard to stop the run\n' + text[-800:])
+    return 'stopped with: search radius exceeds periodic padding'
+
 TESTS = {
     'virial':           t_virial,
     'energy':           t_energy,
@@ -203,6 +346,9 @@ TESTS = {
     'cpu_gpu':          t_cpu_gpu,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
+    'periodic':         t_periodic,
+    'periodic_block':   t_periodic_block,
+    'guard_periodic':   t_guard_periodic,
 }
 
 # ------------------------------------------------------------------- main ---

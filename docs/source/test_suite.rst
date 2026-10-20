@@ -32,6 +32,17 @@ something changed.  These tell you whether the answer is right.
    * - ``startfiles``
      - Bodies are read from the file names given in ``sph.input``, not from
        names compiled into the code.
+   * - ``periodic``
+     - A fully periodic box conserves momentum to round-off and energy closely,
+       keeps every particle inside the box, and shows no density seam at its
+       faces.
+   * - ``periodic_block``
+     - Block timesteps in a periodic box, with a hot half on shorter steps,
+       give the same densities as shared timesteps to within 1% and keep
+       every particle inside the box.
+   * - ``guard_periodic``
+     - A periodic box too small for the kernel (2h beyond half a period) stops
+       the run with a message rather than missing neighbours.
 
 Options::
 

@@ -174,6 +174,8 @@
 
       t=t+dth
 
+      if(periodic) call pbcpositions
+
 !     if binary relaxation, adjust center of mass positions and velocities:
       if (nrelax.ge.2 .and. .not.gonedynamic) call cmadj
 
@@ -437,23 +439,54 @@
       logical usebrute
       integer nsolve,nloop,iprev,iw
       real*8 hsmall
+!     periodic box: the tree also holds the images within pad of a face,
+!     image k being a copy of particle imgmap(k)
+      integer ntree,nimg
+      integer, allocatable :: imgmap(:)
+      real*8, allocatable :: ximg(:,:)
+      real*8 pad(3),padmin,pbcdist2,xdum(3,1)
+      integer idum(1)
 
       if(myrank.eq.nprocs-1) call cpu_time(time1)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !      call linkedlists
 !     is being replaced with the creation of a kd tree...
 !
-      allocate(my_array(3,n))
+      nimg=0
+      if(periodic) then
+!     an image is needed out to the largest search radius, which is 2h
+!     during the solve but can step a little past it; the searches check
+!     that they stay within the padding (pbcmap)
+         pad(1)=3.d0*maxval(hp(1:n))
+         pad(2)=pad(1)
+         pad(3)=pad(1)
+         padmin=1.d30
+         if(boxx.gt.0.d0) pad(1)=min(pad(1),0.5d0*boxx)
+         if(boxy.gt.0.d0) pad(2)=min(pad(2),0.5d0*boxy)
+         if(boxz.gt.0.d0) pad(3)=min(pad(3),0.5d0*boxz)
+         if(boxx.gt.0.d0) padmin=min(padmin,pad(1))
+         if(boxy.gt.0.d0) padmin=min(padmin,pad(2))
+         if(boxz.gt.0.d0) padmin=min(padmin,pad(3))
+         call pbcimages(pad,.false.,nimg,xdum,idum)
+         allocate(ximg(3,max(nimg,1)),imgmap(max(nimg,1)))
+         call pbcimages(pad,.true.,nimg,ximg,imgmap)
+      endif
+      ntree=n+nimg
+      allocate(my_array(3,ntree))
       do k=1,n
          my_array(1,k)=x(k)
          my_array(2,k)=y(k)
          my_array(3,k)=z(k)
 !         myhp(k)=0
       enddo
+      do k=1,nimg
+         my_array(:,n+k)=ximg(:,k)
+      enddo
 !     block steps: when few particles on this rank need a neighbour search,
-!     search directly instead of building the tree over all particles
+!     search directly instead of building the tree over all particles (not
+!     in a periodic box, whose images only the full tree holds)
       usebrute=.false.
-      if(nblock.eq.1 .and. nblockfull.eq.0) then
+      if(nblock.eq.1 .and. nblockfull.eq.0 .and. .not.periodic) then
          nsolve=0
          do k=n_lower,n_upper
             if(actblk(k) .or. refblk(k)) nsolve=nsolve+1
@@ -478,7 +511,7 @@
 !     the above have replaced the call to linkedlists
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      allocate(results(n)) 
+      allocate(results(ntree))
 
 !     Floor on the drift step used to bracket the smoothing-length root, as a
 !     fraction of hp(i).  Normally 2e-5 (this is exactly the old 10*xacc, since
@@ -572,11 +605,12 @@
             call brute_r2(i,r2,cnt,results)
          else
             call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
-               r2=r2,nfound=cnt,nalloc=n,results=results)
+               r2=r2,nfound=cnt,nalloc=ntree,results=results)
          endif
          nn(i)=cnt
          call check_neighbor_capacity(i)
          list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+         if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
          
          call bonetfuncd(i,fl,df)
 
@@ -603,6 +637,7 @@
             do in=1,nn(i)
                jn=list(first(i)+in)
                dist2=(x(i)-x(jn))**2+(y(i)-y(jn))**2+(z(i)-z(jn))**2
+               if(periodic) dist2=pbcdist2(i,jn)
                if(dist2.lt.r2) then
                   cnt=cnt+1
                   list(first(i)+cnt)=jn
@@ -615,11 +650,12 @@
             else
                call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
                   correltime=-1,&
-                  r2=r2,nfound=cnt,nalloc=n,results=results)
+                  r2=r2,nfound=cnt,nalloc=ntree,results=results)
             endif
             nn(i)=cnt
             call check_neighbor_capacity(i)
             list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+            if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
          endif
          r2last=r2
       
@@ -676,6 +712,7 @@
                   jn=list(first(i)+in)
                   dist2=(x(i)-x(jn))**2&
                        +(y(i)-y(jn))**2+(z(i)-z(jn))**2
+                  if(periodic) dist2=pbcdist2(i,jn)
                   if(dist2.lt.r2) then
                      cnt=cnt+1
                      list(first(i)+cnt)=jn
@@ -687,12 +724,13 @@
                   call brute_r2(i,r2,cnt,results)
                else
                   call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                     correltime=-1,r2=r2,nfound=cnt,nalloc=n,&
+                     correltime=-1,r2=r2,nfound=cnt,nalloc=ntree,&
                      results=results)
                endif
                nn(i)=cnt
                call check_neighbor_capacity(i)
                list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+               if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
             endif
             r2last=r2
 
@@ -760,17 +798,19 @@
                   call brute_r2(i,r2,cnt,results)
                else
                   call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                     correltime=-1,r2=r2,nfound=cnt,nalloc=n,results=results)
+                     correltime=-1,r2=r2,nfound=cnt,nalloc=ntree,results=results)
                endif
                nn(i)=cnt
                call check_neighbor_capacity(i)
                list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+               if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
                r2last=r2
             endif
             chico=0.d0
             do in=1,nn(i)
                jn=list(first(i)+in)
                dist2=(x(i)-x(jn))**2+(y(i)-y(jn))**2+(z(i)-z(jn))**2
+               if(periodic) dist2=pbcdist2(i,jn)
                if(u(jn).ne.0.d0 .and. dist2.lt.4.d0*hp(i)**2) then
                   chico=chico-dgdhtab(int(ctab*dist2/hp(i)**2)+1)
                endif
@@ -795,6 +835,7 @@
             do in=1,nn(i)
                jn=list(first(i)+in)
                dist2=(x(i)-x(jn))**2+(y(i)-y(jn))**2+(z(i)-z(jn))**2
+               if(periodic) dist2=pbcdist2(i,jn)
                if(dist2.lt.r2) then
                   cnt=cnt+1
                   list(first(i)+cnt)=jn
@@ -807,11 +848,12 @@
             else
                call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
                   correltime=-1,&
-                  r2=r2,nfound=cnt,nalloc=n,results=results)
+                  r2=r2,nfound=cnt,nalloc=ntree,results=results)
             endif
             nn(i)=cnt
             call check_neighbor_capacity(i)
             list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+            if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
          endif
          
          call bonetsumwithphi(i,rho(i), bonet_omega(i),&
@@ -878,6 +920,7 @@
       if(.not.usebrute) call kdtree2_destroy(tree2)
       deallocate(results)
       deallocate(my_array)
+      if(periodic) deallocate(ximg,imgmap)
 
 ! make mpi call to insure all processors doing gravity have the same
 ! hp values (only nodes doing gravity need the hp values):
@@ -954,6 +997,7 @@
         dx = x(i) - x(j)
         dy = y(i) - y(j)
         dz = z(i) - z(j)
+        if(periodic) call pbcwrap(dx,dy,dz)
         r2 = dx*dx + dy*dy + dz*dz;
         itab=int(min(ctaboverh2*r2,4.d0*ctab)) + 1
         bonet1_wn     = bonet1_wn    + fac*gtab(itab)
@@ -978,6 +1022,7 @@
       real*8 bonetdphidh
       real*8 hpitilde,h2tilde,ctaboverh2tilde
       integer itabtilde
+      real*8 pbcdist2
 
       hpi = hp(i)
       h2=hpi**2
@@ -1000,6 +1045,7 @@
          do in=1,nn(i)
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
+            if(periodic) r2=pbcdist2(i,j)
             itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
 
             ! the u(j).eq.0 is necessary in the next line because we always do gravity
@@ -1033,6 +1079,7 @@
          do in=1,nn(i)
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
+            if(periodic) r2=pbcdist2(i,j)
             itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
             if(u(j).ne.0.d0) then
                bonet1_rho   = bonet1_rho   + am(j)*wtab(itab)
@@ -1071,6 +1118,7 @@
       real*8 r2,h3,h2,hpi
       integer itab,j,in,i,iw,nloop
       real*8 invh2
+      real*8 pbcdist2
 
 !     block steps (blkdist): computed for this rank's share, which holds the
 !     neighbour lists, then shared.  Particles not solved this substep have
@@ -1104,6 +1152,7 @@
             j=list(first(i)+in)
             if(u(j).ne.0.d0)then
                r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
+               if(periodic) r2=pbcdist2(i,j)
                itab=int(ctab*min(r2*invh2,4.d0))+1
                vxdotsm(i)=vxdotsm(i)+am(j)*&
                     wtab(itab)*vxdot(j)
