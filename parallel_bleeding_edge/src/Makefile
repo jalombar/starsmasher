@@ -140,7 +140,7 @@ NNMAX ?= $(DEFAULT_NNMAX)
 NTAB ?= $(DEFAULT_NTAB)
 
 # ---------------------------------------------------------------- objects ----
-FOBJS = eos_table_data.o kdtree2.o advance.o balAV3.o            \
+FOBJS = eos_table_data.o riemann_data.o kdtree2.o advance.o balAV3.o            \
         blockstep.o                                              \
         getderivs.o getTemperature.o                             \
         initialize_hyperbolic.o init.o kernels.o                 \
@@ -155,7 +155,8 @@ FOBJS = eos_table_data.o kdtree2.o advance.o balAV3.o            \
         initialize_hyperbolic_binary_single.o skipahead.o        \
         compbest3.o changetf.o tstep.o initialize_grsph.o        \
         eatem.o useeostable.o hunt.o usekappatable.o             \
-        initialize_asciiimage.o initialize_periodicbox.o
+        initialize_asciiimage.o initialize_periodicbox.o \
+        riemann.o
 
 CPUOBJS = $(FOBJS) cpu_grav.o
 GPUOBJS = $(FOBJS) $(GPU_GRAV_OBJ)
@@ -184,6 +185,7 @@ $(LIMITS_FILE): Makefile FORCE
 	$(FC) -c $(FFLAGS) $<
 
 initialize_parent.o initialize_polyes.o useeostable.o: eos_table_data.o
+advance.o balAV3.o pressure.o riemann.o: riemann_data.o
 
 # ----------------------------------------------------------------- targets ---
 gpu: check-gpu-backend $(GPUOBJS)

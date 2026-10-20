@@ -72,7 +72,8 @@
       parameter(arad=4.0d0*sigma/crad,qconst=1.5d0*boltz/arad)
       real*8 munit,runit,punit,gravconst,redge
       common/units/munit,runit,punit,gravconst
-      common/artvis/ alpha,beta,nav
+      integer navsw
+      common/artvis/ alpha,beta,nav,navsw
       integer computeexclusivemode,ppn
       common/grav/ ngr,computeexclusivemode
       real*8 omega2,omega_spin

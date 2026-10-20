@@ -1,4 +1,5 @@
       subroutine uvdots
+      use riemann_data
 c     evaluate right-hand sides of equations of motion:
 c=======================================================================
 c  balvdots creates arrays of the accelerations of each particle, using
@@ -48,6 +49,10 @@ c     variables used for radiative cooling portion of the code:
       real*8 grpottot(nmax),uraddoti
       real*8 hpitilde,h2tilde,invh2tilde,htil
       integer itabtilde
+c     nav=4: the pair's Riemann problem along r_ij (see riemann.f)
+      real*8 rij,vir,vjr,pstar,pstat,vsig,cj
+      real*8 rhl,rhr,vl,vr,pl,pr,si,sj,sep3(3),rhat3(3)
+      integer ka,kb
 
       if(nav.eq.0) then
          if(nintvar.eq.1 .or. nintvar.eq.3)then
@@ -58,6 +63,20 @@ c     variables used for radiative cooling portion of the code:
             print *,'turn off av by setting alpha=beta=0'
             stop
          endif
+      endif
+
+c     nav=4: dissipation from a Riemann solver instead of alpha and beta.
+c     The pair problem needs the density, pressure, Gamma_1 and gradients
+c     of every neighbour.  With block timesteps these are shared in
+c     rho_and_h, otherwise only this rank's own particles hold them.
+      if(nav.eq.4) then
+         call riemann_alloc
+         if(.not.blkdist .and. nblock.eq.0) then
+            call sync_all(rho)
+            call sync_all(por2)
+            call sync_all(gam1p)
+         endif
+         call riemann_gradients
       endif
 
       switchedav=.false.
@@ -129,7 +148,11 @@ c     particle is active (actblk), so nothing is skipped.
          invh5 = 1.0/h5
          ami=am(i)
          por2i=por2(i)
-         ci2=gam*por2i*rho(i)
+         if(nav.eq.4) then
+            ci2=gam1p(i)*por2i*rho(i)
+         else
+            ci2=gam*por2i*rho(i)
+         endif
          ci=sqrt(ci2)
          vxi=vx(i)
          vyi=vy(i)
@@ -167,7 +190,7 @@ c     a capped point particle's list reaches beyond 2h (to 2*htilde)
 
             if(u(j).ne.0.d0 .and. u(i).ne.0) then
               divin = dx*dvx + dy*dvy + dz*dvz
-               if (divin.lt.0.d0) then
+               if (divin.lt.0.d0 .and. nav.ne.4) then
 c                  r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0
 c     $                 +(z(i)-z(j))**2.d0
 c     cj=sqrt(5.d0/3.d0*por2(j)*rho(j))
@@ -206,6 +229,69 @@ c                               a     +    b * c   (multiply-add, cpu likes thes
                else
                   pijin=0.d0
                endif
+
+c     nav=4: the Riemann problem along r_hat=(r_i-r_j)/|r_i-r_j|, on which
+c     j is the left state and i the right, with both states reconstructed
+c     to the pair midpoint from limited gradients.  pstat is the star
+c     pressure of the same problem with the two particles at rest, so
+c     p*-pstat is the part that comes from their relative motion, and
+c     2(p*-pstat)/rho_i^2 takes the place of the AV.  It is zero without
+c     relative motion, where the equations reduce to the variational
+c     ones, and it heats in both compression and expansion.
+               if(nav.eq.4 .and. r2.eq.0.d0) then
+                  vir=0.d0
+                  vjr=0.d0
+               elseif(nav.eq.4) then
+                  rij=sqrt(r2)
+                  vir=(vxi*dx+vyi*dy+vzi*dz)/rij
+                  vjr=(vx(j)*dx+vy(j)*dy+vz(j)*dz)/rij
+                  pl=por2(j)*rho(j)**2
+                  pr=por2i*rho(i)**2
+c     slopes over the separation from i to j, grad q.(r_j-r_i)=-grad q.dd
+                  sep3(1)=dx
+                  sep3(2)=dy
+                  sep3(3)=dz
+                  do ka=1,3
+                     rhat3(ka)=sep3(ka)/rij
+                  enddo
+                  si=0.d0
+                  sj=0.d0
+                  do ka=1,3
+                     si=si-rgrad(ka,i)*sep3(ka)
+                     sj=sj-rgrad(ka,j)*sep3(ka)
+                  enddo
+                  call riemann_limit(rho(i),rho(j),si,sj,rhr,rhl)
+                  si=0.d0
+                  sj=0.d0
+                  do ka=1,3
+                     si=si-rgrad(3+ka,i)*sep3(ka)
+                     sj=sj-rgrad(3+ka,j)*sep3(ka)
+                  enddo
+                  call riemann_limit(pr,pl,si,sj,pr,pl)
+c     the velocity along r_hat: (dd.grad) v . r_hat
+                  si=0.d0
+                  sj=0.d0
+                  do kb=1,3
+                     do ka=1,3
+                        si=si-sep3(ka)*rgrad(6+3*(kb-1)+ka,i)*rhat3(kb)
+                        sj=sj-sep3(ka)*rgrad(6+3*(kb-1)+ka,j)*rhat3(kb)
+                     enddo
+                  enddo
+                  call riemann_limit(vir,vjr,si,sj,vr,vl)
+c     navsw selects a switch: 2 or 3 drops receding pairs, 1 or 3
+c     multiplies by balsara's f_i as in nav=3
+                  if((navsw.eq.2 .or. navsw.eq.3) .and. divin.ge.0.d0) then
+                     pijin=0.d0
+                  else
+                     call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
+     $                    gam1p(i),pstar)
+                     call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,pr,
+     $                    gam1p(i),pstat)
+                     pijin=2.d0*(pstar-pstat)/rho(i)**2
+                     if(navsw.eq.1 .or. navsw.eq.3) pijin=pijin*abs(divvi)/
+     $                    (abs(divvi)+abscurli+0.00001d0*ci*invh)
+                  endif
+               endif
 c     hydro correction part.  here we are implementing corrections as shown
 c     in equations (a11) and (a12) of gaburov et al. (2010):
                invbonnet = 1.0/(bonet_0mega(i)*am(j))
@@ -232,8 +318,17 @@ c     hydro part
                   udot(i)=udot(i)+am(j)*pijin*dwijin*divin
                endif
 
-               if(actblk(i)) uijmax(i)=max(uijmax(i),
+               if(nav.eq.4) then
+c     on the scale of the AV version's p/rho (c^2/Gamma_1): half the
+c     pair's signal speed, squared, over Gamma_1
+                  cj=sqrt(gam1p(j)*por2(j)*rho(j))
+                  vsig=ci+cj+max(vjr-vir,0.d0)
+                  if(actblk(i)) uijmax(i)=max(uijmax(i),
+     $                 (0.5d0*vsig)**2/gam1p(i))
+               elseif(actblk(i)) then
+                  uijmax(i)=max(uijmax(i),
      $              (por2i + 0.5d0 * pijin)*rho(i))
+               endif
 c               uijmax(j)=max(uijmax(j),
 c     $              (por2i + 0.5d0 * pijin)*rho(i))
 

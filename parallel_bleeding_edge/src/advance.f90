@@ -410,6 +410,7 @@
       subroutine rho_and_h
 !     calculate hp(i) and rho(i) according to the method of bonet
       use kdtree2_module
+      use riemann_data
       include 'starsmasher.h'
       include 'mpif.h'
       double precision drhodhi,dphidhi
@@ -935,6 +936,7 @@
          call sync_w(hp)
          call sync_w(rho)
          call sync_w(por2)
+         if(nav.eq.4) call sync_w(gam1p)
          call sync_w(bonet_omega)
          call sync_w(bonet_0mega)
          call sync_w(bonet_psi)
@@ -945,6 +947,7 @@
          call sync_all(hp)
          call sync_all(rho)
          call sync_all(por2)
+         if(nav.eq.4) call sync_all(gam1p)
          call sync_all(bonet_omega)
          call sync_all(bonet_0mega)
          call sync_all(bonet_psi)
