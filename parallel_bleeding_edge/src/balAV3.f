@@ -284,9 +284,9 @@ c     multiplies by balsara's f_i as in nav=3
                      pijin=0.d0
                   else
                      call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
-     $                    gam1p(i),pstar)
+     $                    gam1p(i),nriemann,pstar)
                      call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,pr,
-     $                    gam1p(i),pstat)
+     $                    gam1p(i),nriemann,pstat)
                      pijin=2.d0*(pstar-pstat)/rho(i)**2
                      if(navsw.eq.1 .or. navsw.eq.3) pijin=pijin*abs(divvi)/
      $                    (abs(divvi)+abscurli+0.00001d0*ci*invh)

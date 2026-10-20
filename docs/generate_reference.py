@@ -217,7 +217,7 @@ GROUPS = [
                       'internal_energy_fraction']),
  ('The particles',   ['n','nnopt','equalmass','starmass','starradius','hco','mco','hfloor']),
  ('Equation of state and physics',
-                     ['neos','gam','nav','alpha','beta','ngr','nselfgravity','nkernel',
+                     ['neos','gam','nav','navsw','nriemann','alpha','beta','ngr','nselfgravity','nkernel',
                       'ncooling','teq','reat']),
  ('Relaxation',      ['nrelax','trelax','treloff','tresplintmuoff','omega_spin']),
  ('Orbit of the encounter',

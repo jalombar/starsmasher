@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **97** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **98** settings.
 
 
 .. _sph-input-time-and-output:
@@ -144,6 +144,14 @@ Equation of state and physics
      - ``3``
      - every run
      - artificial viscosity (av) flag.  3: hybrid balsara-monaghan av with alpha and beta.  4: dissipation from a riemann solver between each pair of particles, with no alpha or beta
+   * - ``navsw``
+     - ``1``
+     - every run
+     - nav=4 only: 0 for no switch, 1 to multiply the dissipation by balsara's switch of particle i (as nav=3 does), 2 to apply it to approaching pairs only, 3 for both
+   * - ``nriemann``
+     - ``1``
+     - every run
+     - nav=4 only: 1 for the star pressure from toro's adaptive guess and one newton step, about 15% faster per step in a shock tube.  0 to iterate newton to convergence
    * - ``alpha``
      - ``1``
      - every run
@@ -567,10 +575,6 @@ Other settings
      - Default
      - Applies to
      - Meaning
-   * - ``navsw``
-     - ``1``
-     - every run
-     - nav=4 only: 0 for no switch, 1 to multiply the dissipation by balsara's switch of particle i (as nav=3 does), 2 to apply it to approaching pairs only, 3 for both
    * - ``tswitchtou``
      - ``-1.d0``
      - every run

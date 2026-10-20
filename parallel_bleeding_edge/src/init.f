@@ -630,7 +630,7 @@ c      end
       real*8 displacex,displacey,displacez
       integer ndisplace
       common/displace/displacex,displacey,displacez,ndisplace
-      namelist/input/ tf,dtout,n,nnopt,nav,navsw,alpha,beta,ngr,hco,
+      namelist/input/ tf,dtout,n,nnopt,nav,navsw,nriemann,alpha,beta,ngr,hco,
      $     mco,hfloor,
      $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
@@ -685,6 +685,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       nnopt=22+gflag                 ! controls neighbor number.  leave it at 22 to get almost 40 neighbors.
       nav=3                    ! artificial viscosity (av) flag.  3: hybrid balsara-monaghan av with alpha and beta.  4: dissipation from a riemann solver between each pair of particles, with no alpha or beta
       navsw=1                  ! nav=4 only: 0 for no switch, 1 to multiply the dissipation by balsara's switch of particle i (as nav=3 does), 2 to apply it to approaching pairs only, 3 for both
+      nriemann=1               ! nav=4 only: 1 for the star pressure from toro's adaptive guess and one newton step, about 15% faster per step in a shock tube.  0 to iterate newton to convergence
       alpha=1                  ! av coefficient for term linear in mu
       beta=2                   ! av coefficient for mu^2 term
       ngr=3                    ! gravity flag.  leave it at 3.  if your want no gravity, ngr=0 might still work.
