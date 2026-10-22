@@ -102,6 +102,18 @@ All seven parameters below are set in ``sph.input``.  Set ``tjumpahead``,
    :math:`R` shrinks, and ``rjump`` with it, so the jump comes once the
    separation and the falling ``rjump`` cross.
 
+   Because the star re-enters at half the separation it jumped from (see
+   below), ``rjump`` has to stay above twice the periastron separation.  A star
+   that loses mass on every passage can shrink :math:`R`, and ``rjump`` with
+   it, below that: a 0.72 :math:`M_\odot` red giant partially disrupted at
+   :math:`\beta=1` saw its :math:`r_{90}` fall from 2.95 to 1.24 in four
+   passages, ``rjump`` from 6600 to 2814, and the fourth jump would have put the
+   star at 1429, inside periastron (1469), where the orbit cannot place it.  The
+   code then stops with ``jumpahead: sep0 inside periastron`` in the log.  A
+   fixed ``rjump`` re-enters every passage at the same place and cannot do this,
+   and it is the safer choice for a giant, whose :math:`R` lies in a thin
+   envelope that every passage strips.
+
 ``rjumppercent``
    The percentage of a body's mass enclosed by the radius :math:`R` in the tidal
    radius that ``rjumpfactor`` multiplies.  The default is ``95``; ``99`` gives
