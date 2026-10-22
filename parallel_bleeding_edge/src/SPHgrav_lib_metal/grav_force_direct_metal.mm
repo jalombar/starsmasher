@@ -458,13 +458,32 @@ class SPHgravMetal {
     resizeParticleBuffer(paddedCount);
     resizeForceBuffer(ni);
 
+    // Positions relative to the gas centroid weighted by 1/h**2, subtracted
+    // in double, as in SPHgrav_lib2/grav_force_direct.cu (see the comment
+    // there).
+    double wsum = 0.0, xref = 0.0, yref = 0.0, zref = 0.0;
+    for (int i = 0; i < nj; ++i) {
+      if (h2[i] > 0.0) {
+        const double w = 1.0 / h2[i];
+        wsum += w;
+        xref += w * px[i];
+        yref += w * py[i];
+        zref += w * pz[i];
+      }
+    }
+    if (wsum > 0.0) {
+      xref /= wsum;
+      yref /= wsum;
+      zref /= wsum;
+    }
+
     auto *particles = static_cast<MetalParticle *>([particleBuffer_ contents]);
     for (int i = 0; i < nj; ++i) {
       const float smoothing = std::sqrt(static_cast<float>(h2[i] > 0.0 ? h2[i] : -h2[i]));
       particles[i] = {
-          static_cast<float>(px[i]),
-          static_cast<float>(py[i]),
-          static_cast<float>(pz[i]),
+          static_cast<float>(px[i] - xref),
+          static_cast<float>(py[i] - yref),
+          static_cast<float>(pz[i] - zref),
           static_cast<float>(mass[i]),
           smoothing,
           smoothing > 0.0f ? 1.0f / smoothing : 0.0f,
