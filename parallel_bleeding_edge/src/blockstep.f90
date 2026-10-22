@@ -26,9 +26,6 @@
       logical started
       double precision divv(nmax)
       common/commdivv/divv
-      real*8 displacex,displacey,displacez
-      integer ndisplace
-      common/displace/displacex,displacey,displacez,ndisplace
       save kbin,tstart,slen,tick,nticks,vhx,vhy,vhz,uh,t0b,dtick,started
       data started/.false./
       real*8 axs(nmax),ays(nmax),azs(nmax),uds(nmax)
@@ -47,10 +44,10 @@
       data nwaketot,nsub,nacttot,nreftot/0,0,0,0/
       real*8 dtt,tmid,hstep_old,hstep_new,dtmin
 
-      if(nrelax.ne.0 .or. ncooling.ne.0 .or. ndisplace.ne.0) then
+      if(nrelax.ne.0 .or. ncooling.ne.0) then
          if(myrank.eq.0) write(69,*)&
-              'nblock=1 needs nrelax=0, ncooling=0 and ndisplace=0'
-         stop 'nblock=1 needs nrelax=0, ncooling=0, ndisplace=0'
+              'nblock=1 needs nrelax=0 and ncooling=0'
+         stop 'nblock=1 needs nrelax=0 and ncooling=0'
       endif
 
 !     after a jump ahead (blkrestart), start again as after a restart

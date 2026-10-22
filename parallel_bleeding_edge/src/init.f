@@ -27,16 +27,19 @@ c     initialization of run (new or restart)
       real*8 erad,tjumpaheadold
       common/lostenergy/ erad
       integer iostatus,ncoolingold
-      real*8 displacex,displacey,displacez
-      integer ndisplace
-      common/displace/displacex,displacey,displacez,ndisplace
       real*8 epoteat,ekineat,einteat
       common /eatenenergy/ epoteat,ekineat,einteat
+      integer lastnumstars
+      common /starcount/ lastnumstars
 
       erad=0d0
       epoteat=0d0
       ekineat=0d0
       einteat=0d0
+c     changetf's count of stars at its last call: 2 for a new run, or from the
+c     restart file below (0 there means unknown, and changetf then takes the
+c     count it finds on its first call)
+      lastnumstars=2
 
 c     read in hosts, find gravhost:
 c      call rank_setup
@@ -83,12 +86,15 @@ c     used in subroutine dump)
          read(12,iostat=iostatus) ntot,nnoptold,hcoold,hfloorold,sep0,tfold,
      $        dtoutold,nout,nit,t,navold,alphaold,betaold,tjumpaheadold,
      $        ngrold,nrelaxold,trelaxold,dt,omega2,ncoolingold,erad,
-     $        ndisplace,displacex,displacey,displacez
+     $        lastnumstars,epoteat,ekineat,einteat
+c     A file written before these four entries changed meaning has ndisplace
+c     and displace{x,y,z} there.  Every run but INAME='bhe' wrote 0 for all
+c     four, which reads as no swallowed energy and an unknown star count.
          if(iostatus.ne.0) then
-            ndisplace=0
-            displacex=0d0
-            displacey=0d0
-            displacez=0d0
+            lastnumstars=0
+            epoteat=0d0
+            ekineat=0d0
+            einteat=0d0
             if(myrank.eq.0) write(69,*)
      $           'Will try to read restartrad.sph again: trelaxold=',
      $           trelaxold
@@ -521,13 +527,6 @@ c     into d(lnA)/dt, so the two have not been made consistent yet.
          else
             write(69,*) 'radiative cooling will be implemented'
          endif
-         if(ndisplace.eq.0)then
-            write(69,*)'no displacing origin to be near SPH particles'
-         else
-            write(69,*) 'displacing origin to be near SPH particles'
-            write(69,'(4g17.9)') 'displace{x,y,z}=',
-     $           displacex,displacey,displacez
-         endif
       endif
 
       return
@@ -626,10 +625,6 @@ c      end
       common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
       logical fileexists
       integer ierr
-      character*8 pctlabel
-      real*8 displacex,displacey,displacez
-      integer ndisplace
-      common/displace/displacex,displacey,displacez,ndisplace
       namelist/input/ tf,dtout,n,nnopt,nav,navsw,nriemann,alpha,beta,ngr,hco,
      $     mco,hfloor,
      $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
@@ -655,10 +650,6 @@ c      end
       character*9 slurm_gpu_count_str
       integer slurm_gpu_count,actual_gpu_count
 
-      ndisplace=0
-      displacex=0d0
-      displacey=0d0
-      displacez=0d0
 
       semimajoraxis=0.d0 ! orbital semimajor axis.  0 means unset, so that it is deduced from the others
       impactparameter=-1.d30 ! impact parameter at infinity, an alternative to rp, converted to it using angular momentum
@@ -908,30 +899,9 @@ c      endif
       if(tf.lt.0.d0 .or. autojump) then
          autotf=tf.lt.0.d0
          tf=abs(tf)
-         open(23,file='ecc.sph')
-c        Name the radius columns by rjumppercent: rstar95_1 for 95.
-         if(rjumppercent.eq.nint(rjumppercent)) then
-            write(pctlabel,'(i0)') nint(rjumppercent)
-         else
-            write(pctlabel,'(f0.2)') rjumppercent
-         endif
-         write(23,'(33a14)') 't    ','m1    ','m2    ',
-     $     'x1    ','y1    ','z1    ','x2    ','y2    ','z2    ',
-     $     'd12    ','am4/amtot    ','am4    ',
-     $     'a12    ','ecc12    ','mejecta    ',
-     $     'vx1    ','vy1    ','vz1    ','vx2    ','vy2    ','vz2    ',
-     $     'rstar'//trim(pctlabel)//'_1    ',
-     $     'rstar'//trim(pctlabel)//'_2    ',
-     $     'rtidal'//trim(pctlabel)//'    ',
-     $     'rjump    ','orb_period    '
       endif
-
-c     enout writes the energies from either side of every jump to unit 34.
-c     Name the file, or they land in a stray fort.34.  The condition is the one
-c     main.f uses to decide whether a jump can happen at all.
-      if(myrank.eq.0 .and. (autotf .or. autojump .or.
-     $     tjumpahead.lt.0.d0))
-     $     open(34,file='jumpahead.sph')
+c     ecc*.sph and jumpahead*.sph are opened in energy_setup, numbered like
+c     energy*.sph and log*.sph
 
       return
 
@@ -990,8 +960,14 @@ c      if(myrank.eq.0) write(69,*)'n_lower,n_upper,n',n_lower,n_upper,n
       character*11 energyfile
       character*8 logfile
       character*8 eatfile
+      character*8 eccfile
+      character*14 jumpfile
+      character*8 pctlabel
+      logical autotf,autojump
+      common/autotfblock/autotf,autojump
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
 
-      if(myrank.eq.0) then 
+      if(myrank.eq.0) then
          energyfilealreadyexists=.true.
          filenum=-1
          do while(energyfilealreadyexists)
@@ -1012,6 +988,38 @@ c      if(myrank.eq.0) write(69,*)'n_lower,n_upper,n',n_lower,n_upper,n
  104        format('eat',i1.1,'.sph')
             open(43,file=eatfile,status='unknown')
             write(69,*)'writing eat data to ',eatfile
+         endif
+c     changetf analyses the system at every output when jumping or an automatic
+c     tf is on, and writes the result to unit 23.  Numbered like energy*.sph,
+c     so a restart starts a new file instead of overwriting the old one.
+         if(autotf .or. autojump) then
+            write(eccfile,105)filenum
+ 105        format('ecc',i1.1,'.sph')
+            open(23,file=eccfile,status='unknown')
+            write(69,*)'writing orbit data to ',eccfile
+c           Name the radius columns by rjumppercent: rstar95_1 for 95.
+            if(rjumppercent.eq.nint(rjumppercent)) then
+               write(pctlabel,'(i0)') nint(rjumppercent)
+            else
+               write(pctlabel,'(f0.2)') rjumppercent
+            endif
+            write(23,'(33a14)') 't    ','m1    ','m2    ',
+     $        'x1    ','y1    ','z1    ','x2    ','y2    ','z2    ',
+     $        'd12    ','am4/amtot    ','am4    ',
+     $        'a12    ','ecc12    ','mejecta    ',
+     $        'vx1    ','vy1    ','vz1    ','vx2    ','vy2    ','vz2    ',
+     $        'rstar'//trim(pctlabel)//'_1    ',
+     $        'rstar'//trim(pctlabel)//'_2    ',
+     $        'rtidal'//trim(pctlabel)//'    ',
+     $        'rjump    ','orb_period    '
+         endif
+c     enout writes the energies from either side of every jump to unit 34.
+c     The condition is the one main.f uses to decide whether a jump can happen.
+         if(autotf .or. autojump .or. tjumpahead.lt.0.d0) then
+            write(jumpfile,106)filenum
+ 106        format('jumpahead',i1.1,'.sph')
+            open(34,file=jumpfile,status='unknown')
+            write(69,*)'writing jump energies to ',jumpfile
          endif
       endif
       end

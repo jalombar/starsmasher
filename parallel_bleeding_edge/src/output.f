@@ -76,13 +76,18 @@ c     binary dump files.
       common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
       real*8 erad
       common/lostenergy/ erad
-      real*8 displacex, displacey,displacez
-      integer ndisplace
-      common/displace/displacex,displacey,displacez,ndisplace
+      real*8 epoteat,ekineat,einteat
+      common /eatenenergy/ epoteat,ekineat,einteat
+      integer lastnumstars
+      common /starcount/ lastnumstars
 
+c     The last four header entries were ndisplace and displace{x,y,z} until
+c     the origin shift was removed.  They now hold what a restart needs and
+c     did not have: changetf's count of stars, and the energy carried off by
+c     particles the black hole swallowed (reat>0), which energy*.sph adds up.
       write(iu) ntot,nnopt,hco,hfloor,sep0,tf,dtout,nout,nit,t,
      $     nav,alpha,beta,tjumpahead,ngr,nrelax,trelax,dt,omega2,
-     $     ncooling,erad,ndisplace,displacex,displacey,displacez
+     $     ncooling,erad,lastnumstars,epoteat,ekineat,einteat
       if(ncooling.eq.0) then
          do i=1,ntot
             write(iu) x(i),y(i),z(i),am(i),hp(i),rho(i),
@@ -159,9 +164,7 @@ c     variables used for radiative cooling portion of the code:
       real*8 erad
       common/lostenergy/ erad
 
-      real*8 xi,yi,zi,displacex,displacey,displacez
-      integer ndisplace
-      common/displace/displacex,displacey,displacez,ndisplace
+      real*8 xi,yi,zi
       real*8 epoteat,ekineat,einteat
       common /eatenenergy/ epoteat,ekineat,einteat
 
@@ -206,9 +209,9 @@ c     omeg=sqrt(omega2)
                ajz=ajz+
      $              am(i)*(x(i)*(vy(i)+omeg*x(i))-y(i)*(vx(i)-omeg*y(i)))
             else
-               xi=x(i)+displacex
-               yi=y(i)+displacey
-               zi=z(i)+displacez
+               xi=x(i)
+               yi=y(i)
+               zi=z(i)
                ajx=ajx+am(i)*(yi*vz(i)-zi*vy(i))
                ajy=ajy+am(i)*(zi*vx(i)-xi*vz(i))
                ajz=ajz+am(i)*(xi*vy(i)-yi*vx(i))

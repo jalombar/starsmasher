@@ -73,7 +73,7 @@ All seven parameters below are set in ``sph.input``.  Set ``tjumpahead``,
    set jumps again on every passage that recedes past it, with no restart in
    between, which is what a sequence of repeated partial disruptions needs.  The
    test is made in ``changetf``, so setting ``rjump`` also makes the code
-   analyse the system at every output and write ``ecc.sph``, as a negative
+   analyse the system at every output and write ``ecc*.sph``, as a negative
    ``tf`` does; unlike a negative ``tf``, it leaves ``tf`` alone, except to end
    the run once the star has been destroyed (see ``ndtoutafter``).  Each test is
    logged to ``log*.sph`` as ``ecc12,dotproduct,dbg,rjump=``, and a jump it
@@ -131,7 +131,7 @@ All seven parameters below are set in ``sph.input``.  Set ``tjumpahead``,
 ``tf``
    Not required for a jump, but set it negative anyway.  A negative ``tf`` lets
    the code revise its own stopping time, and makes it analyse the system at
-   every output and write ``ecc.sph``, which is how you follow the orbit.
+   every output and write ``ecc*.sph``, which is how you follow the orbit.
 
 That is the whole interface.  Put ``tjumpahead`` in ``sph.input`` and run.  Or put in ``rjump``, and every
 passage jumps once the star has receded that far.  It can go in from the start, or be
@@ -235,7 +235,7 @@ pericentre, which is the tidal energy going into the star:
     out0004.sph  t= 40.00  r= 36.09  rdot=+1.98  a= 1199.7  e=0.99002
 
 Pericentre is at :math:`t\approx24`, and by :math:`t=40` the semimajor axis has
-dropped from 2516 to 1200.  ``ecc.sph`` carries the same story one row per
+dropped from 2516 to 1200.  ``ecc*.sph`` carries the same story one row per
 output.  Once the star is receding, ``log0.sph`` adds this at every output;
 the numbers below are the ones from :math:`t=40`:
 
@@ -289,7 +289,7 @@ digits.  The orbital energy agrees with the value reconstructed from :math:`e`,
 
 Then the three energy analyses, before the jump, after it, and after the debris
 has been discarded.  These are also the three lines written to
-``jumpahead.sph``, in the columns of ``energy*.sph``:
+``jumpahead*.sph``, in the columns of ``energy*.sph``:
 
 .. code-block:: text
 
@@ -499,7 +499,7 @@ is what Antonini et al. justify with the thermal timescale argument.
    **The simulation clock does not advance.**  ``jumpahead`` changes ``t`` by
    about one timestep and no more.  The orbital time that was skipped, which is
    most of a period, is simply not counted.  Every time in ``log*.sph``,
-   ``energy*.sph``, ``ecc.sph`` and the ``out*.sph`` headers after a jump is a
+   ``energy*.sph``, ``ecc*.sph`` and the ``out*.sph`` headers after a jump is a
    time with the wide part of the orbit cut out of it.  If you need real elapsed
    time, add the Kepler time of flight yourself, from the :math:`a` and
    :math:`e` printed in the log.
@@ -601,7 +601,7 @@ The routine stops the run itself if the reconstructed orbit does not match the
 measured one, so the arithmetic needs no checking.  What is worth checking is
 everything it does not guarantee:
 
-* The three lines in ``jumpahead.sph``.  ``eint`` and ``ajtot`` should be
+* The three lines in ``jumpahead*.sph``.  ``eint`` and ``ajtot`` should be
   unchanged across the jump to every digit printed.  ``epot`` and ``ekin`` will
   both change, since the separation changed.  ``etot`` should barely move; if it
   moves by a percent, the two components are not well described as point

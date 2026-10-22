@@ -18,9 +18,6 @@
       parameter(egsol=1.9884098706980504d33,solrad=6.957d10)
       real*8 au
       parameter(au=14959787066000.d0)
-      real*8 displacex, displacey,displacez
-      integer ndisplace
-      common/displace/displacex,displacey,displacez,ndisplace
       
       corepts=0
       if(myrank.eq.0) write (69,*) 'smbh: reading start files ...'
@@ -189,40 +186,33 @@ c            stop
       vxcm=(am1*deltavx1+am2*deltavx2+am3*deltavx3)/(am1+am2+am3)
       vycm=(am1*deltavy1+am2*deltavy2+am3*deltavy3)/(am1+am2+am3)
       vzcm=(am1*deltavz1+am2*deltavz2+am3*deltavz3)/(am1+am2+am3)
-c     Find the center of mass position of just the two stars and not the black hole:
-      ndisplace=1
-      displacex=(am1*deltax1+am2*deltax2)/(am1+am2)
-      displacey=(am1*deltay1+am2*deltay2)/(am1+am2)
-      displacez=(am1*deltaz1+am2*deltaz2)/(am1+am2)
 
       if(myrank.eq.0) then
          write(69,'(a,3g13.6)')'center of mass position:',xcm,ycm,zcm
          write(69,'(a,3g13.6)')'center of mass velocity:',vxcm,vycm,vzcm
          write(69,*)'n.b.:subtracting off these center of mass values!'
-         write(69,*) 'Shifting origin by displace{x,y,z}=',
-     $        displacex,displacey,displacez
       endif
 
       do i=1,n1
-         x(i)=x(i)+(deltax1-xcm-displacex)
-         y(i)=y(i)+(deltay1-ycm-displacey)
-         z(i)=z(i)+(deltaz1-zcm-displacez)
+         x(i)=x(i)+(deltax1-xcm)
+         y(i)=y(i)+(deltay1-ycm)
+         z(i)=z(i)+(deltaz1-zcm)
          vx(i)=vx(i)+deltavx1-vxcm
          vy(i)=vy(i)+deltavy1-vycm
          vz(i)=vz(i)+deltavz1-vzcm
       enddo
       do i=n1+1,n1+n2
-         x(i)=x(i)+(deltax2-xcm-displacex)
-         y(i)=y(i)+(deltay2-ycm-displacey)
-         z(i)=z(i)+(deltaz2-zcm-displacez)
+         x(i)=x(i)+(deltax2-xcm)
+         y(i)=y(i)+(deltay2-ycm)
+         z(i)=z(i)+(deltaz2-zcm)
          vx(i)=vx(i)+deltavx2-vxcm
          vy(i)=vy(i)+deltavy2-vycm
          vz(i)=vz(i)+deltavz2-vzcm
       enddo
       do i=n1+n2+1,ntot
-         x(i)=x(i)+(deltax3-xcm-displacex)
-         y(i)=y(i)+(deltay3-ycm-displacey)
-         z(i)=z(i)+(deltaz3-zcm-displacez)
+         x(i)=x(i)+(deltax3-xcm)
+         y(i)=y(i)+(deltay3-ycm)
+         z(i)=z(i)+(deltaz3-zcm)
          vx(i)=vx(i)+deltavx3-vxcm
          vy(i)=vy(i)+deltavy3-vycm
          vz(i)=vz(i)+deltavz3-vzcm
