@@ -98,7 +98,12 @@ c     segregation can operate there, and equal masses remove it at the source.
 c     (A is only the true entropy for an ideal monatomic gas of fixed composition,
 c     so this is a proxy; it is used because it locates the observed mixing
 c     boundary well, not because it is thermodynamically exact.)
+c     The search skips the inner 10% of the star, where A can dip without marking
+c     a mixing boundary (in a giant's dense core, for example).  It is used only
+c     when twozone=1 in sph.input, and rtwozone>0 replaces it with a transition
+c     radius given directly.
       itrans=0
+      if(twozone.ne.1 .or. rtwozone.gt.0.d0) goto 77
       do jj=3,numlines
          if(rarray(jj).gt.redge) goto 77
          if(pres(jj)/rhoarray(jj)**(5.d0/3.d0) .lt.
@@ -109,7 +114,9 @@ c     boundary well, not because it is thermodynamically exact.)
          endif
       enddo
  77   continue
-      if(itrans.gt.0) then
+      if(twozone.eq.1 .and. rtwozone.gt.0.d0) then
+         rtrans=rtwozone
+      else if(itrans.gt.0) then
          rtrans=0.9d0*rarray(itrans)
       else
          rtrans=2.d0*redge
@@ -120,7 +127,13 @@ c     inner branch's value at r_trans as its normalisation.  With w ~ rho outsid
 c     the particle mass am = rho/n is then exactly constant there.
       wtrans=(rhotrans/rhomax)**equalmass
       if(myrank.eq.0) then
-         if(itrans.gt.0) then
+         if(twozone.ne.1) then
+            write(69,*)'two-zone: off (twozone=0); no outer zone'
+            if(rtwozone.gt.0.d0) write(69,*)
+     $           'two-zone: rtwozone is ignored without twozone=1'
+         else if(rtwozone.gt.0.d0) then
+            write(69,*)'two-zone: transition set by rtwozone=',rtwozone
+         else if(itrans.gt.0) then
             write(69,*)'two-zone: A=P/rho^(5/3) first decreases at r=',
      $           rarray(itrans)
          else
