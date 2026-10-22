@@ -619,11 +619,35 @@ namespace SPHgrav
 
     assert(nibeg >= 0);
 
+    // The kernel works in single precision, so positions are sent relative
+    // to a reference point, with the subtraction done in double.  Otherwise
+    // gas far from the origin, as for a star near a supermassive black hole,
+    // loses its close separations to rounding.  The reference is the gas
+    // centroid weighted by 1/h**2 (h2 > 0 marks gas), which minimizes the sum
+    // of (|x-ref|/h)**2: it sits on a dense core, and midway between two
+    // identical stars.  Only separations enter the forces and potential.
+    double wsum = 0.0, xref = 0.0, yref = 0.0, zref = 0.0;
+    for (int i = 0; i < nj; i++)
+      if (h2[i] > 0.0)
+      {
+        const double w = 1.0/h2[i];
+        wsum += w;
+        xref += w*px[i];
+        yref += w*py[i];
+        zref += w*pz[i];
+      }
+    if (wsum > 0.0)
+    {
+      xref /= wsum;
+      yref /= wsum;
+      zref /= wsum;
+    }
+
     for (int i = 0; i < nj; i++)
     {
       assert(h2  [i] != 0.0);
       assert(mass[i] >  0.0);
-      grav.ptcl[i] = devParticle(fcuVec3(px[i], py[i], pz[i]), mass[i], 
+      grav.ptcl[i] = devParticle(fcuVec3(px[i] - xref, py[i] - yref, pz[i] - zref), mass[i],
           std::sqrt(h2[i] > 0.0 ? h2[i] : -h2[i]),
           h2[i] > 0.0 ? 1.0 : 0.0);
     }

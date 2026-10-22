@@ -114,6 +114,14 @@ way.  That is why the two are indistinguishable on a small model and diverge
 sharply on a large one.  Gravity is the part that grows fastest with the number
 of particles, and it is the only part the card touches.
 
+The card computes gravity in single precision.  Positions are sent to it
+relative to the gas centroid weighted by :math:`1/h^2`, with the subtraction
+done in double precision, so a star far from the origin, as near a
+supermassive black hole, keeps its close separations.  That point sits on a
+dense core, and midway between two identical stars.  Gas in two dense places
+far apart, such as two stars many thousands of smoothing lengths from each
+other, still loses precision on the card, and is better run with ``make cpu``.
+
 What was measured
 ~~~~~~~~~~~~~~~~~
 
