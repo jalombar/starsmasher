@@ -22,7 +22,8 @@ c     initialization of run (new or restart)
       real*8 tfcap,tfrestart
       integer ndtoutafter
       common/destroyedcom/tfcap,tfrestart,ndtoutafter
-      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
+     $     reentryfactor
       real*8 xcm,ycm,zcm,vxcm,vycm,vzcm,amtot
       real*8 erad,tjumpaheadold
       common/lostenergy/ erad
@@ -622,7 +623,8 @@ c      end
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,bbh_longitude
       real*8 rhocgs,mucgs
       common/ueqstuff/rhocgs,teq,mucgs
-      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
+     $     reentryfactor
       logical fileexists
       integer ierr
       namelist/input/ tf,dtout,n,nnopt,nav,navsw,nriemann,alpha,beta,ngr,hco,
@@ -645,6 +647,7 @@ c      end
      $     bbh_m1,bbh_m2,bbh_rp,bbh_semimajoraxis,bbh_vinf2,
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
      $     bbh_longitude,rp,rjump,rjumpfactor,rjumppercent,ndtoutafter,
+     $     reentryfactor,
      $     boxx,boxy,boxz
       
       character*9 slurm_gpu_count_str
@@ -742,6 +745,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       rjump=1d30 ! fixed separation of the two stars beyond which a bound, receding orbit is skipped ahead by jumpahead, which advances it analytically around the Kepler two-body solution.  The default never fires.  Set this or rjumpfactor, not both, to turn on automatic jumping
       rjumpfactor=0d0 ! the alternative to rjump: a value above 0 makes the jump separation rjumpfactor times the larger tidal radius R*(M_other/M)^(1/3) of the two bodies, where R encloses rjumppercent percent of a body's mass.  It is remeasured at every output, so a star puffed up by earlier passages must recede farther before it jumps.  The default never fires
       rjumppercent=95d0 ! the percentage of a body's mass enclosed by the radius R in the tidal radius that rjumpfactor multiplies.  Only used when rjumpfactor is set.  Must be above 0 and at most 100
+      reentryfactor=1d0 ! after a jump the star is put back on the infalling branch of its orbit at reentryfactor times the separation it jumped from.  1 is what the published runs did: the tides the star feels on re-entry are no stronger than when it jumped.  Must be above 0 and at most 1.  A jump whose re-entry separation would lie inside periastron stops the run
       startfile1='sph.start1u' ! first body of the encounter, in out*.sph format, usually the last snapshot of a relaxation
       startfile2='sph.start2u' ! second body, same format as startfile1.  If absent, a single point mass of mass mbh is used
       startfile3='sph.start3u' ! third body of a triple, same format as startfile1
@@ -766,6 +770,8 @@ c     set some default values, so that they don't necessarily have to be set in 
      $     stop 'init: set rjump or rjumpfactor in sph.input, not both'
       if(rjumppercent.le.0.d0 .or. rjumppercent.gt.100.d0)
      $     stop 'init: rjumppercent must be above 0 and at most 100'
+      if(reentryfactor.le.0.d0 .or. reentryfactor.gt.1.d0)
+     $     stop 'init: reentryfactor must be above 0 and at most 1'
 c     dynamic softening: the limits apply only with dynhco=2 and at least one
 c     of them set.  Otherwise dynhco=2 runs exactly as dynhco=1.
       hcolim=dynhco.eq.2 .and. (hcomin.gt.0.d0 .or. hcomax.gt.0.d0)
@@ -894,6 +900,9 @@ c      endif
       if(myrank.eq.0 .and. rjumpfactor.gt.0.d0) write(69,*)
      $     'rjump will be',rjumpfactor,'times the larger tidal radius',
      $     ' from the radius enclosing',rjumppercent,'% of the mass'
+      if(myrank.eq.0 .and. (autojump .or. abs(tjumpahead).lt.1.d30))
+     $     write(69,*)'a jump will put the star back at',reentryfactor,
+     $     'times the separation it jumped from'
       tfcap=1.d30
       tfrestart=1.d30
       if(tf.lt.0.d0 .or. autojump) then
@@ -965,7 +974,8 @@ c      if(myrank.eq.0) write(69,*)'n_lower,n_upper,n',n_lower,n_upper,n
       character*8 pctlabel
       logical autotf,autojump
       common/autotfblock/autotf,autojump
-      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
+     $     reentryfactor
 
       if(myrank.eq.0) then
          energyfilealreadyexists=.true.

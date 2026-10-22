@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **100** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **101** settings.
 
 
 .. _sph-input-time-and-output:
@@ -56,6 +56,10 @@ Time and output
      - ``0d0``
      - every run
      - the alternative to rjump: a value above 0 makes the jump separation rjumpfactor times the larger tidal radius R\*(M\_other/M)^(1/3) of the two bodies, where R encloses rjumppercent percent of a body's mass.  It is remeasured at every output, so a star puffed up by earlier passages must recede farther before it jumps.  The default never fires
+   * - ``reentryfactor``
+     - ``1d0``
+     - every run
+     - after a jump the star is put back on the infalling branch of its orbit at reentryfactor times the separation it jumped from.  1 is what the published runs did: the tides the star feels on re-entry are no stronger than when it jumped.  Must be above 0 and at most 1.  A jump whose re-entry separation would lie inside periastron stops the run
    * - ``tscanon``
      - ``0``
      - every run
