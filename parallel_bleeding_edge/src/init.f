@@ -783,6 +783,7 @@ c     stepper starts (the start-up force calculation needs all of them)
       actblk=.true.
       refblk=.false.
       blkdist=.false.
+      blkrestart=.false.
       close(12)
 
 c     periodic box: the nearest-image separations assume no gravity (which

@@ -52,6 +52,12 @@
          stop 'nblock=1 needs nrelax=0, ncooling=0, ndisplace=0'
       endif
 
+!     after a jump ahead (blkrestart), start again as after a restart
+      if(blkrestart) then
+         started=.false.
+         blkrestart=.false.
+      endif
+
       if(.not.started) then
          if(dtmaxblk.le.0.d0) dtmaxblk=dtout
          nticks=2_8**nbinmax
