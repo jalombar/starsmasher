@@ -214,8 +214,13 @@ fraction of the largest step ``dtmaxblk`` (``dtout`` when ``dtmaxblk`` is zero
 or less).  The smallest allowed step is ``dtmaxblk/2**nbinmax``.  Each particle
 is integrated with its own kick-drift-kick leapfrog.  Particles that are not
 active in a substep are drifted to the current time, and their smoothing
-lengths and densities are predicted rather than solved.  Two safeguards keep
-neighbours consistent:
+lengths and densities are predicted rather than solved.  For the force
+calculation their positions also include the half acceleration term, so that
+they sit on the parabola of their step rather than its chord.  Without it, a
+star falling in a strong external field (a black hole's) sees its inactive
+particles lag behind by up to a dt**2/8, and momentum and energy drift at a rate
+the timestep limits do not control.  Two safeguards keep neighbours
+consistent:
 
 * ``nblimit`` (default 2) keeps every particle's step within a factor
   ``2**nblimit`` of its neighbours' steps, and a particle whose neighbour

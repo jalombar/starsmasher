@@ -32,6 +32,7 @@
       save kbin,tstart,slen,tick,nticks,vhx,vhy,vhz,uh,t0b,dtick,started
       data started/.false./
       real*8 axs(nmax),ays(nmax),azs(nmax),uds(nmax)
+      real*8 dxp(nmax),dyp(nmax),dzp(nmax),pfac
       integer knew(nmax)
       logical active(nmax)
       integer i,j,in,k,knat,kmx,ierr,nact,nwake,nalist
@@ -175,6 +176,28 @@
          uds(i)=udot(i)
       enddo
 
+!     positions predicted to time t for the force evaluation.  The drift above
+!     moves each particle along the chord of its step at the half-step velocity,
+!     which is exact at the ends of the step but lags the parabola it follows by
+!     a(t-ts)(te-t)/2 in between.  In a strong external field (a star falling
+!     towards a black hole) every particle has nearly the same acceleration, so
+!     an active particle sees its inactive neighbours displaced backwards along
+!     it, by up to a*dt**2/8.  The pair forces then no longer cancel over a
+!     step, momentum is not conserved and the orbit gains energy, at a rate
+!     set by the field rather than by the timestep limits.  Add the lag for the
+!     force evaluation only and remove it afterwards, so the leapfrog itself is
+!     unchanged.  It is zero for active particles, whose steps end now.
+      do i=1,ntot
+         span=slen(i)
+         pfac=0.5d0*dble(tick-tstart(i))*dble(tick-tstart(i)-span)*dtick**2
+         dxp(i)=pfac*vxdot(i)
+         dyp(i)=pfac*vydot(i)
+         dzp(i)=pfac*vzdot(i)
+         x(i)=x(i)+dxp(i)
+         y(i)=y(i)+dyp(i)
+         z(i)=z(i)+dzp(i)
+      enddo
+
       do i=1,ntot
          actblk(i)=active(i)
       enddo
@@ -243,6 +266,13 @@
          if(ngr.ne.0) call gravforce
          call uvdots
       endif
+
+!     back to the chord positions that the leapfrog carries
+      do i=1,ntot
+         x(i)=x(i)-dxp(i)
+         y(i)=y(i)-dyp(i)
+         z(i)=z(i)-dzp(i)
+      enddo
 
 !     inactive particles keep the accelerations of the start of their step,
 !     and active ones get the closing half-kick with the new accelerations
