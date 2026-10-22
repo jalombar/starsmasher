@@ -11,8 +11,8 @@ HEADER = np.dtype([
     ("nit", "<i4"), ("t", "<f8"), ("nav", "<i4"), ("alpha", "<f8"),
     ("beta", "<f8"), ("tjumpahead", "<f8"), ("ngr", "<i4"), ("nrelax", "<i4"),
     ("trelax", "<f8"), ("dt", "<f8"), ("omega2", "<f8"), ("ncooling", "<i4"),
-    ("erad", "<f8"), ("ndisplace", "<i4"), ("displacex", "<f8"),
-    ("displacey", "<f8"), ("displacez", "<f8"),
+    ("erad", "<f8"), ("lastnumstars", "<i4"), ("epoteat", "<f8"),
+    ("ekineat", "<f8"), ("einteat", "<f8"),
 ])
 PART = np.dtype([
     ("x", "<f8"), ("y", "<f8"), ("z", "<f8"), ("am", "<f8"), ("hp", "<f8"),

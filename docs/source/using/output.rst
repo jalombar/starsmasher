@@ -23,14 +23,16 @@ Every run writes these:
    starts, the code continues from it rather than beginning afresh.
 
 A run with a negative ``tf`` or with automatic jumping on writes one more, and a run
-that jumps ahead on its orbit writes two others:
+that jumps ahead on its orbit writes two others.  The first two are numbered
+like ``energy*.sph`` and ``log*.sph``, so a restart starts new ones and keeps
+the old:
 
-``ecc.sph``
+``ecc*.sph``
    One row per output, tracking the two most massive components of the system:
    their masses and positions, their separation, the mass that has left them,
    and the semimajor axis and eccentricity of the orbit between them.
 
-``jumpahead.sph``
+``jumpahead*.sph``
    The same columns as ``energy*.sph``, three lines per orbital jump, from
    either side of it.
 
@@ -319,11 +321,11 @@ wrong.
 Written when ``tf`` is negative
 -------------------------------
 
-``ecc.sph``
-~~~~~~~~~~~
+``ecc*.sph``
+~~~~~~~~~~~~
 
 A negative ``tf`` lets the code revise its own stopping time, and to do that it
-analyses the system at every output.  ``ecc.sph`` is the record of that
+analyses the system at every output.  ``ecc*.sph`` is the record of that
 analysis: plain text, one row per output, twenty-six columns.  A run with
 automatic jumping on writes it too.
 
@@ -379,8 +381,8 @@ membership stops changing.  Columns 13 and 14 are what tell you whether an
 encounter has left a bound remnant, and are what you watch when deciding
 whether to :doc:`jump ahead <jumping_ahead>`.
 
-``jumpahead.sph``
-~~~~~~~~~~~~~~~~~
+``jumpahead*.sph``
+~~~~~~~~~~~~~~~~~~
 
 Written only when a jump can happen, and appended to at each one.  The columns
 are exactly those of ``energy*.sph``, and the lines come in groups of three:
@@ -393,16 +395,15 @@ Comparing the first two lines isolates what the Kepler solve did; comparing the
 second and third isolates what the mass removal did.  Nothing else writes to
 this file, so it is three lines per jump and nothing else.
 
-Unlike ``log*.sph`` and ``energy*.sph`` it is not numbered per stage, and it is
-truncated rather than appended to when a run starts.  Since arming a jump
-normally means restarting, copy it somewhere safe before the next restart if
-you want to keep a record across several passages.
+Like ``ecc*.sph``, it carries the number of the ``energy*.sph`` and
+``log*.sph`` written alongside it, so each restart starts a new one and the
+record of earlier passages is kept.
 
 .. note::
 
-   Fortran buffers this file, so a run in progress may show an ``ecc.sph`` that
+   Fortran buffers this file, so a run in progress may show an ``ecc*.sph`` that
    is empty or many rows behind, and a run that was killed rather than allowed
-   to finish may leave it empty altogether.  ``jumpahead.sph`` below behaves the
+   to finish may leave it empty altogether.  ``jumpahead*.sph`` below behaves the
    same way.  Read the ``out*.sph`` snapshots instead if you need the current
    state of a live run.
 

@@ -201,7 +201,7 @@ def parse(path):
 
     hi = next(i for i, l in enumerate(lines)
               if re.match(r"\s+open\(12,file='sph\.input'", l))
-    lo = next(i for i in range(hi, 0, -1) if 'displacex=0d0' in lines[i])
+    lo = next(i for i in range(hi, 0, -1) if 'integer slurm_gpu_count' in lines[i])
 
     defaults = {}
     for l in lines[lo:hi]:

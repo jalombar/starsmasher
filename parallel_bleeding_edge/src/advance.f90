@@ -42,10 +42,6 @@
 !         amnotte=mass not in thermal equilibrium
       real*8 uorig,ttherm,erad,amnotte
       common/lostenergy/ erad
-      real*8 displacexdot, displaceydot,displacezdot,amdisplace
-      real*8 displacex, displacey,displacez
-      integer ndisplace
-      common/displace/displacex,displacey,displacez,ndisplace
 
       ! coming into this routine, positions, udot, and accelerations are a half-timestep
       ! behind the specific internal energies u and the velocities
@@ -112,43 +108,10 @@
          endif
       endif
 
-      displacexdot=0d0
-      displaceydot=0d0
-      displacezdot=0d0
-
-      if(ndisplace.ne.0) then
-         ! Let's figure out how much the center of mass of the stars (but not the black
-         ! hole!) will shift in this timestep
-
-         amdisplace=0d0
-         do i=1,n-1 ! ends at n-1 because don't want to consider the black hole
-            displacexdot=displacexdot+am(i)*vx(i)
-            displaceydot=displaceydot+am(i)*vy(i)
-            displacezdot=displacezdot+am(i)*vz(i)
-            amdisplace=amdisplace+am(i)
-         enddo
-
-         if(u(n).ne.0) then
-            write(69,*) 'Was assuming last particle was a black hole.'
-            write(69,*) 'If that is not the case, then adjust src code.'
-            stop
-         endif
-
-         displacexdot=displacexdot/amdisplace
-         displaceydot=displaceydot/amdisplace
-         displacezdot=displacezdot/amdisplace
-         displacex=displacex+displacexdot*dt
-         displacey=displacey+displaceydot*dt
-         displacez=displacez+displacezdot*dt
-
-         if(myrank.eq.0) write(69,'(4g17.9)')'displace{x,y,z}=',displacex,displacey,displacez
-
-      endif
-
       do i=1,n
-         x(i)=x(i)+dt*(vx(i)-displacexdot)    ! update x to half-timestep
-         y(i)=y(i)+dt*(vy(i)-displaceydot)    ! update y to half-timestep
-         z(i)=z(i)+dt*(vz(i)-displacezdot)    ! update z to half-timestep
+         x(i)=x(i)+dt*vx(i)    ! update x to half-timestep
+         y(i)=y(i)+dt*vy(i)    ! update y to half-timestep
+         z(i)=z(i)+dt*vz(i)    ! update z to half-timestep
          vxo(i)=vx(i)           ! store old value of vx
          vyo(i)=vy(i)           ! store old value of vy
          vzo(i)=vz(i)           ! store old value of vz

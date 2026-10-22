@@ -48,9 +48,6 @@
       common/gravworkers/comm_worker
       real*8 eccx, eccy, eccz
       integer bhcomp
-      real*8 displacex, displacey,displacez
-      integer ndisplace
-      common/displace/displacex,displacey,displacez,ndisplace
       real*8 ebind1,ebind2
       integer nreassigned
       logical keepit
@@ -517,48 +514,22 @@ c     minus sign.
       do i=1,n
          if(icomp(i).eq.1) then
             amass1=amass1+1
-            if(ndisplace.eq.0) then
-               x(i)=x(i)+dxnew1-x1+xcm
-               y(i)=y(i)+dynew1-y1+ycm
-               z(i)=z(i)+dznew1-z1+zcm
-            else
-c     The idea here is that if ndisplace=1 then the point particle should
-c     be displaced in such a way that the SPH particles remain near the origin.
-               x(i)=x(i)+dxnew1-x1 - (dxnew2-x2)
-               y(i)=y(i)+dynew1-y1 - (dynew2-y2)
-               z(i)=z(i)+dznew1-z1 - (dznew2-z2)
-            endif
+            x(i)=x(i)+dxnew1-x1+xcm
+            y(i)=y(i)+dynew1-y1+ycm
+            z(i)=z(i)+dznew1-z1+zcm
             vx(i)=vx(i)+dvxnew1-vx1+vxcm
             vy(i)=vy(i)+dvynew1-vy1+vycm
             vz(i)=vz(i)+dvznew1-vz1+vzcm
          elseif(icomp(i).eq.2) then
             amass2=amass2+1
-            if(ndisplace.eq.0) then
-c     The idea here is that if ndisplace=1 then the SPH particles should just
-c     have their coordinates stay near zero.
-               x(i)=x(i)+dxnew2-x2+xcm
-               y(i)=y(i)+dynew2-y2+ycm
-               z(i)=z(i)+dznew2-z2+zcm
-            endif
+            x(i)=x(i)+dxnew2-x2+xcm
+            y(i)=y(i)+dynew2-y2+ycm
+            z(i)=z(i)+dznew2-z2+zcm
             vx(i)=vx(i)+dvxnew2-vx2+vxcm
             vy(i)=vy(i)+dvynew2-vy2+vycm
             vz(i)=vz(i)+dvznew2-vz2+vzcm
          endif
       enddo
-      if(ndisplace.ne.0) then
-c     The idea is that displace{x,y,z} are the components of the displacement vector that
-c     keep track of how far particles had been displaced:
-c     (x-coordinate if ndisplace had been zero) = (x-coordinate in code if ndisplace is 1) + displacex
-c     (y-coordinate if ndisplace had been zero) = (y-coordinate in code if ndisplace is 1) + displacey
-c     (z-coordinate if ndisplace had been zero) = (z-coordinate in code if ndisplace is 1) + displacez
-c     If ndisplace had been zero, the icomp(2) particles would have been shifted by 
-c     (dxnew2-x2+xcm, dynew2-y2+ycm, dznew2-z2+zcm),
-c     but since they have not been shifted at all when ndisplace=0, we should record the change that otherwise
-c     would have happened:
-         displacex=displacex+dxnew2-x2+xcm
-         displacey=displacey+dynew2-y2+ycm
-         displacez=displacez+dznew2-z2+zcm
-      endif
 
 
       if(myrank.eq.0)write(69,*)

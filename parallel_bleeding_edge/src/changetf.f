@@ -65,8 +65,9 @@ c      character*1 stara,starb,starc
       character*9 starname(3)
       save starname
       integer numstars,lastnumstars
-      data lastnumstars /2/
-      save lastnumstars
+c     set in init (2, or from the restart file, 0 there meaning unknown) and
+c     written to every dump, so that a restart knows whether stars have merged
+      common /starcount/ lastnumstars
       real*8 lastamb,lastamg,lastamr
       save lastamb,lastamg,lastamr
       data lastamb,lastamg,lastamr/0.d0,0.d0,0.d0/
@@ -698,6 +699,8 @@ c               endif
       endif         
 
       timelast=t
+c     restart from a file that did not record the count: take this one
+      if(lastnumstars.le.0) lastnumstars=numstars
       if(numstars.ne.lastnumstars) then
          if(myrank.eq.0)write(69,*)lastnumstars-numstars+1,'stars have merged'
          if(t.gt.DTOUT .and. tjumpahead.ge.0.d0) then
@@ -1522,7 +1525,7 @@ c     star and a black hole that is the star's, and it grows as the star puffs u
 c     The columns after mejecta are only ones changetf has already worked
 c     out: velocities, the rjumppercent radii and tidal radius behind rjump (0
 c     when rjump is fixed), rjump itself, and the period of a bound pair (0 otherwise).
-      write(23,'(33g14.6)') t,amb,amg,
+      if(myrank.eq.0) write(23,'(33g14.6)') t,amb,amg,
      $     xb,yb,zb,xg,yg,zg,
      $     dbg,am4/amtot,am4,
      $     abg,eccbg,mejecta,
