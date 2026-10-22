@@ -247,6 +247,11 @@ Block timesteps need a dynamical run (``nrelax=0``) with ``nintvar=2``,
 stops with a message otherwise.  They have been tested with the CPU gravity
 build only.
 
+Block timesteps work with automatic jumps ahead (``rjump`` or
+``rjumpfactor``).  A jump waits for the next full synchronization, when every
+particle is at the same time, and the block stepper then starts afresh from
+the state the jump leaves, as it does on a restart.
+
 In a star and black hole encounter, block timesteps should use a few times less CPU
 time than shared steps.  They may need ``cn5`` and ``cn6`` tightened together
 (say, ``cn5=cn6=0.0025`` rather than ``0.01``) to conserve energy as well as the

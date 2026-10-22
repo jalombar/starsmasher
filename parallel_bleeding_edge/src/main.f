@@ -90,7 +90,10 @@ c            beta=2.d0
 
          if(reat.ge.0.d0) call eatem
 
-         if(t.gt.abs(tjumpahead)) then
+c     With block steps, jump only at a full synchronization, when every
+c     particle's position, velocity and u are at the same time (out*.sph dumps,
+c     where changetf decides on a jump, are written only then too).
+         if(t.gt.abs(tjumpahead) .and. (nblock.ne.1 .or. blksync)) then
 c     A negative tjumpahead means the user set the jump time deliberately, so
 c     honour it whatever tf is doing.  A positive one can only have come from
 c     changetf deciding a jump was worth scheduling, and that is a decision

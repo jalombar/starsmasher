@@ -58,6 +58,19 @@
 c     Initializing bhcomp
       bhcomp = -1
 
+c     With block steps, rho_and_h, uvdots and gravforce work only on the
+c     particles flagged by the last substep (actblk, refblk) and through that
+c     substep's per-rank work lists (blkdist).  The jump needs every particle,
+c     as at the block stepper's start-up, and the lists would not survive the
+c     particles being thrown away and renumbered anyway.
+      if(nblock.eq.1) then
+         do i=1,nmax
+            actblk(i)=.true.
+            refblk(i)=.false.
+         enddo
+         blkdist=.false.
+      endif
+
       do i=1,n
          vx(i)=vx(i)-0.5d0*dt*vxdot(i)
          vy(i)=vy(i)-0.5d0*dt*vydot(i)
@@ -706,6 +719,10 @@ c     make file m1m2rp.sph with masses and radius
 
       call lfstart
       t=t+0.5d0*dt
+c     The block stepper's per-particle bins, step starts and half-step
+c     velocities belong to the particles as they were before the jump.  Have it
+c     start again from the shared-step state that lfstart has just set up.
+      if(nblock.eq.1) blkrestart=.true.
 
       return
       end

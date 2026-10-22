@@ -36,8 +36,11 @@
       common/blockdt/dtpart,actblk,refblk
 !     nblock=1: true after a substep that ends at a full synchronization,
 !     when every particle is in step (checkpt writes only then)
-      logical blksync
-      common/blocksync/blksync
+!     blkrestart: set by jumpahead, which moves and renumbers the particles,
+!     so that the block stepper starts afresh from the state jumpahead leaves,
+!     as it does when a run is restarted from a dump
+      logical blksync,blkrestart
+      common/blocksync/blksync,blkrestart
 !     nblock=1: this substep's active and refreshed particles (wall, the same
 !     on every rank) dealt out round-robin, wmine being this rank's share.
 !     blkdist is true while block steps use these lists instead of each
