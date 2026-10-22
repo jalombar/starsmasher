@@ -23,6 +23,11 @@
       integer nblock,nbinmax,nblockfull,nblimit
       real*8 dtmaxblk,dtforce
       common/blockpars/dtmaxblk,dtforce,nblock,nbinmax,nblockfull,nblimit
+!     twozone=1: equal-mass particles in the outer zone (initialize_parent.f),
+!     beyond rtwozone if it is positive
+      integer twozone
+      real*8 rtwozone
+      common/twozonecom/rtwozone,twozone
 !     nstartramp=1: ramp up the shared timestep at the start (see tstep.f)
       integer nstartramp
       common/startramp/nstartramp

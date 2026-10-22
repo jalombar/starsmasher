@@ -160,9 +160,15 @@ which file actually mentions each variable.
    * - ``profilefile``
      - ``'eg.last1.muse_s2mm'``
      - stellar-evolution profile that erg builds its star from
+   * - ``rtwozone``
+     - ``0d0``
+     - twozone=1 only: >0 places the transition at this radius instead of finding it from A.  <=0: 90% of the first radius beyond 10% of the star's where A=P/rho^(5/3) decreases outward
    * - ``stellarevolutioncodetype``
      - ``1``
      - which code wrote profilefile, since the column layouts differ
+   * - ``twozone``
+     - ``0``
+     - 1: when building a star from a profile, give equal masses to particles beyond 90% of the radius where A=P/rho^(5/3) first decreases outward (two-zone scheme).  0: n ~ rho\*\*equalmass throughout
 
 ``hbs``, a binary encountering a single star
 --------------------------------------------

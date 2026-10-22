@@ -637,7 +637,7 @@ c      end
      $     nintvar,tswitchtou,ngravprocs,qthreads,gflag,mbh,runit,munit,
      $     dynhco,hcomin,hcomax,hcopnorm,
      $     nblock,nbinmax,dtmaxblk,dtforce,nblockfull,nblimit,
-     $     nstartramp,
+     $     nstartramp,twozone,rtwozone,
      $     gravconst,
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
@@ -700,6 +700,8 @@ c     set some default values, so that they don't necessarily have to be set in 
       dtmaxblk=-1d0            ! nblock=1: largest step (<=0: use dtout)
       nblimit=2                ! nblock=1: a step may be at most 2**nblimit times a neighbour's
       nblockfull=0             ! nblock=1 testing: 1 recomputes h and hydro for all particles every substep
+      twozone=0                ! 1: when building a star from a profile, give equal masses to particles beyond 90% of the radius where A=P/rho^(5/3) first decreases outward (two-zone scheme).  0: n ~ rho**equalmass throughout
+      rtwozone=0d0             ! twozone=1 only: >0 places the transition at this radius instead of finding it from A.  <=0: 90% of the first radius beyond 10% of the star's where A=P/rho^(5/3) decreases outward
       dtforce=-1d0             ! testing only: >0 forces the shared timestep to this value
       nstartramp=-1            ! 1: a new run from t=0 takes a first step 1/64 of what the timestep limits give, then at most doubles each step (for initial discontinuities).  0: off.  <0: on only for a new shock-tube run (iname='pbx', nrelax=0)
       hfloor=0d0               ! hp(i) = hptilde(i) + hfloor, where hp(i)=smoothing length and hptilde(i) is used in eq.(A1) of GLPZ 2010.  With dynhco=3 instead the smooth floor hp(i)=(hptilde(i)^p+hfloor^p)^(1/p), p=hcopnorm

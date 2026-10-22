@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **98** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **100** settings.
 
 
 .. _sph-input-time-and-output:
@@ -579,6 +579,14 @@ Other settings
      - ``-1.d0``
      - every run
      - nintvar=12 or 32: time to hand over to u.  <0 means use treloff.
+   * - ``twozone``
+     - ``0``
+     - ``erg``
+     - 1: when building a star from a profile, give equal masses to particles beyond 90% of the radius where A=P/rho^(5/3) first decreases outward (two-zone scheme).  0: n ~ rho\*\*equalmass throughout
+   * - ``rtwozone``
+     - ``0d0``
+     - ``erg``
+     - twozone=1 only: >0 places the transition at this radius instead of finding it from A.  <=0: 90% of the first radius beyond 10% of the star's where A=P/rho^(5/3) decreases outward
    * - ``rjumppercent``
      - ``95d0``
      - every run
