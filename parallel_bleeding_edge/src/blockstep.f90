@@ -289,8 +289,12 @@
          endif
       enddo
 
-!     energies need every particle's potential: only at full synchronization
-      blksync=(mod(tick,nticks).eq.0)
+!     energies need every particle's potential: only at full synchronization,
+!     when every particle's step ends at this tick.  That is every time the
+!     longest step in use ends, not only at the end of each dtmaxblk (blkfull),
+!     so energy*.sph gets a row as often as the particles allow.
+      blksync=all(active(1:ntot))
+      blkfull=(mod(tick,nticks).eq.0)
       if(blksync) call enout(.true.)
       call tstep
       call assign_bins(active,kbin,knew,tick,nticks)

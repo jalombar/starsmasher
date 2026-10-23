@@ -8,8 +8,9 @@ Every run writes these:
    first place to look for clues when something goes wrong.
 
 ``energy*.sph``
-   Energies and related quantities, one row per output, with the time in the
-   first column.
+   Energies and related quantities, one row per output (with block timesteps,
+   one per full synchronization, which is usually many per output), with the
+   time in the first column.
 
 ``out*.sph``
    The run settings and the full particle state, written every ``dtout``.
@@ -180,7 +181,15 @@ this is the file that says what the code thought it was doing at the time.
 ``energy*.sph``
 ~~~~~~~~~~~~~~~
 
-One row per output, written by ``enout`` in ``output.f``.  The first seven
+One row per output, written by ``enout`` in ``output.f``.  With block timesteps
+(``nblock=1``) a row is written at every full synchronization instead, every
+moment at which all the particles' steps end together.  That is whenever the
+longest step any particle is taking ends, so the rows come as often as the
+particles allow: in a partial disruption of a red giant, with ``dtout=10``,
+every 0.08 to 0.6 time units, rather than every 10.  The spacing changes as the
+longest step does, so the rows are not evenly spaced in time.  The summary in
+``log*.sph``, the ``dts=`` lines and ``restartrad.sph`` still come only at the
+end of each ``dtmaxblk``.  The first seven
 columns are always present:
 
 .. list-table::

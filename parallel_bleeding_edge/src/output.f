@@ -22,7 +22,7 @@ c     where the state is exactly what an out*.sph dump holds.
 
 c      if (mod(nit,nitch).eq.0 .or. t.ge.32661.425d0) then
       if(nblock.eq.1) then
-         writeit=blksync .and. nit-nitlast.ge.nitch
+         writeit=blkfull .and. nit-nitlast.ge.nitch
       else
          writeit=mod(nit,nitch).eq.0
       endif
@@ -147,7 +147,9 @@ c     (if dtout<0, interpret as a number of iterations)
      $     ymax,zmax,xmin,ymin,zmin,pressi
       integer ihpmin,ihpmax,iumin,iumax,irhomin,irhomax,
      $     ipmin,ipmax
-      logical printingenergytofile
+      logical printingenergytofile,logit,firstenout
+      save firstenout
+      data firstenout/.true./
       real*8 etotlast
       common/energyblock/ etotlast,etot
       real*8, save :: einit = +128.0;
@@ -230,13 +232,21 @@ c     ajy=ajy/amtot
 c     ajz=ajz/amtot
          ajtot=sqrt(ajx**2+ajy**2+ajz**2)
 !         if(mod(nit,nitpot).eq.0)then
+c     With block steps enout writes an energy*.sph row at every full
+c     synchronization, which can be many per dtmaxblk.  The summary in the
+c     log stays at one per dtmaxblk, plus the first call, at the start.
+         logit=nblock.ne.1 .or. blkfull .or. .not.printingenergytofile
+     $        .or. firstenout
+         firstenout=.false.
+         if(logit) then
             write (69,90) nit,t,
      $           xmin,xmax,ymin,ymax,zmin,zmax
 !         else
 !            write (69,91) nit,t,
 !     $           xmin,xmax,ymin,ymax,zmin,zmax
 !         endif
-         write(6,*)'end it.',nit,'t=',t
+            write(6,*)'end it.',nit,'t=',t
+         endif
  90      format(/,
      $        ' output: end of iteration ',i8,'       time=',f12.5,/,
      $        '   system box= ',g10.3,'< x <',g10.3,/,
@@ -252,7 +262,7 @@ c     ajz=ajz/amtot
          if(ngr.ne.0)then
 c     do loop to get total gravitational potential energy:
             do i=1,ntot
-               if(hp(i).le.0.d0 .or. u(i).eq.0.d0) then
+               if(logit .and. (hp(i).le.0.d0 .or. u(i).eq.0.d0)) then
                   write(69,'(a,i6,3g17.9)')
      $                 'position of point mass',i,x(i),y(i),z(i)
                endif
@@ -426,7 +436,7 @@ c     so updating the entropy calculation is a low priority.
          etot=epot+ekin+eint
          
 !         if(mod(nit,nitpot).eq.0)then
-            write (69,904) epot,ekin,eint,etot,stot,vcm,ajtot
+            if(logit) write (69,904) epot,ekin,eint,etot,stot,vcm,ajtot
  904        format('   energies: W=',g10.3,' T=',f10.4,' U=',f10.4,/,
      $           '     Etot=',f10.4,' Stot=',g10.3,' vcm=',g10.3,
      $           ' Jtot=',g10.3)
@@ -439,8 +449,8 @@ c     so updating the entropy calculation is a low priority.
 
          nneavr=nneavr/n
          nnesig=sqrt(nnesig/n-nneavr**2)
-         write (69,92) nneavr,nnesig,nnemin(1),nnemax(1),nnemin(2),
-     $        nnemax(2)
+         if(logit) write (69,92) nneavr,nnesig,nnemin(1),nnemax(1),
+     $        nnemin(2),nnemax(2)
  92      format('   neighbors: avr=',f4.0,' sig=',f4.0,'  min=',i4,
      $        ' max=',i5,i6,i6)
          
@@ -462,18 +472,19 @@ c     so updating the entropy calculation is a low priority.
          ipmin=nint(pmin(2))
          ipmax=nint(pmax(2))
          
-         write(69,906) rhomin(1),x(irhomin),y(irhomin),z(irhomin),irhomin,
+         if(logit) write(69,906) rhomin(1),x(irhomin),y(irhomin),
+     $        z(irhomin),irhomin,
      $        rhomax(1),x(irhomax),y(irhomax),z(irhomax),irhomax,
      $        pmin(1),x(ipmin),y(ipmin),z(ipmin),ipmin,
      $        pmax(1),x(ipmax),y(ipmax),z(ipmax),ipmax
          
 
-         if(nintvar.eq.1)then
+         if(logit .and. nintvar.eq.1)then
             write(69,908) umin(1),x(iumin),y(iumin),z(iumin),iumin,
      $           umax(1),x(iumax),y(iumax),z(iumax),iumax,
      $           hpmin(1),x(ihpmin),y(ihpmin),z(ihpmin),ihpmin,
      $           hpmax(1),x(ihpmax),y(ihpmax),z(ihpmax),ihpmax !,
-         else
+         else if(logit) then
             write(69,909) umin(1),x(iumin),y(iumin),z(iumin),iumin,
      $           umax(1),x(iumax),y(iumax),z(iumax),iumax,
      $           hpmin(1),x(ihpmin),y(ihpmin),z(ihpmin),ihpmin,
