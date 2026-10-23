@@ -133,6 +133,39 @@ def t_cpu_gpu(ctx):
         close(res['cpu'][i], res['gpu'][i], 1e-6, '%s, cpu vs gpu' % name)
     return 'cpu and gpu agree on W, U and Etot to 1e-6'
 
+def t_block_cpu_gpu(ctx):
+    """With block timesteps the CPU and GPU builds must agree.
+
+    An unrelaxed polytrope run dynamically puts its particles on several
+    timestep bins, so most substeps have only some particles active.  The GPU
+    build then computes gravity on the active particles only, and the CPU
+    build does the same with its own active-set sum.
+    """
+    if not ctx.cpu_exe:
+        raise Fail('no CPU build available (pass --with-cpu to build one)')
+    s = dict(POLY, nrelax=0, nblock=1, tf=1, dtout=0.5)
+    res = {}
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        d = ctx.dir('block_cpugpu_' + tag)
+        p, e = run(exe, d, np=ctx.np, **s)
+        log = os.path.join(d, 'log0.sph')
+        text = open(log).read() if os.path.exists(log) else ''
+        active = [float(x) for x in re.findall(r'mean active=\s*(\S+)', text)]
+        hist = re.findall(r'bin histogram \(bins 0\.\.finest\):([\d\s]+)', text)
+        if not active or not hist:
+            raise Fail('the %s run wrote no block sync lines\n' % tag + p.stdout[-800:])
+        ntot = sum(int(x) for x in hist[0].split())
+        if min(active) >= ntot:
+            raise Fail('every particle was active in every substep (%s build), so '
+                       'the active-particle gravity was never used' % tag)
+        res[tag] = energies(e), min(active) / ntot
+    rows, frac = res['gpu']
+    close(rows[-1][4], rows[0][4], 1e-3, 'total energy with block steps (gpu)')
+    for i, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
+        close(res['cpu'][0][-1][i], rows[-1][i], 1e-5, '%s at t=%g, cpu vs gpu' % (name, rows[-1][0]))
+    return ('t=%g: cpu and gpu agree on W, U and Etot to 1e-5 '
+            '(as few as %.0f%% of particles active per substep)' % (rows[-1][0], 100 * frac))
+
 def t_guard_ngravprocs(ctx):
     """Requesting more gravity processes than GPUs must be clamped, not fatal."""
     s = dict(POLY); s['ngravprocs'] = -8; s['tf'] = 2
@@ -344,6 +377,7 @@ TESTS = {
     'quiet':            t_quiet,
     'ranks':            t_ranks,
     'cpu_gpu':          t_cpu_gpu,
+    'block_cpu_gpu':    t_block_cpu_gpu,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

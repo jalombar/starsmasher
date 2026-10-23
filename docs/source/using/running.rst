@@ -248,6 +248,13 @@ and refreshed particles are dealt out evenly across MPI ranks, whatever their
 particle numbers, and the black hole to gas timestep check is shared the same
 way.
 
+Gravity is likewise computed on the active particles only, from all particles.
+The CPU build sums the active particles' forces directly until 90% of the
+particles are active, beyond which its symmetric loop over all pairs is
+cheaper.  The GPU builds (CUDA and Metal) compute each particle's force
+separately in either case, so they use the active particles whenever any
+particle is inactive.
+
 The black hole to gas timestep limits from ``cn5``, ``cn6`` and ``cn7`` are
 applied to both members of each pair.  Energies are written only when all
 particles are in step, every ``dtmaxblk``, and so is ``restartrad.sph``: at the
@@ -257,8 +264,8 @@ without block timesteps.
 
 Block timesteps need a dynamical run (``nrelax=0``) with ``nintvar=2``,
 ``ncooling=0``, ``nkernel=2`` and ``nselfgravity=1``, and the code
-stops with a message otherwise.  They have been tested with the CPU gravity
-build only.
+stops with a message otherwise.  They work with both the CPU and the GPU
+gravity builds.
 
 Block timesteps work with automatic jumps ahead (``rjump`` or
 ``rjumpfactor``).  A jump waits for the next full synchronization, when every

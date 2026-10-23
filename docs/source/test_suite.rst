@@ -26,6 +26,9 @@ something changed.  These tell you whether the answer is right.
      - The answer does not depend on how many MPI ranks are used.
    * - ``cpu_gpu``
      - The CPU and GPU builds agree.
+   * - ``block_cpu_gpu``
+     - With block timesteps, where gravity is computed on the active particles
+       only, the CPU and GPU builds agree.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.

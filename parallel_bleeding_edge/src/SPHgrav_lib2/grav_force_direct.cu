@@ -402,12 +402,16 @@ __global__ void dev_compute_forces(
     const int ni,
     const devParticle *ptcl_in,
     __gravout devForce    *force_out,
-    const int nkernel)
+    const int nkernel,
+    const int *ilist)
 {
   const int tid = threadIdx.x;
   const int idx = blockIdx.x * blockDim.x + tid;
 
-  const devParticle iptcl = ptcl_in[idx + nibeg];
+  // ilist (block timesteps): force_out[idx] is for particle ilist[idx]
+  // rather than for particle nibeg+idx
+  const devParticle iptcl = ilist == NULL ? ptcl_in[idx + nibeg]
+                                          : ptcl_in[ilist[idx < ni ? idx : 0]];
   devForce iforce(0.0f);
 
   __shared__ devParticle jpshared[NTHREAD];
@@ -506,6 +510,12 @@ struct SPHgrav_direct
 {
   cuVector<devParticle, PINNED> ptcl;
   cuVector<devForce,    PINNED> force;
+  cuVector<int,         PINNED> ilist;
+
+  // uselist: the last first_half computed forces only on the ni particles
+  // in ilist (0-based), and last_half zeroes the rest of nibeg..nibeg+nrange-1
+  bool uselist;
+  int nrange;
   
   cudaEvent_t start, stop;
 
@@ -572,6 +582,7 @@ struct SPHgrav_direct
 
     this->nibeg = nibeg;
     this->ni    = ni;
+    this->uselist = false;
     force.allocate(ni);
     ptcl.h2d();
 
@@ -585,12 +596,40 @@ struct SPHgrav_direct
     const int nj = ptcl.size;
     assert(nj % NTHREAD == 0);
 
-    dev_compute_forces<NTHREAD><<<grid, block>>>(nj, nibeg, ni, ptcl, force, nkernel);
+    dev_compute_forces<NTHREAD><<<grid, block>>>(nj, nibeg, ni, ptcl, force, nkernel, (const int*)NULL);
+  }
+
+  // forces on the ni particles listed (0-based) in ilist.host_pointer only
+  void first_half_list(const int nibeg, const int nrange, const int ni, const int nkernel)
+  {
+    cudaEventCreate( &start );
+    cudaEventCreate( &stop  );
+    cudaEventRecord( start, 0 );
+
+    this->nibeg   = nibeg;
+    this->nrange  = nrange;
+    this->ni      = ni;
+    this->uselist = true;
+    if (ni == 0) return;
+    force.allocate(ni);
+    ptcl.h2d();
+    ilist.h2d();
+
+    const int nthreads =        NTHREAD;
+    const int nblocks  = (ni-1)/NTHREAD + 1;
+
+    const dim3 block(nthreads, 1, 1);
+    const dim3 grid (nblocks,  1, 1);
+
+    const int nj = ptcl.size;
+    assert(nj % NTHREAD == 0);
+
+    dev_compute_forces<NTHREAD><<<grid, block>>>(nj, nibeg, ni, ptcl, force, nkernel, (const int*)ilist);
   }
 
   float last_half()
   {
-    force.d2h();
+    if (ni > 0) force.d2h();
     cudaEventRecord( stop, 0 );
     cudaDeviceSynchronize();
     float elapsed_time_ms;
@@ -608,16 +647,14 @@ namespace SPHgrav
 
   SPHgrav_direct<NTHREAD, PINNED> grav;
 
-  void firsthalf_grav_force(
-      const int nj, const int nibeg, const int ni,
+  void load_particles(
+      const int nj,
       double *px, double *py, double *pz,
-      double *mass, double *h2, const int nkernel)
+      double *mass, double *h2)
   {
     const float LARGE = 1.0e10;
     const int n = ((nj - 1)/NTHREAD + 1) * NTHREAD;
     grav.ptcl.allocate(n);
-
-    assert(nibeg >= 0);
 
     // The kernel works in single precision, so positions are sent relative
     // to a reference point, with the subtraction done in double.  Otherwise
@@ -654,8 +691,34 @@ namespace SPHgrav
 
     for (int i = nj; i < n; i++)
       grav.ptcl[i] = devParticle(fcuVec3(LARGE), 0.0f, 1.0f, 0.0f);
+  }
 
+  void firsthalf_grav_force(
+      const int nj, const int nibeg, const int ni,
+      double *px, double *py, double *pz,
+      double *mass, double *h2, const int nkernel)
+  {
+    assert(nibeg >= 0);
+    load_particles(nj, px, py, pz, mass, h2);
     grav.first_half(nibeg, ni, nkernel);
+  }
+
+  // block timesteps: forces only on the nlist particles in list (1-based,
+  // all within nibeg+1..nibeg+nrange), out of all nj
+  void firsthalf_grav_force_list(
+      const int nj, const int nibeg, const int nrange,
+      const int nlist, const int *list,
+      double *px, double *py, double *pz,
+      double *mass, double *h2, const int nkernel)
+  {
+    load_particles(nj, px, py, pz, mass, h2);
+    if (nlist > 0)
+    {
+      grav.ilist.allocate(nlist);
+      for (int i = 0; i < nlist; i++)
+        grav.ilist[i] = list[i] - 1;
+    }
+    grav.first_half_list(nibeg, nrange, nlist, nkernel);
   }
 
   void lasthalf_grav_force(
@@ -667,9 +730,13 @@ namespace SPHgrav
     const int ni = grav.ni;
     const float dt = grav.last_half();
 
+    if (grav.uselist)
+      for (int j = grav.nibeg; j < grav.nibeg + grav.nrange; j++)
+        ax[j] = ay[j] = az[j] = pot[j] = 0.0;
+
     for (int i = 0; i < ni; i++)
     {
-      const int j = i + grav.nibeg;
+      const int j = grav.uselist ? grav.ilist[i] : i + grav.nibeg;
       ax [j] = grav.force[i].ax.to_double();
       ay [j] = grav.force[i].ay.to_double();
       az [j] = grav.force[i].az.to_double();
@@ -700,6 +767,15 @@ extern "C"
       double *mass, double *range2, int *q_, int *nkernel)
   {
     SPHgrav::firsthalf_grav_force(*n, *n_lower - 1, *my_length, px, py, pz, mass, range2, *nkernel);
+  }
+
+  void firsthalf_grav_forces_list_(
+      int *n, int *n_lower, int *my_length, int *nlist, int *list,
+      double *px, double *py, double *pz,
+      double *mass, double *range2, int *nkernel)
+  {
+    SPHgrav::firsthalf_grav_force_list(*n, *n_lower - 1, *my_length, *nlist, list,
+        px, py, pz, mass, range2, *nkernel);
   }
 
   void lasthalf_grav_forces_(
