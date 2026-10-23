@@ -211,7 +211,7 @@ c     t>0 at its first call and never ramps.
          indnow=(/idtvel,idtacc,idtu,idtacc4,idtvelco,idtaccco/)
 c     With block steps tstep runs every substep, so one pair of lines per
 c     call would flood the log.  Keep the smallest value of each column (and
-c     the particle that set it) and write them once per full synchronization.
+c     the particle that set it) and write them once per dtmaxblk.
          if(nblock.eq.1) then
             do k=1,6
                if(dtsnow(k).lt.dtsblk(k)) then
@@ -220,7 +220,7 @@ c     the particle that set it) and write them once per full synchronization.
                endif
             enddo
             dtsblk(7)=min(dtsblk(7),dtsnow(7))
-            if(.not.blksync) return
+            if(.not.blkfull) return
             dtsnow=dtsblk
             indnow=indblk
             dtsblk=1.d30

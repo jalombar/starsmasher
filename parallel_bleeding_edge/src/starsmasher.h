@@ -34,13 +34,18 @@
       real*8 dtpart(nmax)
       logical actblk(nmax),refblk(nmax)
       common/blockdt/dtpart,actblk,refblk
-!     nblock=1: true after a substep that ends at a full synchronization,
-!     when every particle is in step (checkpt writes only then)
+!     nblock=1: blksync is true after a substep that ends at a full
+!     synchronization, when every particle is in step, and energy*.sph gets a
+!     row then.  That happens whenever the longest step in use ends, which can
+!     be many times per dtmaxblk.  blkfull is true only at the end of each
+!     dtmaxblk, the only syncs at which checkpt writes, a jump is made and the
+!     log summary is written: the stepper restarts its timeline at a checkpoint
+!     or a jump, and these keep that timeline on the dtmaxblk grid.
 !     blkrestart: set by jumpahead, which moves and renumbers the particles,
 !     so that the block stepper starts afresh from the state jumpahead leaves,
 !     as it does when a run is restarted from a dump
-      logical blksync,blkrestart
-      common/blocksync/blksync,blkrestart
+      logical blksync,blkfull,blkrestart
+      common/blocksync/blksync,blkfull,blkrestart
 !     nblock=1: this substep's active and refreshed particles (wall, the same
 !     on every rank) dealt out round-robin, wmine being this rank's share.
 !     blkdist is true while block steps use these lists instead of each
