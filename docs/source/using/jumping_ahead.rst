@@ -55,7 +55,7 @@ debris bound to the black hole is treated as accreted, which is harmless when
 Turning it on
 -------------
 
-All seven parameters below are set in ``sph.input``.  Set ``tjumpahead``,
+All eight parameters below are set in ``sph.input``.  Set ``tjumpahead``,
 ``rjump`` or ``rjumpfactor`` to arm a jump. The rest refine it.
 
 ``tjumpahead``
@@ -102,12 +102,38 @@ All seven parameters below are set in ``sph.input``.  Set ``tjumpahead``,
    :math:`R` shrinks, and ``rjump`` with it, so the jump comes once the
    separation and the falling ``rjump`` cross.
 
+   Because the star re-enters at ``reentryfactor`` times the separation it
+   jumped from (see below), ``rjump`` has to stay above the periastron
+   separation divided by ``reentryfactor``.  A star that loses mass on every
+   passage can shrink :math:`R`, and ``rjump`` with it, below that.  A 0.72
+   :math:`M_\odot` red giant partially disrupted at :math:`\beta=1`, run with
+   ``reentryfactor=0.5``, saw its :math:`r_{90}` fall from 2.95 to 1.24 in four
+   passages, and ``rjump`` from 6600 to 2814.  The fourth jump would have put
+   the star at 1429, inside periastron (1469), where the orbit cannot place it.
+   The code then stops with ``jumpahead: sep0 inside periastron`` in the log.
+   A fixed ``rjump`` re-enters every passage at the same place and cannot do
+   this, and it is the safer choice for a giant, whose :math:`R` lies in a thin
+   envelope that every passage strips.
+
 ``rjumppercent``
    The percentage of a body's mass enclosed by the radius :math:`R` in the tidal
    radius that ``rjumpfactor`` multiplies.  The default is ``95``; ``99`` gives
    the :math:`r_{99}` used before this parameter existed.  A smaller percentage
    is less sensitive to the few particles thrown farthest out by a passage.
    Ignored unless ``rjumpfactor`` is set.
+
+``reentryfactor``
+   Where the jump puts the star back, as a fraction of the separation
+   :math:`r_{12}` it jumped from: ``sep0`` is ``reentryfactor`` times
+   :math:`r_{12}`, on the infalling branch of the same orbit.  The default,
+   ``1``, re-enters at the separation the star left, as the published runs
+   did, so the star meets tides on the way in no stronger than those it had
+   on the way out.  A smaller value skips more of the orbit, but the tidal
+   field at re-entry is ``1/reentryfactor**3`` times stronger
+   than at the jump: 8 times for ``0.5``.  The code stops at start-up unless
+   the value is above 0 and at most 1, and at a jump whose ``sep0`` would not
+   lie outside periastron.  Applies to jumps set by ``tjumpahead`` as well as
+   to automatic ones.
 
 ``ndtoutafter``
    How long a run with automatic jumping on goes on once its star has been destroyed,
@@ -214,6 +240,7 @@ deliberately absent (so that a black hole is used instead)::
      e0=0.995d0, ! initial eccentricity
      mbh=100.0d0, ! black hole mass in solar masses
      tjumpahead=45.0, ! time in code units to do an orbital jump
+     reentryfactor=0.5, ! re-enter at half the jump separation
      &end
 
 ``throwaway`` needs no line: its default is already ``.true.``.  Run it::
@@ -281,7 +308,8 @@ Then the orbit, measured and solved:
     cos=   4.7947739105261220E-002  sin= -0.99884984572992441
     rdot(from semilatusrectum): -2.1069863876044512  rdot(from e): -2.1069863876044521
 
-The separation has been halved, 45.70 to 22.85.  :math:`\sin\theta` is negative
+The separation has been halved, 45.70 to 22.85, as ``reentryfactor=0.5``
+asks.  :math:`\sin\theta` is negative
 and so is :math:`\dot r`, which is what puts the star on the infalling branch,
 and the two independent ways of computing :math:`\dot r` agree to sixteen
 digits.  The orbital energy agrees with the value reconstructed from :math:`e`,
@@ -479,13 +507,14 @@ is taken negative for the same reason.
 .. note::
 
    The papers advance the orbit to the *same* separation the star had reached,
-   and so did the version of the code the published runs were made with.  The
-   code as it stands halves it: ``sep0=0.5d0*r12``, with the unhalved
-   ``sep0=r12`` commented out on the line below.  Halving skips more of the
-   orbit, at the cost of resuming the hydrodynamics closer in, and it breaks the
-   property the published runs relied on, that the separation after a jump
-   equals the separation before it, so each passage takes the same time to reach
-   the next pericentre.  That is the line to change to get it back.
+   and so did the version of the code the published runs were made with.  That
+   is the default, ``reentryfactor=1``.  For a while the code instead halved
+   it, ``sep0=0.5d0*r12``, and ``reentryfactor=0.5`` reproduces runs made
+   then.  Halving skips more of the orbit, at the cost of resuming the
+   hydrodynamics closer in, where the tides are 8 times stronger, and it breaks
+   the property the published runs relied on, that the separation after a jump
+   equals the separation before it, so each passage takes the same time to
+   reach the next pericentre.
 
 Each particle is then translated and boosted by the difference between its
 component's new and old centre-of-mass state.  Every particle keeps its position

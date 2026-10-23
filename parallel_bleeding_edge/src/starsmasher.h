@@ -98,6 +98,7 @@
       real*8 e0, semimajoraxis
       integer neos,nusegpus,nselfgravity,ncooling,nkernel
       real*8 gam,teq,tjumpahead,rjump,rjumpfactor,rjumppercent
+      real*8 reentryfactor
       character*255 startfile1,startfile2,eosfile,opacityfile,profilefile
       character*255 startfile3,binaryfile,triplefile,bpbhfile
       character*255 imagefile,advectedfile

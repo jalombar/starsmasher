@@ -20,7 +20,9 @@
       parameter(g=1.d0)
       real*8 mu,semilatusrectum,k
       real*8 xcm,ycm,zcm,vxcm,vycm,vzcm
-      real*8 ecc2
+      real*8 ecc2,rperi
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
+     $     reentryfactor
       real*8 r12,r,rdot,rdotcheck,costheta,sintheta,thetadot,
      $     ecccheck,sinthetacheck,
      $     eorbcheck
@@ -294,9 +296,34 @@ c      write(69,*)'semi-latus rectum alpha=',semilatusrectum
          
       if(ecc.ne.ecc .or. ecc.lt.0.d0) stop
 
-      sep0=0.5d0*r12
-c      sep0=r12
+c     Re-enter at reentryfactor*r12.  With the default of 1 the separation
+c     after the jump equals the separation before it, as in the published
+c     runs, and the star meets tides no stronger than those it left.  Below 1
+c     skips more of the orbit, but the tidal field at re-entry grows as
+c     1/reentryfactor**3.
+      sep0=reentryfactor*r12
       if(myrank.eq.0) write(69,*)'sep0=',sep0
+
+c     The star is put back on the orbit at separation sep0, which has to lie
+c     outside periastron.  With rjumpfactor, rjump follows the star's radius,
+c     and a star that each passage strips smaller can jump at an r12 less than
+c     rp/reentryfactor.  costheta below would then exceed 1, acos would return
+c     NaN, and the run would carry on with NaN positions until it crashed
+c     somewhere far from the cause.
+      rperi=semilatusrectum/(1.d0+ecc)
+      if(sep0.le.rperi) then
+         if(myrank.eq.0) then
+            write(69,*)'jumpahead: sep0=',sep0,' is not outside',
+     $           ' periastron rp=',rperi
+            write(69,*)'jumpahead: the jump came at r12=',r12,
+     $           ', and sep0=reentryfactor*r12 with reentryfactor=',
+     $           reentryfactor
+            write(69,*)'jumpahead: raise reentryfactor, or use a fixed',
+     $           ' rjump or a larger rjumpfactor, so that every jump',
+     $           ' comes beyond rp/reentryfactor'
+         endif
+         stop 'jumpahead: sep0 inside periastron'
+      endif
 
 c     equation (8.10) of marion and thornton
       thetadot = lorb/mu/sep0**2

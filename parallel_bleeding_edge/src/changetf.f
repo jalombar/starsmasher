@@ -100,7 +100,8 @@ c     written to every dump, so that a restart knows whether stars have merged
       real*8 eintsave,eint,tjumpaheadold,dotproduct
       save eintsave
       data eintsave /-1.d30/
-      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
+     $     reentryfactor
       logical autotf,autojump
       common/autotfblock/autotf,autojump
       real*8 rstarb,rstarg,rtidal,rmassfraction

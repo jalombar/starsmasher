@@ -213,7 +213,7 @@ def parse(path):
     return members, defaults, lo + 1, hi
 
 GROUPS = [
- ('Time and output', ['tf','dtout','nitpot','tjumpahead','rjump','rjumpfactor','tscanon','sepfinal','throwaway',
+ ('Time and output', ['tf','dtout','nitpot','tjumpahead','rjump','rjumpfactor','reentryfactor','tscanon','sepfinal','throwaway',
                       'internal_energy_fraction']),
  ('The particles',   ['n','nnopt','equalmass','starmass','starradius','hco','mco','hfloor']),
  ('Equation of state and physics',
