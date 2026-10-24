@@ -130,7 +130,17 @@ between its two particles when they are computed in different gravity calls,
 as with block timesteps, so momentum is conserved better.  This costs about
 15% more time per gravity call on the card, which is mostly hidden when the
 CPU hydrodynamics takes longer than the gravity.  The default is
-``ngravhilo=0``.
+``ngravhilo=1``.
+
+With ``ngravhilo=0`` and block timesteps, a pair's two forces are rounded in
+different calls and no longer cancel, and the total momentum and angular
+momentum drift.  In a collision of a 57.6 Msun giant with a 10 Msun star
+(199,296 particles), over 215 time units the angular momentum wandered by
+6e-3 with ``ngravhilo=0``, against 1.1e-3 for the same collision with one
+shared timestep, and the momentum drifted 18 times faster.  With
+``ngravhilo=1`` both matched the shared-timestep run over the 54 time units
+compared.  On 9 ranks and a GTX
+1080 Ti, ``ngravhilo=1`` ran within 3% of the speed of ``ngravhilo=0``.
 
 What was measured
 ~~~~~~~~~~~~~~~~~
@@ -267,8 +277,13 @@ particle is inactive.
 
 The black hole to gas timestep limits from ``cn5``, ``cn6`` and ``cn7`` are
 applied to both members of each pair.  Energies are written only when all
-particles are in step, every ``dtmaxblk``, and so is ``restartrad.sph``: at the
-first such time at least 1000 substeps after the previous one.  Output files and
+particles are in step, which is whenever the longest step any particle is
+taking ends (see ``energy*.sph`` in :doc:`output`).  If some particles take
+the longest allowed step, ``dtmaxblk``, that is once per ``dtmaxblk``, so a
+smaller ``dtmaxblk`` gives more rows: in the collision above, ``dtmaxblk=0.5``
+with ``dtout=1`` gave two rows per time unit, for about 1.5% more work.
+``restartrad.sph`` is written at the end of a ``dtmaxblk``, at the first one at
+least 1000 substeps after the previous one.  Output files and
 restarts work the same way in both modes, so a run can be restarted with or
 without block timesteps.
 
