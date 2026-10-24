@@ -455,7 +455,13 @@ c     that mu is the same at the two different positions in parameter space.
             endif
          endif
          pgasboundary = Pboundary - arad*Tboundary**4/3
-         pgas = pgasboundary*temperature/Tboundary*rhocgs/rhoboundary
+         if(pgasboundary.gt.0) then
+            pgas = pgasboundary*temperature/Tboundary*rhocgs/rhoboundary
+         else
+            ! the table's gas pressure is lost in its rounding where radiation dominates
+            ! (P is given to 4 figures), so presumably radiation pressure still dominates here as well
+            pgas = 0d0
+         endif
          prad=arad*temperature**4/3.d0
 
          beta1=pgas/(pgas+prad)
