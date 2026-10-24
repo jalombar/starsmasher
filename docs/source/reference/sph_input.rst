@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **101** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **102** settings.
 
 
 .. _sph-input-time-and-output:
@@ -426,6 +426,10 @@ Parallelism and GPUs
      - ``0``
      - every run
      - the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+   * - ``ngravhilo``
+     - ``0``
+     - every run
+     - GPU gravity only: 0 sends each position to the card as a float, relative to the gas centre of mass, so a star far from that point loses digits in its close separations.  1 also sends each float's remainder, so separations keep single precision however far the pair is from that point, for about 15% more GPU time per gravity call
    * - ``qthreads``
      - ``0``
      - every run

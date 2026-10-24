@@ -28,6 +28,8 @@ it. Pass `--exe /path/to/..._sph` to test an executable you have already built.
 | `quiet` | A relaxed star stays put: kinetic energy stays negligible. |
 | `ranks` | The answer does not depend on how many MPI ranks are used. |
 | `cpu_gpu` | The CPU and GPU builds agree. |
+| `block_cpu_gpu` | With block timesteps, where gravity is computed on the active particles only, the CPU and GPU builds agree. |
+| `gpu_hilo` | GPU gravity with and without the float remainders of the positions (`ngravhilo`) agrees for a single star. |
 | `guard_neighbors` | Exhausting the neighbour list stops the run with a message rather than corrupting memory. |
 | `guard_ngravprocs` | Asking for more gravity processes than there are GPUs is clamped, not fatal. |
 | `periodic` | A fully periodic box conserves momentum and energy and has no density seam at its faces. |

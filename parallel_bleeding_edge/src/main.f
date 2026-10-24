@@ -277,6 +277,7 @@ c     hydro), while myrank=2,3,4,5,6,7 do hydro (and no gravity):
          theta_angle = 0.3             ! 0.4 or 0.3 should be safe, experiment if 0.5 or larger works
          call gpu_init_dev(myrank/((nprocs+ppn-1)/ppn), theta_angle) ! if the gpus are set up in device exclusive mode,
                                    ! then you probably won't want to do this
+         call gpu_set_hilo(ngravhilo)
          write(6,"('myrank=',I3,' is running on ',A,' with gpu',i3)")
      $        myrank,
      $        trim(name),

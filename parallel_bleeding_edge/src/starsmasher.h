@@ -87,8 +87,8 @@
       common/units/munit,runit,punit,gravconst
       integer navsw,nriemann
       common/artvis/ alpha,beta,nav,navsw,nriemann
-      integer computeexclusivemode,ppn
-      common/grav/ ngr,computeexclusivemode
+      integer computeexclusivemode,ppn,ngravhilo
+      common/grav/ ngr,computeexclusivemode,ngravhilo
       real*8 omega2,omega_spin
       common/relaxp/ trelax,equalmass,treloff,tresplintmuoff,omega2,omega_spin,nrelax,nitpot,stellarevolutioncodetype
       common/intpar/ dt,n,nnopt,hco,mco,hfloor,dth,ntot

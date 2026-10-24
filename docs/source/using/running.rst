@@ -115,12 +115,22 @@ sharply on a large one.  Gravity is the part that grows fastest with the number
 of particles, and it is the only part the card touches.
 
 The card computes gravity in single precision.  Positions are sent to it
-relative to the gas centroid weighted by :math:`1/h^2`, with the subtraction
-done in double precision, so a star far from the origin, as near a
-supermassive black hole, keeps its close separations.  That point sits on a
-dense core, and midway between two identical stars.  Gas in two dense places
-far apart, such as two stars many thousands of smoothing lengths from each
-other, still loses precision on the card, and is better run with ``make cpu``.
+relative to the centre of mass of the gas, with the subtraction done in double
+precision, so a star far from the origin, as near a supermassive black hole,
+keeps its close separations.  A star's rounding grows with its distance from
+that point, so with two stars it favours the more massive one, and it sits
+midway between two identical stars.
+
+``ngravhilo=1`` also sends each coordinate's float remainder, and the card forms
+each separation from both parts.  A separation then keeps single precision
+relative to itself wherever the pair is, so gas in two dense places far apart,
+such as two stars many thousands of smoothing lengths from each other, is as
+accurate as a single star.  The rounding of a pair's force then also cancels
+between its two particles when they are computed in different gravity calls,
+as with block timesteps, so momentum is conserved better.  This costs about
+15% more time per gravity call on the card, which is mostly hidden when the
+CPU hydrodynamics takes longer than the gravity.  The default is
+``ngravhilo=0``.
 
 What was measured
 ~~~~~~~~~~~~~~~~~
@@ -248,6 +258,13 @@ and refreshed particles are dealt out evenly across MPI ranks, whatever their
 particle numbers, and the black hole to gas timestep check is shared the same
 way.
 
+Gravity is likewise computed on the active particles only, from all particles.
+The CPU build sums the active particles' forces directly until 90% of the
+particles are active, beyond which its symmetric loop over all pairs is
+cheaper.  The GPU builds (CUDA and Metal) compute each particle's force
+separately in either case, so they use the active particles whenever any
+particle is inactive.
+
 The black hole to gas timestep limits from ``cn5``, ``cn6`` and ``cn7`` are
 applied to both members of each pair.  Energies are written only when all
 particles are in step, every ``dtmaxblk``, and so is ``restartrad.sph``: at the
@@ -257,8 +274,8 @@ without block timesteps.
 
 Block timesteps need a dynamical run (``nrelax=0``) with ``nintvar=2``,
 ``ncooling=0``, ``nkernel=2`` and ``nselfgravity=1``, and the code
-stops with a message otherwise.  They have been tested with the CPU gravity
-build only.
+stops with a message otherwise.  They work with both the CPU and the GPU
+gravity builds.
 
 Block timesteps work with automatic jumps ahead (``rjump`` or
 ``rjumpfactor``).  A jump waits for the next full synchronization, when every

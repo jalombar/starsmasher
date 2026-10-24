@@ -30,6 +30,15 @@ struct MetalParticle {
   float hflag;
 };
 
+// ngravhilo=1: the float remainder of each position, in a buffer of its own
+// so that ngravhilo=0 reads and computes what it did before
+struct MetalLo {
+  float lx;
+  float ly;
+  float lz;
+  float pad;
+};
+
 struct MetalForce {
   FloatPair ax;
   FloatPair ay;
@@ -42,6 +51,7 @@ struct MetalParams {
   uint32_t nibeg;
   uint32_t ni;
   int32_t nkernel;
+  uint32_t uselist;
 };
 
 static const char *kSPHgravMetalSource = R"METAL(
@@ -78,6 +88,7 @@ struct Params {
   uint nibeg;
   uint ni;
   int nkernel;
+  uint uselist;
 };
 
 inline void ds64_add(thread FloatPair &accum, const float x) {
@@ -87,8 +98,19 @@ inline void ds64_add(thread FloatPair &accum, const float x) {
   accum.lo = vy;
 }
 
+// ngravhilo: set when the pipeline is built
+constant bool kHilo [[function_constant(0)]];
+
 inline float3 position(const Particle p) {
   return float3(p.px, p.py, p.pz);
+}
+
+// With kHilo each coordinate also carries the float remainder (ilo, jlo) of
+// its double value.  Nearby floats subtract exactly, so the separation keeps
+// float precision relative to itself however far the pair is from the
+// reference point.
+inline float3 separation(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo) {
+  return kHilo ? (position(pj) - position(pi)) + (jlo - ilo) : position(pj) - position(pi);
 }
 
 inline Force zero_force() {
@@ -100,8 +122,9 @@ inline Force zero_force() {
   return f;
 }
 
-inline Force force_ij_nkernel0(const Particle pi, const Particle pj, thread Force iforce) {
-  const float3 dr = position(pj) - position(pi);
+inline Force force_ij_nkernel0(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
+                                thread Force iforce) {
+  const float3 dr = separation(pi, pj, ilo, jlo);
   const float r2 = dot(dr, dr);
 
   const float rinv = r2 > 0.0f ? rsqrt(r2) : 0.0f;
@@ -212,8 +235,9 @@ inline Force force_ij_nkernel0(const Particle pi, const Particle pj, thread Forc
   return iforce;
 }
 
-inline Force force_ij_nkernel1(const Particle pi, const Particle pj, thread Force iforce) {
-  const float3 dr = position(pj) - position(pi);
+inline Force force_ij_nkernel1(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
+                                thread Force iforce) {
+  const float3 dr = separation(pi, pj, ilo, jlo);
   const float r2 = dot(dr, dr);
 
   const float rinv = r2 > 0.0f ? rsqrt(r2) : 0.0f;
@@ -289,8 +313,9 @@ inline Force force_ij_nkernel1(const Particle pi, const Particle pj, thread Forc
   return iforce;
 }
 
-inline Force force_ij_nkernel2(const Particle pi, const Particle pj, thread Force iforce) {
-  const float3 dr = position(pj) - position(pi);
+inline Force force_ij_nkernel2(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
+                                thread Force iforce) {
+  const float3 dr = separation(pi, pj, ilo, jlo);
   const float r2 = dot(dr, dr);
 
   const float rinv = r2 > 0.0f ? rsqrt(r2) : 0.0f;
@@ -366,13 +391,23 @@ inline Force force_ij_nkernel2(const Particle pi, const Particle pj, thread Forc
 kernel void compute_forces(const device Particle *ptcl [[buffer(0)]],
                            device Force *force_out [[buffer(1)]],
                            constant Params &params [[buffer(2)]],
+                           const device uint *ilist [[buffer(3)]],
+                           const device float4 *plo [[buffer(4)]],
                            uint gid [[thread_position_in_grid]],
                            uint tid [[thread_index_in_threadgroup]]) {
   threadgroup Particle jpshared[THREADS_PER_GROUP];
+  threadgroup float3 jloshared[THREADS_PER_GROUP];
 
+  // uselist (block timesteps): force_out[gid] is for particle ilist[gid]
+  // rather than for particle nibeg+gid
   Particle iptcl;
+  float3 ilo = float3(0.0f);
   if (gid < params.ni) {
-    iptcl = ptcl[params.nibeg + gid];
+    const uint iidx = params.uselist != 0 ? ilist[gid] : params.nibeg + gid;
+    iptcl = ptcl[iidx];
+    if (kHilo) {
+      ilo = plo[iidx].xyz;
+    }
   } else {
     iptcl = {1.0e10f, 1.0e10f, 1.0e10f, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f};
   }
@@ -381,16 +416,19 @@ kernel void compute_forces(const device Particle *ptcl [[buffer(0)]],
 
   for (uint j = 0; j < params.nj; j += THREADS_PER_GROUP) {
     jpshared[tid] = ptcl[j + tid];
+    if (kHilo) {
+      jloshared[tid] = plo[j + tid].xyz;
+    }
     threadgroup_barrier(mem_flags::mem_threadgroup);
 
     if (gid < params.ni) {
       for (uint jj = 0; jj < THREADS_PER_GROUP; ++jj) {
         if (params.nkernel == 0) {
-          iforce = force_ij_nkernel0(iptcl, jpshared[jj], iforce);
+          iforce = force_ij_nkernel0(iptcl, jpshared[jj], ilo, jloshared[jj], iforce);
         } else if (params.nkernel == 1) {
-          iforce = force_ij_nkernel1(iptcl, jpshared[jj], iforce);
+          iforce = force_ij_nkernel1(iptcl, jpshared[jj], ilo, jloshared[jj], iforce);
         } else {
-          iforce = force_ij_nkernel2(iptcl, jpshared[jj], iforce);
+          iforce = force_ij_nkernel2(iptcl, jpshared[jj], ilo, jloshared[jj], iforce);
         }
       }
     }
@@ -444,27 +482,104 @@ class SPHgravMetal {
     }
   }
 
+  void setHilo(bool hilo) {
+    hilo_ = hilo;
+  }
+
   void first_half(int nj, int nibeg, int ni,
                   double *px, double *py, double *pz,
                   double *mass, double *h2, int nkernel) {
+    assert(nibeg >= 0);
+    const int paddedCount = loadParticles(nj, px, py, pz, mass, h2);
+    pendingList_.clear();
+    pendingNrange_ = 0;
+    dispatch(paddedCount, nibeg, ni, nkernel, false);
+  }
+
+  // Block timesteps: forces only on the nlist particles in list (1-based,
+  // all within nibeg+1..nibeg+nrange), out of all nj.  last_half zeroes the
+  // others in that range.
+  void first_half_list(int nj, int nibeg, int nrange, int nlist, const int *list,
+                       double *px, double *py, double *pz,
+                       double *mass, double *h2, int nkernel) {
+    assert(nibeg >= 0);
+    const int paddedCount = loadParticles(nj, px, py, pz, mass, h2);
+    pendingList_.assign(list, list + nlist);
+    for (int &k : pendingList_) {
+      k -= 1;
+    }
+    pendingNrange_ = nrange;
+    if (nlist > 0) {
+      resizeListBuffer(nlist);
+      auto *ilist = static_cast<uint32_t *>([listBuffer_ contents]);
+      for (int i = 0; i < nlist; ++i) {
+        ilist[i] = static_cast<uint32_t>(pendingList_[i]);
+      }
+    }
+    dispatch(paddedCount, nibeg, nlist, nkernel, true);
+  }
+
+  void last_half(double *ax, double *ay, double *az, double *pot) {
+    if (pendingUseList_) {
+      for (int j = pendingNibeg_; j < pendingNibeg_ + pendingNrange_; ++j) {
+        ax[j] = ay[j] = az[j] = pot[j] = 0.0;
+      }
+    }
+
+    if (pendingNi_ > 0) {
+      assert(pendingCommandBuffer_ != nil);
+      [pendingCommandBuffer_ waitUntilCompleted];
+
+      if ([pendingCommandBuffer_ status] != MTLCommandBufferStatusCompleted) {
+        NSString *errorDescription = [[pendingCommandBuffer_ error] localizedDescription];
+        std::fprintf(stderr, "SPHgrav Metal command buffer failed: %s\n",
+                     errorDescription != nil ? [errorDescription UTF8String] : "unknown error");
+        std::abort();
+      }
+
+      const auto *force = static_cast<const MetalForce *>([forceBuffer_ contents]);
+      for (int i = 0; i < pendingNi_; ++i) {
+        const int j = pendingUseList_ ? pendingList_[i] : i + pendingNibeg_;
+        ax[j] = static_cast<double>(force[i].ax.hi) + static_cast<double>(force[i].ax.lo);
+        ay[j] = static_cast<double>(force[i].ay.hi) + static_cast<double>(force[i].ay.lo);
+        az[j] = static_cast<double>(force[i].az.hi) + static_cast<double>(force[i].az.lo);
+        pot[j] = static_cast<double>(force[i].pot.hi) + static_cast<double>(force[i].pot.lo);
+      }
+    }
+
+    const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - lastStart_).count();
+    std::fprintf(stderr, " >>> SPHgrav_lib took %g sec\n", elapsed);
+
+    pendingCommandBuffer_ = nil;
+    pendingNi_ = 0;
+    pendingNibeg_ = 0;
+    pendingNrange_ = 0;
+    pendingUseList_ = false;
+  }
+
+ private:
+  // Copies the particles into the shared buffer, padded to a whole number of
+  // threadgroups, and returns the padded count.
+  int loadParticles(int nj, double *px, double *py, double *pz,
+                    double *mass, double *h2) {
     assert(device_ != nil);
     assert(commandQueue_ != nil);
     assert(pipelineState_ != nil);
-    assert(nibeg >= 0);
 
     const int paddedCount = ((nj - 1) / static_cast<int>(kThreadsPerGroup) + 1) *
                             static_cast<int>(kThreadsPerGroup);
 
     resizeParticleBuffer(paddedCount);
-    resizeForceBuffer(ni);
+    // the kernel declares the remainder buffer, so it is bound even when unused
+    resizeLoBuffer(hilo_ ? paddedCount : 1);
 
-    // Positions relative to the gas centroid weighted by 1/h**2, subtracted
-    // in double, as in SPHgrav_lib2/grav_force_direct.cu (see the comment
-    // there).
+    // Positions relative to the gas centre of mass, subtracted in double,
+    // and with ngravhilo=1 their float remainders, as in
+    // SPHgrav_lib2/grav_force_direct.cu (see the comment there).
     double wsum = 0.0, xref = 0.0, yref = 0.0, zref = 0.0;
     for (int i = 0; i < nj; ++i) {
       if (h2[i] > 0.0) {
-        const double w = 1.0 / h2[i];
+        const double w = mass[i];
         wsum += w;
         xref += w * px[i];
         yref += w * py[i];
@@ -478,43 +593,68 @@ class SPHgravMetal {
     }
 
     auto *particles = static_cast<MetalParticle *>([particleBuffer_ contents]);
+    auto *lo = static_cast<MetalLo *>([loBuffer_ contents]);
     for (int i = 0; i < nj; ++i) {
       const float smoothing = std::sqrt(static_cast<float>(h2[i] > 0.0 ? h2[i] : -h2[i]));
+      const double dx = px[i] - xref, dy = py[i] - yref, dz = pz[i] - zref;
+      const float fx = static_cast<float>(dx), fy = static_cast<float>(dy), fz = static_cast<float>(dz);
       particles[i] = {
-          static_cast<float>(px[i] - xref),
-          static_cast<float>(py[i] - yref),
-          static_cast<float>(pz[i] - zref),
+          fx,
+          fy,
+          fz,
           static_cast<float>(mass[i]),
           smoothing,
           smoothing > 0.0f ? 1.0f / smoothing : 0.0f,
           static_cast<float>(h2[i] > 0.0 ? h2[i] : -h2[i]),
           h2[i] > 0.0 ? 1.0f : 0.0f,
       };
+      if (hilo_) {
+        lo[i] = {static_cast<float>(dx - fx), static_cast<float>(dy - fy), static_cast<float>(dz - fz), 0.0f};
+      }
     }
 
     for (int i = nj; i < paddedCount; ++i) {
       particles[i] = {kLargeCoordinate, kLargeCoordinate, kLargeCoordinate, 0.0f, 1.0f, 1.0f, 1.0f, 0.0f};
+      if (hilo_) {
+        lo[i] = {0.0f, 0.0f, 0.0f, 0.0f};
+      }
     }
+    return paddedCount;
+  }
+
+  // Forces on ni particles: nibeg+0..ni-1, or listBuffer_[0..ni-1] if uselist.
+  // With ni == 0 nothing is dispatched (an empty grid is not allowed).
+  void dispatch(int paddedCount, int nibeg, int ni, int nkernel, bool uselist) {
+    pendingNi_ = ni;
+    pendingNibeg_ = nibeg;
+    pendingUseList_ = uselist;
+    lastStart_ = std::chrono::steady_clock::now();
+    if (ni == 0) {
+      return;
+    }
+
+    resizeForceBuffer(ni);
+    // the kernel declares the list buffer, so it is bound even when unused
+    resizeListBuffer(1);
 
     MetalParams params = {
         static_cast<uint32_t>(paddedCount),
         static_cast<uint32_t>(nibeg),
         static_cast<uint32_t>(ni),
         static_cast<int32_t>(nkernel),
+        uselist ? 1u : 0u,
     };
     std::memcpy([paramBuffer_ contents], &params, sizeof(params));
-
-    pendingNi_ = ni;
-    pendingNibeg_ = nibeg;
-    lastStart_ = std::chrono::steady_clock::now();
 
     @autoreleasepool {
       pendingCommandBuffer_ = [commandQueue_ commandBuffer];
       id<MTLComputeCommandEncoder> encoder = [pendingCommandBuffer_ computeCommandEncoder];
-      [encoder setComputePipelineState:pipelineState_];
+      [encoder setComputePipelineState:hilo_ ? pipelineStateHilo_ : pipelineState_];
       [encoder setBuffer:particleBuffer_ offset:0 atIndex:0];
       [encoder setBuffer:forceBuffer_ offset:0 atIndex:1];
       [encoder setBuffer:paramBuffer_ offset:0 atIndex:2];
+      [encoder setBuffer:listBuffer_ offset:0 atIndex:3];
+      [encoder setBuffer:loBuffer_ offset:0 atIndex:4];
 
       const NSUInteger nblocks =
           (static_cast<NSUInteger>(ni) + kThreadsPerGroup - 1) / kThreadsPerGroup;
@@ -526,35 +666,6 @@ class SPHgravMetal {
     }
   }
 
-  void last_half(double *ax, double *ay, double *az, double *pot) {
-    assert(pendingCommandBuffer_ != nil);
-    [pendingCommandBuffer_ waitUntilCompleted];
-
-    if ([pendingCommandBuffer_ status] != MTLCommandBufferStatusCompleted) {
-      NSString *errorDescription = [[pendingCommandBuffer_ error] localizedDescription];
-      std::fprintf(stderr, "SPHgrav Metal command buffer failed: %s\n",
-                   errorDescription != nil ? [errorDescription UTF8String] : "unknown error");
-      std::abort();
-    }
-
-    const auto *force = static_cast<const MetalForce *>([forceBuffer_ contents]);
-    for (int i = 0; i < pendingNi_; ++i) {
-      const int j = i + pendingNibeg_;
-      ax[j] = static_cast<double>(force[i].ax.hi) + static_cast<double>(force[i].ax.lo);
-      ay[j] = static_cast<double>(force[i].ay.hi) + static_cast<double>(force[i].ay.lo);
-      az[j] = static_cast<double>(force[i].az.hi) + static_cast<double>(force[i].az.lo);
-      pot[j] = static_cast<double>(force[i].pot.hi) + static_cast<double>(force[i].pot.lo);
-    }
-
-    const auto elapsed = std::chrono::duration<double>(std::chrono::steady_clock::now() - lastStart_).count();
-    std::fprintf(stderr, " >>> SPHgrav_lib took %g sec\n", elapsed);
-
-    pendingCommandBuffer_ = nil;
-    pendingNi_ = 0;
-    pendingNibeg_ = 0;
-  }
-
- private:
   void buildPipeline() {
     @autoreleasepool {
       NSString *source = [NSString stringWithUTF8String:kSPHgravMetalSource];
@@ -572,20 +683,34 @@ class SPHgravMetal {
         std::abort();
       }
 
-      id<MTLFunction> function = [library newFunctionWithName:@"compute_forces"];
-      if (function == nil) {
-        std::fprintf(stderr, "SPHgrav Metal could not find compute_forces in the shader library\n");
-        std::abort();
-      }
-
-      NSError *pipelineError = nil;
-      pipelineState_ = [device_ newComputePipelineStateWithFunction:function error:&pipelineError];
-      if (pipelineState_ == nil) {
-        std::fprintf(stderr, "SPHgrav Metal failed to create compute pipeline: %s\n",
-                     [[[pipelineError localizedDescription] description] UTF8String]);
-        std::abort();
-      }
+      // one pipeline for each value of kHilo, so either can be used
+      pipelineState_ = makePipeline(library, false);
+      pipelineStateHilo_ = makePipeline(library, true);
     }
+  }
+
+  id<MTLComputePipelineState> makePipeline(id<MTLLibrary> library, bool hilo) {
+    MTLFunctionConstantValues *constants = [[MTLFunctionConstantValues alloc] init];
+    [constants setConstantValue:&hilo type:MTLDataTypeBool atIndex:0];
+
+    NSError *functionError = nil;
+    id<MTLFunction> function = [library newFunctionWithName:@"compute_forces"
+                                             constantValues:constants
+                                                      error:&functionError];
+    if (function == nil) {
+      std::fprintf(stderr, "SPHgrav Metal could not find compute_forces in the shader library: %s\n",
+                   functionError != nil ? [[functionError localizedDescription] UTF8String] : "unknown error");
+      std::abort();
+    }
+
+    NSError *pipelineError = nil;
+    id<MTLComputePipelineState> state = [device_ newComputePipelineStateWithFunction:function error:&pipelineError];
+    if (state == nil) {
+      std::fprintf(stderr, "SPHgrav Metal failed to create compute pipeline: %s\n",
+                   [[[pipelineError localizedDescription] description] UTF8String]);
+      std::abort();
+    }
+    return state;
   }
 
   void resizeParticleBuffer(int count) {
@@ -596,6 +721,30 @@ class SPHgravMetal {
     particleBuffer_ = [device_ newBufferWithLength:byteCount options:MTLResourceStorageModeShared];
     if (particleBuffer_ == nil) {
       std::fprintf(stderr, "SPHgrav Metal could not allocate particle buffer\n");
+      std::abort();
+    }
+  }
+
+  void resizeLoBuffer(int count) {
+    const NSUInteger byteCount = static_cast<NSUInteger>(count) * sizeof(MetalLo);
+    if (loBuffer_ != nil && [loBuffer_ length] >= byteCount) {
+      return;
+    }
+    loBuffer_ = [device_ newBufferWithLength:byteCount options:MTLResourceStorageModeShared];
+    if (loBuffer_ == nil) {
+      std::fprintf(stderr, "SPHgrav Metal could not allocate position remainder buffer\n");
+      std::abort();
+    }
+  }
+
+  void resizeListBuffer(int count) {
+    const NSUInteger byteCount = static_cast<NSUInteger>(count) * sizeof(uint32_t);
+    if (listBuffer_ != nil && [listBuffer_ length] >= byteCount) {
+      return;
+    }
+    listBuffer_ = [device_ newBufferWithLength:byteCount options:MTLResourceStorageModeShared];
+    if (listBuffer_ == nil) {
+      std::fprintf(stderr, "SPHgrav Metal could not allocate active-particle list buffer\n");
       std::abort();
     }
   }
@@ -621,12 +770,19 @@ class SPHgravMetal {
   id<MTLDevice> device_ = nil;
   id<MTLCommandQueue> commandQueue_ = nil;
   id<MTLComputePipelineState> pipelineState_ = nil;
+  id<MTLComputePipelineState> pipelineStateHilo_ = nil;
   id<MTLBuffer> particleBuffer_ = nil;
   id<MTLBuffer> forceBuffer_ = nil;
   id<MTLBuffer> paramBuffer_ = nil;
+  id<MTLBuffer> listBuffer_ = nil;
+  id<MTLBuffer> loBuffer_ = nil;
   id<MTLCommandBuffer> pendingCommandBuffer_ = nil;
   int pendingNi_ = 0;
   int pendingNibeg_ = 0;
+  int pendingNrange_ = 0;
+  bool pendingUseList_ = false;
+  bool hilo_ = false;
+  std::vector<int> pendingList_;
   std::chrono::steady_clock::time_point lastStart_{};
 };
 
@@ -643,6 +799,13 @@ void firsthalf_grav_forces_(int *n, int *n_lower, int *my_length,
   gMetalGrav.first_half(*n, *n_lower - 1, *my_length, px, py, pz, mass, range2, *nkernel);
 }
 
+void firsthalf_grav_forces_list_(int *n, int *n_lower, int *my_length, int *nlist, int *list,
+                                 double *px, double *py, double *pz,
+                                 double *mass, double *range2, int *nkernel) {
+  gMetalGrav.first_half_list(*n, *n_lower - 1, *my_length, *nlist, list,
+                             px, py, pz, mass, range2, *nkernel);
+}
+
 void lasthalf_grav_forces_(int *n, double *ax, double *ay, double *az, double *pot, int *myrank) {
   (void)n;
   (void)myrank;
@@ -652,6 +815,12 @@ void lasthalf_grav_forces_(int *n, double *ax, double *ay, double *az, double *p
 void gpu_init_dev_(int *myrank, double *theta) {
   (void)theta;
   gMetalGrav.setDevice(*myrank);
+}
+
+// ngravhilo in sph.input: 1 sends each position as a float plus its float
+// remainder, 0 as a float alone
+void gpu_set_hilo_(int *ngravhilo) {
+  gMetalGrav.setHilo(*ngravhilo != 0);
 }
 
 }  // extern "C"

@@ -6,6 +6,7 @@
       real*8 amasstot,fcmx,fcmy,fcmz
       integer mylength, mygravlength
       integer irank      
+      integer nlist,ilist(ntot)
 
       if(nusegpus.eq.0)return
 
@@ -22,8 +23,26 @@ ccc   ********* build the tree **********
          
          mygravlength=ngrav_upper-ngrav_lower+1
 
-         call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength, x, y, z, 
-     $        am, range,q,nkernel)
+c     block steps: when any particle is inactive, the gpu computes gravity
+c     on the active particles only, and the others' gx,gy,gz,grpot come
+c     back as zero (they keep the accelerations of the start of their
+c     step).  Each particle's force is the same sum over all particles
+c     either way, so unlike the symmetric pair loop on cpus (see balAV3.f)
+c     there is no fraction active above which doing them all is cheaper
+         if(nblock.eq.1 .and. count(actblk(1:ntot)).lt.ntot) then
+            nlist=0
+            do i=ngrav_lower,ngrav_upper
+               if(actblk(i)) then
+                  nlist=nlist+1
+                  ilist(nlist)=i
+               endif
+            enddo
+            call firsthalf_grav_forces_list(ntot, ngrav_lower,
+     $           mygravlength, nlist, ilist, x, y, z, am, range, nkernel)
+         else
+            call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength,
+     $           x, y, z, am, range,q,nkernel)
+         endif
          if(myrank.eq.ngravprocs-1) then
             call cpu_time(time2)         
             write (6,'( a, f6.3, a,i4, a, i4)')'1sthalf:',time2-time1

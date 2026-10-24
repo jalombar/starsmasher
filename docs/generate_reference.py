@@ -230,7 +230,7 @@ GROUPS = [
                       'nblock','nbinmax','dtmaxblk','nblimit','nblockfull',
                       'dtforce','nstartramp']),
  ('Parallelism and GPUs',
-                     ['ngravprocs','qthreads','ppn','computeexclusivemode','gflag']),
+                     ['ngravprocs','ngravhilo','qthreads','ppn','computeexclusivemode','gflag']),
  ('Units',           ['runit','munit','gravconst']),
  ('Periodic box',    ['boxx','boxy','boxz']),
  ('Input files',     ['startfile1','startfile2','startfile3','binaryfile','triplefile',

@@ -403,6 +403,13 @@ c     nkernel=2 is the Wendland C4 kernel
       return
       end
 
+      subroutine firsthalf_grav_forces_list(ntot, ngrav_lower,
+     $     mygravlength, nlist, ilist, x, y, z, am, range, nkernel)
+      integer ntot,ngrav_lower,mygravlength,nlist,ilist(ntot),nkernel
+      real*8 x(ntot),y(ntot),z(ntot),am(ntot),range(ntot)
+      return
+      end
+
       subroutine lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
       integer ntot
       real*8 gx(ntot),gy(ntot),gz(ntot),grpot(ntot)
@@ -412,5 +419,10 @@ c     nkernel=2 is the Wendland C4 kernel
       subroutine gpu_init_dev(i,theta_angle)
       integer i
       real*8 theta_angle
+      return
+      end
+
+      subroutine gpu_set_hilo(ngravhilo)
+      integer ngravhilo
       return
       end
