@@ -421,3 +421,8 @@ c     nkernel=2 is the Wendland C4 kernel
       real*8 theta_angle
       return
       end
+
+      subroutine gpu_set_hilo(ngravhilo)
+      integer ngravhilo
+      return
+      end

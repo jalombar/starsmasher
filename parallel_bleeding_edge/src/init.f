@@ -639,7 +639,7 @@ c      end
      $     cn1,cn2,cn3,cn4,cn5,cn6,cn7,computeexclusivemode,ppn,
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
-     $     opacityfile,profilefile,nkernel,throwaway,
+     $     opacityfile,profilefile,nkernel,ngravhilo,throwaway,
      $     internal_energy_fraction,
      $     startfile3,binaryfile,triplefile,bpbhfile,
      $     imagefile,advectedfile,
@@ -739,6 +739,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       starradius=1d0 ! radius of the polytrope to build, in solar radii
       ncooling=0 ! 0 if no cooling, otherwise radiative cooling
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
+      ngravhilo=0 ! GPU gravity only: 0 sends each position to the card as a float, relative to the gas centre of mass, so a star far from that point loses digits in its close separations.  1 also sends each float's remainder, so separations keep single precision however far the pair is from that point, for about 15% more GPU time per gravity call
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
       ndtoutafter=100 ! once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first

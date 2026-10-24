@@ -29,6 +29,9 @@ something changed.  These tell you whether the answer is right.
    * - ``block_cpu_gpu``
      - With block timesteps, where gravity is computed on the active particles
        only, the CPU and GPU builds agree.
+   * - ``gpu_hilo``
+     - GPU gravity with and without the float remainders of the positions
+       (``ngravhilo``) agrees for a single star.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.

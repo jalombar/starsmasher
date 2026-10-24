@@ -37,6 +37,16 @@ struct devParticle
 };
 #define PTCL_LEN (sizeof(devParticle) / sizeof(float4))
 
+// ngravhilo=1: the float remainder of each position (position - pos), kept in
+// an array of its own, so that ngravhilo=0 reads and computes what it did before
+struct devParticleLo
+{
+  fcuVec3 lo;                  // 3
+  float   pad;                 // 4
+  __host__ __device__ devParticleLo() {}
+  __host__ __device__ devParticleLo(const fcuVec3 _lo) : lo(_lo), pad(0.0f) {}
+};
+
 struct devForce
 {
   ds64 ax, ay, az;   // 6
@@ -52,12 +62,15 @@ struct devForce
 
 #define __gravout
 
+template<const bool HILO>
 __forceinline__ __device__ devForce dev_force_ij_nkernel0(
     const devParticle pi,
     const devParticle pj,
+    const fcuVec3 ilo,
+    const fcuVec3 jlo,
     __gravout devForce    iforce)
 {
-  const fcuVec3 dr = pj.pos - pi.pos;
+  const fcuVec3 dr = HILO ? (pj.pos - pi.pos) + (jlo - ilo) : pj.pos - pi.pos;
   const float   r2 = dr*dr;
   
   const float  rinv  = rsqrtf(r2);
@@ -181,12 +194,15 @@ __forceinline__ __device__ devForce dev_force_ij_nkernel0(
   return iforce;
 }
 
+template<const bool HILO>
 __forceinline__ __device__ devForce dev_force_ij_nkernel1(
     const devParticle pi,
     const devParticle pj,
+    const fcuVec3 ilo,
+    const fcuVec3 jlo,
     __gravout devForce    iforce)
 {
-  const fcuVec3 dr = pj.pos - pi.pos;
+  const fcuVec3 dr = HILO ? (pj.pos - pi.pos) + (jlo - ilo) : pj.pos - pi.pos;
   const float   r2 = dr*dr;
   
   const float  rinv  = rsqrtf(r2);
@@ -287,12 +303,15 @@ __forceinline__ __device__ devForce dev_force_ij_nkernel1(
   return iforce;
 }
 
+template<const bool HILO>
 __forceinline__ __device__ devForce dev_force_ij_nkernel2(
     const devParticle pi,
     const devParticle pj,
+    const fcuVec3 ilo,
+    const fcuVec3 jlo,
     __gravout devForce    iforce)
 {
-  const fcuVec3 dr = pj.pos - pi.pos;
+  const fcuVec3 dr = HILO ? (pj.pos - pi.pos) + (jlo - ilo) : pj.pos - pi.pos;
   const float   r2 = dr*dr;
   
   const float  rinv  = rsqrtf(r2);
@@ -395,12 +414,13 @@ __forceinline__ __device__ devForce dev_force_ij_nkernel2(
   return iforce;
 }
 
-template<const int NTHREAD>
+template<const int NTHREAD, const bool HILO>
 __global__ void dev_compute_forces(
     const int nj,
     const int nibeg,
     const int ni,
     const devParticle *ptcl_in,
+    const devParticleLo *plo_in,
     __gravout devForce    *force_out,
     const int nkernel,
     const int *ilist)
@@ -410,11 +430,13 @@ __global__ void dev_compute_forces(
 
   // ilist (block timesteps): force_out[idx] is for particle ilist[idx]
   // rather than for particle nibeg+idx
-  const devParticle iptcl = ilist == NULL ? ptcl_in[idx + nibeg]
-                                          : ptcl_in[ilist[idx < ni ? idx : 0]];
+  const int iidx = ilist == NULL ? idx + nibeg : ilist[idx < ni ? idx : 0];
+  const devParticle iptcl = ptcl_in[iidx];
+  const fcuVec3 ilo = HILO ? plo_in[iidx].lo : fcuVec3(0.0f);
   devForce iforce(0.0f);
 
   __shared__ devParticle jpshared[NTHREAD];
+  __shared__ fcuVec3 jloshared[HILO ? NTHREAD : 1];
 
   if(nkernel==0)
   {
@@ -433,13 +455,15 @@ __global__ void dev_compute_forces(
 #else
       jpshared[tid] = ptcl_in[j + tid];
 #endif
+      if (HILO)
+        jloshared[tid] = plo_in[j + tid].lo;
       __syncthreads();
 
       if (idx < ni)
       {
 #pragma unroll 8
         for (int jj = 0; jj < NTHREAD; jj++)
-          iforce = dev_force_ij_nkernel0(iptcl, jpshared[jj], iforce);
+          iforce = dev_force_ij_nkernel0<HILO>(iptcl, jpshared[jj], ilo, jloshared[HILO ? jj : 0], iforce);
       }
       __syncthreads();
     }
@@ -461,13 +485,15 @@ __global__ void dev_compute_forces(
 #else
       jpshared[tid] = ptcl_in[j + tid];
 #endif
+      if (HILO)
+        jloshared[tid] = plo_in[j + tid].lo;
       __syncthreads();
 
       if (idx < ni)
       {
 #pragma unroll 8
         for (int jj = 0; jj < NTHREAD; jj++)
-          iforce = dev_force_ij_nkernel1(iptcl, jpshared[jj], iforce);
+          iforce = dev_force_ij_nkernel1<HILO>(iptcl, jpshared[jj], ilo, jloshared[HILO ? jj : 0], iforce);
       }
       __syncthreads();
     }
@@ -489,13 +515,15 @@ __global__ void dev_compute_forces(
 #else
       jpshared[tid] = ptcl_in[j + tid];
 #endif
+      if (HILO)
+        jloshared[tid] = plo_in[j + tid].lo;
       __syncthreads();
 
       if (idx < ni)
       {
 #pragma unroll 8
         for (int jj = 0; jj < NTHREAD; jj++)
-          iforce = dev_force_ij_nkernel2(iptcl, jpshared[jj], iforce);
+          iforce = dev_force_ij_nkernel2<HILO>(iptcl, jpshared[jj], ilo, jloshared[HILO ? jj : 0], iforce);
       }
       __syncthreads();
     }
@@ -509,6 +537,8 @@ template<int NTHREAD, bool PINNED>
 struct SPHgrav_direct
 {
   cuVector<devParticle, PINNED> ptcl;
+  cuVector<devParticleLo, PINNED> plo;
+  bool hilo;
   cuVector<devForce,    PINNED> force;
   cuVector<int,         PINNED> ilist;
 
@@ -522,7 +552,7 @@ struct SPHgrav_direct
   int nibeg, ni;
   int ndevice;
   std::vector<bool> can_use_device;
-  SPHgrav_direct(const int rank = 0)
+  SPHgrav_direct(const int rank = 0) : hilo(false)
   {
     assert(cudaGetDeviceCount(&ndevice) == 0);
     if (rank == 0)
@@ -585,6 +615,7 @@ struct SPHgrav_direct
     this->uselist = false;
     force.allocate(ni);
     ptcl.h2d();
+    if (hilo) plo.h2d();
 
 
     const int nthreads =        NTHREAD;
@@ -596,7 +627,10 @@ struct SPHgrav_direct
     const int nj = ptcl.size;
     assert(nj % NTHREAD == 0);
 
-    dev_compute_forces<NTHREAD><<<grid, block>>>(nj, nibeg, ni, ptcl, force, nkernel, (const int*)NULL);
+    if (hilo)
+      dev_compute_forces<NTHREAD, true ><<<grid, block>>>(nj, nibeg, ni, ptcl, plo, force, nkernel, (const int*)NULL);
+    else
+      dev_compute_forces<NTHREAD, false><<<grid, block>>>(nj, nibeg, ni, ptcl, (const devParticleLo*)NULL, force, nkernel, (const int*)NULL);
   }
 
   // forces on the ni particles listed (0-based) in ilist.host_pointer only
@@ -613,6 +647,7 @@ struct SPHgrav_direct
     if (ni == 0) return;
     force.allocate(ni);
     ptcl.h2d();
+    if (hilo) plo.h2d();
     ilist.h2d();
 
     const int nthreads =        NTHREAD;
@@ -624,7 +659,10 @@ struct SPHgrav_direct
     const int nj = ptcl.size;
     assert(nj % NTHREAD == 0);
 
-    dev_compute_forces<NTHREAD><<<grid, block>>>(nj, nibeg, ni, ptcl, force, nkernel, (const int*)ilist);
+    if (hilo)
+      dev_compute_forces<NTHREAD, true ><<<grid, block>>>(nj, nibeg, ni, ptcl, plo, force, nkernel, (const int*)ilist);
+    else
+      dev_compute_forces<NTHREAD, false><<<grid, block>>>(nj, nibeg, ni, ptcl, (const devParticleLo*)NULL, force, nkernel, (const int*)ilist);
   }
 
   float last_half()
@@ -655,19 +693,29 @@ namespace SPHgrav
     const float LARGE = 1.0e10;
     const int n = ((nj - 1)/NTHREAD + 1) * NTHREAD;
     grav.ptcl.allocate(n);
+    if (grav.hilo) grav.plo.allocate(n);
 
     // The kernel works in single precision, so positions are sent relative
     // to a reference point, with the subtraction done in double.  Otherwise
     // gas far from the origin, as for a star near a supermassive black hole,
     // loses its close separations to rounding.  The reference is the gas
-    // centroid weighted by 1/h**2 (h2 > 0 marks gas), which minimizes the sum
-    // of (|x-ref|/h)**2: it sits on a dense core, and midway between two
-    // identical stars.  Only separations enter the forces and potential.
+    // centre of mass (h2 > 0 marks gas, so a black hole does not pull it
+    // away from the star).  A star's rounding grows with its distance from
+    // the reference, so this favours the more massive of two stars, and sits
+    // midway between two identical ones.  Only separations enter the forces
+    // and potential.
+    // With ngravhilo=1 each coordinate also carries its float
+    // remainder (lo), and the kernel forms dr = (pj.pos - pi.pos) + (pj.lo -
+    // pi.lo): nearby floats subtract exactly, so a separation keeps float
+    // precision relative to itself wherever the pair is, and the reference
+    // point no longer matters.  Without it, two separated stars cannot both
+    // be near the reference point, and the farther one's close separations
+    // lose digits.
     double wsum = 0.0, xref = 0.0, yref = 0.0, zref = 0.0;
     for (int i = 0; i < nj; i++)
       if (h2[i] > 0.0)
       {
-        const double w = 1.0/h2[i];
+        const double w = mass[i];
         wsum += w;
         xref += w*px[i];
         yref += w*py[i];
@@ -684,13 +732,21 @@ namespace SPHgrav
     {
       assert(h2  [i] != 0.0);
       assert(mass[i] >  0.0);
-      grav.ptcl[i] = devParticle(fcuVec3(px[i] - xref, py[i] - yref, pz[i] - zref), mass[i],
+      const double dx = px[i] - xref, dy = py[i] - yref, dz = pz[i] - zref;
+      grav.ptcl[i] = devParticle(fcuVec3(dx, dy, dz), mass[i],
           std::sqrt(h2[i] > 0.0 ? h2[i] : -h2[i]),
           h2[i] > 0.0 ? 1.0 : 0.0);
+      if (grav.hilo)
+        grav.plo[i] = devParticleLo(fcuVec3(dx - (double)grav.ptcl[i].pos.x,
+                                            dy - (double)grav.ptcl[i].pos.y,
+                                            dz - (double)grav.ptcl[i].pos.z));
     }
 
     for (int i = nj; i < n; i++)
+    {
       grav.ptcl[i] = devParticle(fcuVec3(LARGE), 0.0f, 1.0f, 0.0f);
+      if (grav.hilo) grav.plo[i] = devParticleLo(fcuVec3(0.0f));
+    }
   }
 
   void firsthalf_grav_force(
@@ -757,6 +813,11 @@ namespace SPHgrav
   {
     grav.setDevice(device);
   }
+
+  void setHilo(const bool hilo)
+  {
+    grav.hilo = hilo;
+  }
 }
 
 extern "C"
@@ -797,5 +858,12 @@ extern "C"
     SPHgrav::setDevice(*myrank);
   }
 #endif
+
+  // ngravhilo in sph.input: 1 sends each position as a float plus its float
+  // remainder, 0 as a float alone
+  void gpu_set_hilo_(int *ngravhilo)
+  {
+    SPHgrav::setHilo(*ngravhilo != 0);
+  }
 }
 

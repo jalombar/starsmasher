@@ -166,6 +166,21 @@ def t_block_cpu_gpu(ctx):
     return ('t=%g: cpu and gpu agree on W, U and Etot to 1e-5 '
             '(as few as %.0f%% of particles active per substep)' % (rows[-1][0], 100 * frac))
 
+def t_gpu_hilo(ctx):
+    """GPU gravity with ngravhilo=1 and 0 (the default) agrees for one star.
+
+    A single star sits on the reference point, where the float remainders of
+    the positions change the forces only in the last digits, so both settings
+    must give the same answer.  This keeps ngravhilo=1 from going stale.
+    """
+    res = {}
+    for flag in (1, 0):
+        _, e = run(ctx.exe, ctx.dir('hilo%d' % flag), np=ctx.np, ngravhilo=flag, **POLY)
+        res[flag] = energies(e)[0]
+    for i, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
+        close(res[0][i], res[1][i], 1e-6, '%s, ngravhilo=0 vs 1' % name)
+    return 'ngravhilo=0 and 1 agree on W, U and Etot to 1e-6'
+
 def t_guard_ngravprocs(ctx):
     """Requesting more gravity processes than GPUs must be clamped, not fatal."""
     s = dict(POLY); s['ngravprocs'] = -8; s['tf'] = 2
@@ -378,6 +393,7 @@ TESTS = {
     'ranks':            t_ranks,
     'cpu_gpu':          t_cpu_gpu,
     'block_cpu_gpu':    t_block_cpu_gpu,
+    'gpu_hilo':         t_gpu_hilo,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

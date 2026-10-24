@@ -115,12 +115,22 @@ sharply on a large one.  Gravity is the part that grows fastest with the number
 of particles, and it is the only part the card touches.
 
 The card computes gravity in single precision.  Positions are sent to it
-relative to the gas centroid weighted by :math:`1/h^2`, with the subtraction
-done in double precision, so a star far from the origin, as near a
-supermassive black hole, keeps its close separations.  That point sits on a
-dense core, and midway between two identical stars.  Gas in two dense places
-far apart, such as two stars many thousands of smoothing lengths from each
-other, still loses precision on the card, and is better run with ``make cpu``.
+relative to the centre of mass of the gas, with the subtraction done in double
+precision, so a star far from the origin, as near a supermassive black hole,
+keeps its close separations.  A star's rounding grows with its distance from
+that point, so with two stars it favours the more massive one, and it sits
+midway between two identical stars.
+
+``ngravhilo=1`` also sends each coordinate's float remainder, and the card forms
+each separation from both parts.  A separation then keeps single precision
+relative to itself wherever the pair is, so gas in two dense places far apart,
+such as two stars many thousands of smoothing lengths from each other, is as
+accurate as a single star.  The rounding of a pair's force then also cancels
+between its two particles when they are computed in different gravity calls,
+as with block timesteps, so momentum is conserved better.  This costs about
+15% more time per gravity call on the card, which is mostly hidden when the
+CPU hydrodynamics takes longer than the gravity.  The default is
+``ngravhilo=0``.
 
 What was measured
 ~~~~~~~~~~~~~~~~~
