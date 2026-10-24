@@ -427,9 +427,9 @@ Parallelism and GPUs
      - every run
      - the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
    * - ``ngravhilo``
-     - ``0``
+     - ``1``
      - every run
-     - GPU gravity only: 0 sends each position to the card as a float, relative to the gas centre of mass, so a star far from that point loses digits in its close separations.  1 also sends each float's remainder, so separations keep single precision however far the pair is from that point, for about 15% more GPU time per gravity call
+     - GPU gravity only: 1 sends each position to the card as a float plus the float's remainder, so separations keep single precision however far the pair is from the reference point (the gas centre of mass), and with block timesteps the rounding of each pair's force cancels between its two particles.  0 sends the float alone, for about 15% less GPU time per gravity call, but then a star far from that point loses digits in its close separations, and with nblock=1 momentum and angular momentum drift
    * - ``qthreads``
      - ``0``
      - every run

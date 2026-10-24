@@ -187,7 +187,9 @@ moment at which all the particles' steps end together.  That is whenever the
 longest step any particle is taking ends, so the rows come as often as the
 particles allow: in a partial disruption of a red giant, with ``dtout=10``,
 every 0.08 to 0.6 time units, rather than every 10.  The spacing changes as the
-longest step does, so the rows are not evenly spaced in time.  The summary in
+longest step does, so the rows are not evenly spaced in time.  When some
+particles take the longest step allowed, ``dtmaxblk`` (``dtout`` by default),
+the rows come once per ``dtmaxblk``; set ``dtmaxblk`` smaller for more.  The summary in
 ``log*.sph``, the ``dts=`` lines and ``restartrad.sph`` still come only at the
 end of each ``dtmaxblk``.  The first seven
 columns are always present:

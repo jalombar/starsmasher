@@ -167,11 +167,11 @@ def t_block_cpu_gpu(ctx):
             '(as few as %.0f%% of particles active per substep)' % (rows[-1][0], 100 * frac))
 
 def t_gpu_hilo(ctx):
-    """GPU gravity with ngravhilo=1 and 0 (the default) agrees for one star.
+    """GPU gravity with ngravhilo=1 (the default) and 0 agrees for one star.
 
     A single star sits on the reference point, where the float remainders of
     the positions change the forces only in the last digits, so both settings
-    must give the same answer.  This keeps ngravhilo=1 from going stale.
+    must give the same answer.  This keeps ngravhilo=0 from going stale.
     """
     res = {}
     for flag in (1, 0):

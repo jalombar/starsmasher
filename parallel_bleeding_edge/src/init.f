@@ -739,7 +739,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       starradius=1d0 ! radius of the polytrope to build, in solar radii
       ncooling=0 ! 0 if no cooling, otherwise radiative cooling
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
-      ngravhilo=0 ! GPU gravity only: 0 sends each position to the card as a float, relative to the gas centre of mass, so a star far from that point loses digits in its close separations.  1 also sends each float's remainder, so separations keep single precision however far the pair is from that point, for about 15% more GPU time per gravity call
+      ngravhilo=1 ! GPU gravity only: 1 sends each position to the card as a float plus the float's remainder, so separations keep single precision however far the pair is from the reference point (the gas centre of mass), and with block timesteps the rounding of each pair's force cancels between its two particles.  0 sends the float alone, for about 15% less GPU time per gravity call, but then a star far from that point loses digits in its close separations, and with nblock=1 momentum and angular momentum drift
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
       ndtoutafter=100 ! once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
