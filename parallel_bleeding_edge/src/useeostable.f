@@ -7,7 +7,7 @@
       real*8 rhotablelast,utablelast,xtablelast
       real*8 xxx,yyy,eosmu
       integer i
-      real*8 steprhotest,steputest
+      real*8 steprhotest,steputest !, ugas, pgas
 
       if(myrank.eq.0) write(69,*)'about to read EOS file ',trim(eosfile)
       open (43,file=eosfile)
@@ -65,6 +65,20 @@ c     write(69,*)'reading ',trim(eosfile)
      $              (eostable(iu,irho,ix,i),i=1,3)
                eostable(iu,irho,ix,1)=10d0**eostable(iu,irho,ix,1) ! record temperature instead of log temperature
                eostable(iu,irho,ix,2)=eostable(iu,irho,ix,2)*1.67262158d-24 ! record mean molecular mass in cgs units
+
+c               if(myrank.eq.0) then
+c                  ugas = 10d0**(utable1+(iu-1)*stepu)
+c     $                 -arad*eostable(iu,irho,ix,1)**4
+c     $                 /10d0**(rhotable1+(irho-1)*steprho)
+c                  if(ugas.le.0) write (69,*)'WARNING: ugas=',ugas,irho,
+c     $                 iu, 10d0**(utable1+(iu-1)*stepu), arad*eostable(iu,irho,ix,1)**4
+c     $                 /10d0**(rhotable1+(irho-1)*steprho)
+c                  pgas = eostable(iu,irho,ix,3)
+c     $                 -arad*eostable(iu,irho,ix,1)**4/3
+c                  if(pgas.le.0) write (69,*)'WARNING: pgas=',pgas,irho,
+c     $                 iu, eostable(iu,irho,ix,3), arad*eostable(iu,irho,ix,1)**4/3
+c               endif
+
             enddo
          enddo
          
@@ -125,7 +139,10 @@ c     which=3 gives pressure
       real*8 f00,f01,f10,f11,log10rho,log10u,
      $     rholow,rhohigh,ulow,uhigh,xlow,xhigh
       real*8 useeostable0,useeostable1,meanmu0,meanmu1
-      integer which
+      integer which, iuuse
+      real*8 meanT4_0, meanT4_1, T4boundary, meanP0, meanP1, Pboundary,
+     $     uboundary, rhoboundary, ugasboundary, newfirstargument,
+     $     pgasboundary, Tboundary
 
 c     utable(iu)=utable(1)+(iu-1)*stepu
 c     so, iu= (utable(iu)-utable(1))/stepu + 1
@@ -160,13 +177,22 @@ c         stop
 c      endif
 
       if((ix.lt.1 .or. ix.ge.numx) .and. numx.gt.1) then
-         write(69,*)'xtable1=',xtable1
-         write(69,*)'stepx=',stepx
-         write(69,*)'numx=',numx
-         write(69,*)'particle X=',xxx
-         write(69,*)'ix=',ix
-         write(69,*)'Expand X range covered by EOS file'
-         stop
+         if(myrank.eq.0) then
+            write(69,*)'xtable1=',xtable1
+            write(69,*)'stepx=',stepx
+            write(69,*)'numx=',numx
+            write(69,*)'particle Z=',zzz
+            write(69,*)'particle mu=',particlemu 
+            write(69,*)'particle X=',xxx
+            write(69,*)'ix=',ix
+            write(69,*)'Expand X range covered by EOS file'
+         endif
+
+         if(ix.lt.1) then
+            ix=1
+         else
+            stop
+         endif
       endif
 
       if(irho.ge.1 .and. irho.le.numrho-1 .and. iu.ge.1 .and.
@@ -298,59 +324,146 @@ c     to larger u
          endif
       else
 c     at extreme densities we will use ideal gas + radiation pressure
+c     The most common way to get into this block of code is for a particle to
+c     have a lower density than the lowest density in the eosfile.  However,
+c     this code is the backstop whenever the density or specific internal
+c     energy of a particle is outside the bounds of the EOS table in eosfile.
 
-         if(irho.lt.1) irho=1
-         if(irho.gt.numrho) irho=numrho
+         if(irho.lt.1) then
+            irho=1
+         else if(irho.gt.numrho) then
+            irho=numrho
+         endif
 
-         if(iu.lt.1) then
-            if(numx.gt.1) then
-               meanmu0=eostable(1,irho,ix,  2)
-               meanmu1=eostable(1,irho,ix+1,2)
-               meanmu=(xlow*meanmu1+xhigh*meanmu0)/stepx
+         if(which.eq.2) then
+c     The SPH code doesn't actually ever call this routine with which=2, but this
+c     block of code is retained in case someone ever does want to ask for mean
+c     molecular weight.
+            if(iu.lt.1 .or. iu.ge.numu) then
+               iuuse = min(max(1,iu),numu)
+               if(numx.gt.1) then
+c                 This is for when the eosfile contains data for multiple compositions
+                  meanmu0=eostable(iuuse,irho,ix,  2)
+                  meanmu1=eostable(iuuse,irho,ix+1,2)
+                  meanmu=(xlow*meanmu1+xhigh*meanmu0)/stepx
+               else
+c                 This is for when the eosfile contains data for only one composition
+                  meanmu=eostable(iuuse,irho,1,2)
+               endif
             else
-               meanmu=eostable(1,irho,1,2)
+               ulow=log10u-(utable1+(iu-1)*stepu)
+               uhigh=utable1+iu*stepu-log10u
+               if(numx.gt.1) then
+                  meanmu0=ulow*eostable(iu+1,irho,ix,  2)
+     $                 + uhigh*eostable(iu,  irho,ix,  2)
+                  meanmu1=ulow*eostable(iu+1,irho,ix+1,2)
+     $                 + uhigh*eostable(iu,  irho,ix+1,2)
+                  meanmu=(xlow*meanmu1+xhigh*meanmu0)/(stepu*stepx)
+               else
+                  meanmu=(ulow*eostable(iu+1,irho, 1,2)
+     $                 + uhigh*eostable(iu,  irho,1,2))/stepu
+               endif
             endif
-         else if (iu.ge.numu) then
+            useeostable=meanmu
+            return
+         endif
+
+         if(iu.lt.1 .or. iu.ge.numu) then
+            iuuse = min(max(1,iu),numu)
             if(numx.gt.1) then
-               meanmu0=eostable(numu,irho,ix  ,2)
-               meanmu1=eostable(numu,irho,ix+1,2)
-               meanmu=(xlow*meanmu1+xhigh*meanmu0)/stepx
+               meanT4_0=eostable(iuuse,irho,ix,  1)**4
+               meanT4_1=eostable(iuuse,irho,ix+1,1)**4
+               T4boundary=(xlow*meanT4_1+xhigh*meanT4_0)/stepx
             else
-               meanmu=eostable(numu,irho,1,2)
-            endif   
+               T4boundary=eostable(iuuse,irho,1,1)**4
+            endif
+            uboundary=10d0**(utable1+(iuuse-1)*stepu)
          else
             ulow=log10u-(utable1+(iu-1)*stepu)
             uhigh=utable1+iu*stepu-log10u
             if(numx.gt.1) then
-               meanmu0=ulow*eostable(iu+1,irho,ix,  2)
-     $              + uhigh*eostable(iu,  irho,ix,  2)
-               meanmu1=ulow*eostable(iu+1,irho,ix+1,2)
-     $              + uhigh*eostable(iu,  irho,ix+1,2)
-               meanmu=(xlow*meanmu1+xhigh*meanmu0)/(stepu*stepx)
+               meanT4_0=ulow*eostable(iu+1,irho,ix,  1)**4
+     $                +uhigh*eostable(iu,  irho,ix,  1)**4
+               meanT4_1=ulow*eostable(iu+1,irho,ix+1,1)**4
+     $                +uhigh*eostable(iu,  irho,ix+1,1)**4
+               T4boundary=(xlow*meanT4_1+xhigh*meanT4_0)/(stepu*stepx)
             else
-               meanmu=(ulow*eostable(iu+1,irho, 1,2)
-     $              + uhigh*eostable(iu,  irho,1,2))/stepu
+               T4boundary=(ulow*eostable(iu+1,irho,1,1)**4
+     $                  + uhigh*eostable(iu,  irho,1,1)**4)/stepu
             endif
+            uboundary=ucgs
          endif
+         Tboundary = T4boundary**0.25d0
 
-c     print *,'input=',qconst*rhocgs/meanmu,
-c     $        -ucgs*rhocgs/arad
+         rhoboundary = 10d0**(rhotable1+(irho-1)*steprho)
+         ugasboundary = uboundary - arad*T4boundary/rhoboundary
+!        oneovergammaminus1 = ugasboundary/(boltz*Tboundary/meanmu)
+!        newqconst = oneovergammaminus1*boltz/arad
+!        newqconst = ugasboundary*meanmu/(arad*Tboundary)
+         newfirstargument = ugasboundary*rhocgs/(arad*Tboundary)
 
-         if(which.eq.2) then
-            useeostable=meanmu
-            return
+         If(newfirstargument.gt.0) then
+!     In previous verion, we assumed monatomic gas, so
+!     qconst=1.5d0*boltz/arad
+!     call gettemperature(qconst*rhocgs/meanmu,
+!     $        -ucgs*rhocgs/arad,temperature)
+            
+!     This next line finds the temperature T such that T = Tboundary*ugas/ugasboundary
+!     We have to use gettemperature because ugas is itself dependent on T.  Specifically,
+!     ugas = ucgs - arad*T^4/rhocgs
+            call gettemperature(newfirstargument,
+     $           -ucgs*rhocgs/arad,temperature)
+         else
+            ! ugasboundary=0 when radiation pressure dominates, so presumably radiation pressure still dominates here as well
+            temperature = (ucgs*rhocgs/arad)**0.25d0
          endif
-         call gettemperature(qconst*rhocgs/meanmu,
-     $        -ucgs*rhocgs/arad,temperature)
-
-c         print *,'irho, iu, meanmu, t=',irho,iu,meanmu,temperature
 
          if(which.eq.1) then
             useeostable=temperature
             return
          endif
-         pgas=rhocgs*boltz*temperature/meanmu
+
+c     If we get to this portion of the code, then which=3.  That is, the user is looking
+c     for pressure.
+
+c     In the old code we had the following, which assumes that meanmu is known.
+c         pgas=rhocgs*boltz*temperature/meanmu
+c     Here we want to pgas without knowning explicitly the mu value.
+c     We will start by getting pgas boundary, and we will then get pgas assuming
+c     that mu is the same at the two different positions in parameter space.
+         if(iu.lt.1 .or. iu.ge.numu) then
+            iuuse = min(max(1,iu),numu)
+            if(numx.gt.1) then
+               meanP0=eostable(iuuse,irho,ix,  3)
+               meanP1=eostable(iuuse,irho,ix+1,3)
+               Pboundary=(xlow*meanP1+xhigh*meanP0)/stepx
+            else
+               Pboundary=eostable(iuuse,irho,1,3)
+            endif
+         else
+            ulow=log10u-(utable1+(iu-1)*stepu)
+            uhigh=utable1+iu*stepu-log10u
+            if(numx.gt.1) then
+               meanP0=ulow*eostable(iu+1,irho,ix,  3)
+     $              +uhigh*eostable(iu,  irho,ix,  3)
+               meanP1=ulow*eostable(iu+1,irho,ix+1,3)
+     $              +uhigh*eostable(iu,  irho,ix+1,3)
+               Pboundary=(xlow*meanP1+xhigh*meanP0)/(stepu*stepx)
+            else
+               Pboundary=(ulow*eostable(iu+1,irho, 1,3)
+     $              + uhigh*eostable(iu,  irho,1,3))/stepu
+            endif
+         endif
+         pgasboundary = Pboundary - arad*Tboundary**4/3
+         if(pgasboundary.gt.0) then
+            pgas = pgasboundary*temperature/Tboundary*rhocgs/rhoboundary
+         else
+            ! the table's gas pressure is lost in its rounding where radiation dominates
+            ! (P is given to 4 figures), so presumably radiation pressure still dominates here as well
+            pgas = 0d0
+         endif
          prad=arad*temperature**4/3.d0
+
          beta1=pgas/(pgas+prad)
          gam1=(32.d0-24.d0*beta1-3.d0*beta1**2) /
      $        (24.d0-21.d0*beta1)
