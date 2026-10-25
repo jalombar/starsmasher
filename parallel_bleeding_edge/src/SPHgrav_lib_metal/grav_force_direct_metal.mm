@@ -109,7 +109,19 @@ inline float3 position(const Particle p) {
 // its double value.  Nearby floats subtract exactly, so the separation keeps
 // float precision relative to itself however far the pair is from the
 // reference point.
-inline float3 separation(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo) {
+//
+// A particle's pair with itself (isself) is set to exactly zero rather than
+// left to the arithmetic.  The kernels below tell the self term apart by
+// r2 == 0, and for a point particle (hflag=0, such as a black hole) that term
+// must contribute no potential.  The shader is built with fast math, which
+// lets the compiler reorder (pj - pi) + (jlo - ilo); for i == j the reordered
+// sum can come out as -ilo instead of 0, and the point particle then picks up
+// a spurious self-potential of order -3 m/h.
+inline float3 separation(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
+                         const bool isself) {
+  if (isself) {
+    return float3(0.0f);
+  }
   return kHilo ? (position(pj) - position(pi)) + (jlo - ilo) : position(pj) - position(pi);
 }
 
@@ -123,8 +135,8 @@ inline Force zero_force() {
 }
 
 inline Force force_ij_nkernel0(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
-                                thread Force iforce) {
-  const float3 dr = separation(pi, pj, ilo, jlo);
+                                const bool isself, thread Force iforce) {
+  const float3 dr = separation(pi, pj, ilo, jlo, isself);
   const float r2 = dot(dr, dr);
 
   const float rinv = r2 > 0.0f ? rsqrt(r2) : 0.0f;
@@ -236,8 +248,8 @@ inline Force force_ij_nkernel0(const Particle pi, const Particle pj, const float
 }
 
 inline Force force_ij_nkernel1(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
-                                thread Force iforce) {
-  const float3 dr = separation(pi, pj, ilo, jlo);
+                                const bool isself, thread Force iforce) {
+  const float3 dr = separation(pi, pj, ilo, jlo, isself);
   const float r2 = dot(dr, dr);
 
   const float rinv = r2 > 0.0f ? rsqrt(r2) : 0.0f;
@@ -314,8 +326,8 @@ inline Force force_ij_nkernel1(const Particle pi, const Particle pj, const float
 }
 
 inline Force force_ij_nkernel2(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
-                                thread Force iforce) {
-  const float3 dr = separation(pi, pj, ilo, jlo);
+                                const bool isself, thread Force iforce) {
+  const float3 dr = separation(pi, pj, ilo, jlo, isself);
   const float r2 = dot(dr, dr);
 
   const float rinv = r2 > 0.0f ? rsqrt(r2) : 0.0f;
@@ -402,8 +414,9 @@ kernel void compute_forces(const device Particle *ptcl [[buffer(0)]],
   // rather than for particle nibeg+gid
   Particle iptcl;
   float3 ilo = float3(0.0f);
+  uint iidx = 0xffffffffu;  // no j matches it
   if (gid < params.ni) {
-    const uint iidx = params.uselist != 0 ? ilist[gid] : params.nibeg + gid;
+    iidx = params.uselist != 0 ? ilist[gid] : params.nibeg + gid;
     iptcl = ptcl[iidx];
     if (kHilo) {
       ilo = plo[iidx].xyz;
@@ -423,12 +436,13 @@ kernel void compute_forces(const device Particle *ptcl [[buffer(0)]],
 
     if (gid < params.ni) {
       for (uint jj = 0; jj < THREADS_PER_GROUP; ++jj) {
+        const bool isself = j + jj == iidx;
         if (params.nkernel == 0) {
-          iforce = force_ij_nkernel0(iptcl, jpshared[jj], ilo, jloshared[jj], iforce);
+          iforce = force_ij_nkernel0(iptcl, jpshared[jj], ilo, jloshared[jj], isself, iforce);
         } else if (params.nkernel == 1) {
-          iforce = force_ij_nkernel1(iptcl, jpshared[jj], ilo, jloshared[jj], iforce);
+          iforce = force_ij_nkernel1(iptcl, jpshared[jj], ilo, jloshared[jj], isself, iforce);
         } else {
-          iforce = force_ij_nkernel2(iptcl, jpshared[jj], ilo, jloshared[jj], iforce);
+          iforce = force_ij_nkernel2(iptcl, jpshared[jj], ilo, jloshared[jj], isself, iforce);
         }
       }
     }
