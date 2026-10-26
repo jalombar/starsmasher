@@ -33,6 +33,14 @@ c     linearized (PVRS) pressure when the two pressures are close and it
 c     lies between them, otherwise the two-rarefaction (TRRS) or the
 c     two-shock (TSRS) approximation.  One Newton step from there matches
 c     the converged solution closely at about two thirds of the cost.
+c     The step is taken in q=p**z, z=(gamma-1)/(2 gamma), not in p.
+c     f_L+f_R+vr-vl rises with p and is concave in p, so a Newton step in p
+c     from a guess above the root overshoots below it, and for a fast
+c     approach across a large density contrast it can land on pmin, which
+c     makes p*-pstat negative and cools the pair.  In q the rarefaction
+c     branch is linear and the shock branch convex, so the step never
+c     lands below the root, and it is exact when both waves are
+c     rarefactions (equal gammas).
 c     nrs=0: Newton iteration to convergence from the PVRS guess, usually
 c     two to four steps.
 c     Both calls of a pair (p* and p*_0) take the same path, so ps is the
@@ -41,7 +49,7 @@ c     same for both when the pair has no relative motion.
       real*8 rl,vl,pl,gl,rr,vr,pr,gr,ps
       integer nrs
       real*8 cl,cr,pmin,p,pn,fl,fr,dl,dr
-      real*8 pmn,pmx,ppv,gm,z,p0,gsl,gsr
+      real*8 pmn,pmx,ppv,gm,z,p0,gsl,gsr,q
       integer it
 
       cl=sqrt(gl*pl/rl)
@@ -80,10 +88,14 @@ c     same for both when the pair has no relative motion.
          p=(gsl*pl+gsr*pr-(vr-vl))/(gsl+gsr)
       endif
       p=max(p,pmin)
-c     one Newton step
+c     one Newton step in q=p**z, with dq/dp=z q/p
       call riemann_f(p,rl,pl,cl,gl,fl,dl)
       call riemann_f(p,rr,pr,cr,gr,fr,dr)
-      ps=max(p-(fl+fr+vr-vl)/(dl+dr),pmin)
+      gm=0.5d0*(gl+gr)
+      z=(gm-1.d0)/(2.d0*gm)
+      q=p**z
+      q=q-(fl+fr+vr-vl)*z*q/((dl+dr)*p)
+      ps=max(q,pmin**z)**(1.d0/z)
       return
       end
 ************************************************************************
