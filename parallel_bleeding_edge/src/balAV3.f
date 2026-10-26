@@ -287,6 +287,16 @@ c     multiplies by balsara's f_i as in nav=3
      $                    gam1p(i),nriemann,pstar)
                      call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,pr,
      $                    gam1p(i),nriemann,pstat)
+c     the exact p* falls as vr-vl rises, so p*-pstat must have the sign of
+c     vl-vr.  If the one-step solution does not, solve this pair to
+c     convergence (rare: never in the pairs of the collision dumps tested)
+                     if(nriemann.ne.0 .and.
+     $                    (pstar-pstat)*(vr-vl).gt.0.d0) then
+                        call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
+     $                       gam1p(i),0,pstar)
+                        call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,
+     $                       pr,gam1p(i),0,pstat)
+                     endif
                      pijin=2.d0*(pstar-pstat)/rho(i)**2
                      if(navsw.eq.1 .or. navsw.eq.3) pijin=pijin*abs(divvi)/
      $                    (abs(divvi)+abscurli+0.00001d0*ci*invh)

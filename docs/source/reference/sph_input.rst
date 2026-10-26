@@ -155,7 +155,7 @@ Equation of state and physics
    * - ``nriemann``
      - ``1``
      - every run
-     - nav=4 only: 1 for the star pressure from toro's adaptive guess and one newton step, about 15% faster per step in a shock tube.  0 to iterate newton to convergence
+     - nav=4 only: 1 for the star pressure from toro's adaptive guess and one halley step in p\*\*((gamma-1)/(2 gamma)), which cannot fall to the pressure floor as a newton step in p can, with any pair whose p\*-p\*\_0 comes out with the wrong sign solved to convergence.  0 to iterate newton to convergence
    * - ``alpha``
      - ``1``
      - every run
