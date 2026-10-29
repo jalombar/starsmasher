@@ -899,7 +899,8 @@
          call sync_w(hp)
          call sync_w(rho)
          call sync_w(por2)
-         if(nav.eq.4) call sync_w(gam1p)
+!     with neos=0 every Gamma_1 is gam (riemann_alloc), so there is nothing to share
+         if(nav.eq.4 .and. neos.ne.0) call sync_w(gam1p)
          call sync_w(bonet_omega)
          call sync_w(bonet_0mega)
          call sync_w(bonet_psi)
@@ -910,7 +911,7 @@
          call sync_all(hp)
          call sync_all(rho)
          call sync_all(por2)
-         if(nav.eq.4) call sync_all(gam1p)
+         if(nav.eq.4 .and. neos.ne.0) call sync_all(gam1p)
          call sync_all(bonet_omega)
          call sync_all(bonet_0mega)
          call sync_all(bonet_psi)

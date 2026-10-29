@@ -51,8 +51,7 @@ c     variables used for radiative cooling portion of the code:
       integer itabtilde
 c     nav=4: the pair's Riemann problem along r_ij (see riemann.f)
       real*8 rij,vir,vjr,pstar,pstat,vsig,cj
-      real*8 rhl,rhr,vl,vr,pl,pr,si,sj,sep3(3),rhat3(3)
-      integer ka,kb
+      real*8 rhl,rhr,vl,vr,pl,pr
 
       if(nav.eq.0) then
          if(nintvar.eq.1 .or. nintvar.eq.3)then
@@ -74,9 +73,8 @@ c     rho_and_h, otherwise only this rank's own particles hold them.
          if(.not.blkdist .and. nblock.eq.0) then
             call sync_all(rho)
             call sync_all(por2)
-            call sync_all(gam1p)
+            if(neos.ne.0) call sync_all(gam1p)
          endif
-         call riemann_gradients
       endif
 
       switchedav=.false.
@@ -231,13 +229,19 @@ c                               a     +    b * c   (multiply-add, cpu likes thes
                endif
 
 c     nav=4: the Riemann problem along r_hat=(r_i-r_j)/|r_i-r_j|, on which
-c     j is the left state and i the right, with both states reconstructed
-c     to the pair midpoint from limited gradients.  pstat is the star
+c     j is the left state and i the right, each with its particle's own
+c     density, pressure and velocity along r_hat.  pstat is the star
 c     pressure of the same problem with the two particles at rest, so
 c     p*-pstat is the part that comes from their relative motion, and
-c     2(p*-pstat)/rho_i^2 takes the place of the AV.  It is zero without
-c     relative motion, where the equations reduce to the variational
-c     ones, and it heats in both compression and expansion.
+c     (p*-pstat)(1/rho_i^2+1/rho_j^2) takes the place of the AV.  It is
+c     the same from both ends of the pair, so the dissipation conserves
+c     energy pair by pair, and it is zero without relative motion, where
+c     the equations reduce to the variational ones.  (Second-order states
+c     reconstructed to the pair midpoint from limited gradients were
+c     tried and dropped: the limiter switching them on and off broke
+c     energy conservation by percents in black hole-star encounters.  On
+c     shock tubes with navsw=2 they were within a few per cent of these
+c     first-order states, and with navsw=1 up to 1.5 times more accurate.)
                if(nav.eq.4 .and. r2.eq.0.d0) then
                   vir=0.d0
                   vjr=0.d0
@@ -247,37 +251,10 @@ c     ones, and it heats in both compression and expansion.
                   vjr=(vx(j)*dx+vy(j)*dy+vz(j)*dz)/rij
                   pl=por2(j)*rho(j)**2
                   pr=por2i*rho(i)**2
-c     slopes over the separation from i to j, grad q.(r_j-r_i)=-grad q.dd
-                  sep3(1)=dx
-                  sep3(2)=dy
-                  sep3(3)=dz
-                  do ka=1,3
-                     rhat3(ka)=sep3(ka)/rij
-                  enddo
-                  si=0.d0
-                  sj=0.d0
-                  do ka=1,3
-                     si=si-rgrad(ka,i)*sep3(ka)
-                     sj=sj-rgrad(ka,j)*sep3(ka)
-                  enddo
-                  call riemann_limit(rho(i),rho(j),si,sj,rhr,rhl)
-                  si=0.d0
-                  sj=0.d0
-                  do ka=1,3
-                     si=si-rgrad(3+ka,i)*sep3(ka)
-                     sj=sj-rgrad(3+ka,j)*sep3(ka)
-                  enddo
-                  call riemann_limit(pr,pl,si,sj,pr,pl)
-c     the velocity along r_hat: (dd.grad) v . r_hat
-                  si=0.d0
-                  sj=0.d0
-                  do kb=1,3
-                     do ka=1,3
-                        si=si-sep3(ka)*rgrad(6+3*(kb-1)+ka,i)*rhat3(kb)
-                        sj=sj-sep3(ka)*rgrad(6+3*(kb-1)+ka,j)*rhat3(kb)
-                     enddo
-                  enddo
-                  call riemann_limit(vir,vjr,si,sj,vr,vl)
+                  rhl=rho(j)
+                  rhr=rho(i)
+                  vl=vjr
+                  vr=vir
 c     navsw selects a switch: 2 or 3 drops receding pairs, 1 or 3
 c     multiplies by balsara's f_i as in nav=3
                   if((navsw.eq.2 .or. navsw.eq.3) .and. divin.ge.0.d0) then
@@ -297,7 +274,7 @@ c     convergence (rare: never in the pairs of the collision dumps tested)
                         call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,
      $                       pr,gam1p(i),0,pstat)
                      endif
-                     pijin=2.d0*(pstar-pstat)/rho(i)**2
+                     pijin=(pstar-pstat)*(1.d0/rho(i)**2+1.d0/rho(j)**2)
                      if(navsw.eq.1 .or. navsw.eq.3) pijin=pijin*abs(divvi)/
      $                    (abs(divvi)+abscurli+0.00001d0*ci*invh)
                   endif
