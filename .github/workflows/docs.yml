@@ -71,9 +71,10 @@ jobs:
           path: docs/build
 
   deploy:
-    # Only master is published.  A pull request builds and is checked, but does
-    # not replace the live site.
-    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    # Only master of the public repository is published.  A pull request, and
+    # any copy of the repository (a private development copy has no Pages
+    # site), builds and is checked but does not deploy.
+    if: github.repository == 'jalombar/starsmasher' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
