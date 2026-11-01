@@ -60,8 +60,12 @@
       common/mine/vxdotsm,vydotsm,vzdotsm
       real*8 pi,alpha,beta
       real*8 trelax,sep0,t,tf,dtout,dt,dth,hco,mco,hfloor,tscanon,sepfinal
-      real*8 dgdhtab(ntab), dgtab(ntab), gtab(ntab)
-      real*8 wtab(ntab),dwtab(ntab),ctab,dwdhtab(ntab),dphidhtab(ntab)
+!     The kernel tables are sampled uniformly in u^2=(r/h)^2 from 0 to 4 and
+!     read with linear interpolation, which reads entry itab+1.  At u^2=4 that
+!     is one past the table, so every table has a guard entry ntab+1 that
+!     repeats entry ntab (see tabulinit).
+      real*8 dgdhtab(ntab+1), dgtab(ntab+1), gtab(ntab+1)
+      real*8 wtab(ntab+1),dwtab(ntab+1),ctab,dwdhtab(ntab+1),dphidhtab(ntab+1)
       real*8 x(nmax),y(nmax),z(nmax),vx(nmax),vy(nmax),vz(nmax)  
       real*8 am(nmax),hp(nmax),u(nmax),rho(nmax),por2(nmax)
       real*8 grpot(nmax),meanmolecular(nmax),bb(nmax),aa(nmax),dd(nmax)
