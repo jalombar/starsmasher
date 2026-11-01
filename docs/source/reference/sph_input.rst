@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **105** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **106** settings.
 
 
 .. _sph-input-time-and-output:
@@ -430,6 +430,10 @@ Parallelism and GPUs
      - ``1``
      - every run
      - GPU gravity only: 1 sends each position to the card as a float plus the float's remainder, so separations keep single precision however far the pair is from the reference point (the gas centre of mass), and with block timesteps the rounding of a pair's force cancels between its two particles.  0 sends the float alone, at the same cost for the whole system and about 15% less for the active particles of block steps, but a star far from that point loses digits in its close separations, and with nblock=1 momentum and angular momentum drift
+   * - ``ngravoverlap``
+     - ``0``
+     - every run
+     - 1 lets the gpus work while the cpus solve the smoothing lengths, for the direct sum on the gpus (ngravtree=0): the tiles of the far field that are far whatever the smoothing lengths turn out to be start first, the others when they are solved.  Not used with block steps (nblock=1) or with ngravtree=1.  The result differs from 0 in the last bits of the sums of the force
    * - ``ngravtree``
      - ``0``
      - every run

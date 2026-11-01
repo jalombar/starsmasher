@@ -640,7 +640,7 @@ c      end
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,ngravhilo,throwaway,
-     $     ngravtree,treeacc,nleafgrav,
+     $     ngravtree,treeacc,nleafgrav,ngravoverlap,
      $     internal_energy_fraction,
      $     startfile3,binaryfile,triplefile,bpbhfile,
      $     imagefile,advectedfile,
@@ -744,6 +744,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       ngravtree=0 ! gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), which uses the threads of every rank and no gpu.  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads, but it does not conserve momentum and angular momentum to machine precision
       treeacc=0.45d0 ! opening angle theta of the tree (ngravtree=1): a node is used as a whole if theta^2 r^2 > (size_A + size_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
       nleafgrav=24 ! most particles in a leaf of the gravity tree (ngravtree=1); the particles of a leaf share one Taylor series of the far field
+      ngravoverlap=0 ! 1 lets the gpus work while the cpus solve the smoothing lengths, for the direct sum on the gpus (ngravtree=0): the tiles of the far field that are far whatever the smoothing lengths turn out to be start first, the others when they are solved.  Not used with block steps (nblock=1) or with ngravtree=1.  The result differs from 0 in the last bits of the sums of the force
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
       ndtoutafter=100 ! once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
@@ -833,6 +834,7 @@ c     the tree gravity (gravtree.f90) is collected as the gpu's is: nusegpus=1 a
 c     self-gravity, every rank (up to ngravprocsmax of them) does the gravity of its
 c     own range of particles
       if(ngravtree.lt.0 .or. ngravtree.gt.1) stop 'init: ngravtree must be 0 or 1'
+      if(ngravoverlap.lt.0 .or. ngravoverlap.gt.1) stop 'init: ngravoverlap must be 0 or 1'
       if(ngravtree.ne.0) then
          nusegpus=1
          nselfgravity=1
