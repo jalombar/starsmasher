@@ -30,6 +30,9 @@
       use kdtree2_module
       implicit none
       type hscratch
+!        (padding: the records of the threads lie one after the other in an array, and a thread writes
+!        r2last and ncand for every particle, so two records must not share a cache line)
+         integer :: pad1(32)=0
          type(kdtree2_result), allocatable :: res(:)
          integer :: ncand=0, nfb=0
          real*8 :: r2last=-1.d30
@@ -38,6 +41,7 @@
 !        list of the particle being solved starts (pstart); positions are
 !        offsets, the entries being list(offset+1:offset+nn)
          integer :: lpos=0, lend=0, pstart=0
+         integer :: pad2(32)=0
       end type hscratch
       end module hscratch_mod
 ! 

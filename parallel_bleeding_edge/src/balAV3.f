@@ -401,6 +401,7 @@ c     with one collective instead of one for each component
 
 c     with one rank there is nothing to add: the accelerations are the ones given
       if(nprocs.eq.1) then
+!$omp parallel do simd schedule(static) private(i)
          do i=1,n
             vxdot(i)=ax(i)
             vydot(i)=ay(i)

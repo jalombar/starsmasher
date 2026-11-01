@@ -519,6 +519,11 @@ module kdtree2_module
   integer, parameter :: taskmin = 2048
   integer, parameter :: maxtreethreads = 32
   integer, parameter :: spreadmin = 40000
+  integer, parameter :: parmin = 32768, pblk = 8192
+  ! the cut of a node of more than parmin points is the mean of its points found as a sum over blocks of pblk (added in the order of
+  ! the blocks), and the points are divided by par_partition, which keeps their order in each half; smaller nodes are done as
+  ! they always were.  The tree this gives differs from the one of a plain loop, but not with the number of threads.
+  ! (A search finds every point within the radius whatever the tree, so the neighbours are the same.)
   ! ranges of more points than this are looked at by several tasks when the spread of a node is found
   ! the team that builds or frees a tree has at most this many threads
   ! with OpenMP the subtrees of more than this many points are built (and freed) by tasks of their own.
@@ -579,6 +584,8 @@ module kdtree2_module
       ! some initial computation and storage cost.
       type (tree_node), pointer :: root => null()
       ! root pointer of the tree
+      integer, pointer :: ind2(:) => null()
+      ! scratch of the size of ind, there while the tree is built (par_partition)
   end type kdtree2
 
 
@@ -709,6 +716,11 @@ contains
       forall (j=1:tp%n)
          tp%ind(j) = j
       end forall
+      if (tp%n .gt. parmin) then
+         allocate (tp%ind2(tp%n))
+      else
+         nullify (tp%ind2)
+      end if
 !     inside a parallel region (the tree over all the particles that a search may need beyond the
 !     partial one) the tasks go to the threads of that region; otherwise a team of its own does them
 !$omp parallel if(tp%n.gt.4*taskmin .and. .not.omp_in_parallel()) num_threads(min(omp_get_max_threads(),maxtreethreads))
@@ -716,6 +728,10 @@ contains
       tp%root => build_tree_for_range(tp,1,tp%n, dummy)
 !$omp end single
 !$omp end parallel
+      if (associated(tp%ind2)) then
+         deallocate (tp%ind2)
+         nullify (tp%ind2)
+      end if
     end subroutine build_tree
 
     recursive function build_tree_for_range(tp,l,u,parent) result (res)
@@ -812,7 +828,10 @@ contains
             ! who says this helps in some degenerate cases, or 
             ! actual arithmetic average. 
             !
-            if (.true.) then
+            if (u-l+1 .gt. parmin) then
+               ! a big node: the mean as a sum over blocks, and the points divided by blocks
+               average = par_mean(tp%the_data,tp%ind,c,l,u)
+            else if (.true.) then
                ! actually compute average
                average = sum(tp%the_data(c,tp%ind(l:u))) / real(u-l+1,kdkind)
             else
@@ -820,7 +839,11 @@ contains
             endif
                
             res%cut_val = average
-            m = select_on_coordinate_value(tp%the_data,tp%ind,c,average,l,u)
+            if (u-l+1 .gt. parmin) then
+               m = par_partition(tp%the_data,tp%ind,tp%ind2,c,average,l,u)
+            else
+               m = select_on_coordinate_value(tp%the_data,tp%ind,c,average,l,u)
+            end if
          endif
             
          ! moves indexes around
@@ -865,6 +888,90 @@ contains
          endif
       end if
     end function build_tree_for_range
+
+    real(kdkind) function par_mean(v,ind,c,l,u) result(avg)
+      ! mean of coordinate c of the points ind(l:u): block sums by tasks, added in the order of the blocks
+      real(kdkind) :: v(1:,1:)
+      integer :: ind(1:)
+      integer, intent(in) :: c, l, u
+      integer :: nb, ib, a, b, i
+      real(kdkind) :: ps(1+(u-l)/pblk), t
+      nb = 1 + (u-l)/pblk
+      do ib = 1, nb
+         a = l + (ib-1)*pblk
+         b = min(u, a+pblk-1)
+!$omp task firstprivate(ib,a,b) shared(ps,v,ind,c)
+         t = 0
+         do i = a, b
+            t = t + v(c,ind(i))
+         end do
+         ps(ib) = t
+!$omp end task
+      end do
+!$omp taskwait
+      avg = 0
+      do ib = 1, nb
+         avg = avg + ps(ib)
+      end do
+      avg = avg / real(u-l+1,kdkind)
+    end function par_mean
+
+    integer function par_partition(v,ind,ind2,c,alpha,l,u) result(m)
+      ! move the points ind(l:u) with coordinate c <= alpha before the others, each half in its old order (a stable
+      ! partition by blocks: count, scan, scatter into ind2, copy back); the result is the last place of the first half
+      real(kdkind) :: v(1:,1:)
+      integer :: ind(1:), ind2(1:)
+      integer, intent(in) :: c, l, u
+      real(kdkind), intent(in) :: alpha
+      integer :: nb, ib, a, b, i, k, nl, kl, kr
+      integer :: cnt(1+(u-l)/pblk), offl(1+(u-l)/pblk), offr(1+(u-l)/pblk)
+      nb = 1 + (u-l)/pblk
+      do ib = 1, nb
+         a = l + (ib-1)*pblk
+         b = min(u, a+pblk-1)
+!$omp task firstprivate(ib,a,b) shared(cnt,v,ind,c,alpha)
+         k = 0
+         do i = a, b
+            if (v(c,ind(i)) <= alpha) k = k + 1
+         end do
+         cnt(ib) = k
+!$omp end task
+      end do
+!$omp taskwait
+      nl = 0
+      do ib = 1, nb
+         offl(ib) = nl
+         offr(ib) = (ib-1)*pblk - nl
+         nl = nl + cnt(ib)
+      end do
+      do ib = 1, nb
+         a = l + (ib-1)*pblk
+         b = min(u, a+pblk-1)
+!$omp task firstprivate(ib,a,b) shared(offl,offr,v,ind,ind2,c,alpha,nl,l)
+         kl = l + offl(ib)
+         kr = l + nl + offr(ib)
+         do i = a, b
+            if (v(c,ind(i)) <= alpha) then
+               ind2(kl) = ind(i)
+               kl = kl + 1
+            else
+               ind2(kr) = ind(i)
+               kr = kr + 1
+            end if
+         end do
+!$omp end task
+      end do
+!$omp taskwait
+      do ib = 1, nb
+         a = l + (ib-1)*pblk
+         b = min(u, a+pblk-1)
+!$omp task firstprivate(a,b) shared(ind,ind2)
+         ind(a:b) = ind2(a:b)
+!$omp end task
+      end do
+!$omp taskwait
+      m = l + nl - 1
+    end function par_partition
 
     integer function select_on_coordinate_value(v,ind,c,alpha,li,ui) &
      result(res)
