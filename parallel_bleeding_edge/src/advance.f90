@@ -398,6 +398,11 @@
       real*8 r2last
       integer in, jn
       real*8 dist2
+!     candidate neighbours of the particle being solved: results(1:ncand),
+!     every particle within sqrt(r2last) of it, in the order of the tree
+!     search and with its squared distance (see cache_search)
+      integer ncand
+      logical usecache
       integer mylength,irank,ierr
       real*8 dxfrac
       logical usebrute
@@ -462,6 +467,9 @@
          usebrute=(20*nsolve.lt.(n_upper-n_lower+1))
       endif
       if(.not.usebrute) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.) ! this is how you create a tree.
+!     a periodic box and the direct search of block steps keep their own
+!     searches and lists
+      usecache=.not.usebrute .and. .not.periodic
       if(usebrute) then
          hsmall=1.d30
          if(blkdist) then
@@ -566,20 +574,8 @@
          hp(i)=xl
 
          r2=4.d0*hp(i)**2.d0
-         r2last=r2
-
-         if(usebrute) then
-            call brute_r2(i,r2,cnt,results)
-         else
-            call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
-               r2=r2,nfound=cnt,nalloc=ntree,results=results)
-         endif
-         nn(i)=cnt
-         call check_neighbor_capacity(i)
-         list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
-         if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
-         
-         call bonetfuncd(i,fl,df)
+         r2last=-1.d30
+         call bfun(i,r2,fl,df)
 
          dx=fl/df
          if(abs(dx).lt.xacc) then
@@ -597,36 +593,7 @@
          hp(i)=xh
 
          r2=4.d0*hp(i)**2.d0
-         if(r2.le.r2last) then
-            ! there's no need to search the entire tree, because the
-            ! h we are trying is smaller than the last h we tried!
-            cnt=0
-            do in=1,nn(i)
-               jn=list(first(i)+in)
-               dist2=(x(i)-x(jn))**2+(y(i)-y(jn))**2+(z(i)-z(jn))**2
-               if(periodic) dist2=pbcdist2(i,jn)
-               if(dist2.lt.r2) then
-                  cnt=cnt+1
-                  list(first(i)+cnt)=jn
-               endif
-            enddo
-            nn(i)=cnt
-         else
-            if(usebrute) then
-               call brute_r2(i,r2,cnt,results)
-            else
-               call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                  correltime=-1,&
-                  r2=r2,nfound=cnt,nalloc=ntree,results=results)
-            endif
-            nn(i)=cnt
-            call check_neighbor_capacity(i)
-            list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
-            if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
-         endif
-         r2last=r2
-      
-         call bonetfuncd(i,fh,df)
+         call bfun(i,r2,fh,df)
          dx=fh/df
          
          if(abs(dx).lt.xacc) then
@@ -671,37 +638,7 @@
             hp(i)=ezrtsafe
 
             r2=4.d0*hp(i)**2.d0
-            if(r2.le.r2last) then
-               ! there's no need to search the entire tree, because the
-               ! h we are trying is smaller than the last h we tried!
-               cnt=0
-               do in=1,nn(i)
-                  jn=list(first(i)+in)
-                  dist2=(x(i)-x(jn))**2&
-                       +(y(i)-y(jn))**2+(z(i)-z(jn))**2
-                  if(periodic) dist2=pbcdist2(i,jn)
-                  if(dist2.lt.r2) then
-                     cnt=cnt+1
-                     list(first(i)+cnt)=jn
-                  endif
-               enddo
-               nn(i)=cnt
-            else
-               if(usebrute) then
-                  call brute_r2(i,r2,cnt,results)
-               else
-                  call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                     correltime=-1,r2=r2,nfound=cnt,nalloc=ntree,&
-                     results=results)
-               endif
-               nn(i)=cnt
-               call check_neighbor_capacity(i)
-               list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
-               if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
-            endif
-            r2last=r2
-
-            call bonetfuncd(i,ff,df)
+            call bfun(i,r2,ff,df)
             
             if(ff.lt.0.d0) then
                xl=ezrtsafe
@@ -760,7 +697,9 @@
             facco=(hp(i)/hlowco)**(hcopnorm-1.d0)*(hbhco/hlowco)**(hcopnorm+1.d0)
             ! neighbour list out to 2*max(h,h_dyn), and chi at h_dyn from it
             r2=4.d0*max(hbhco,hp(i))**2
-            if(r2.gt.r2last) then
+            if(usecache) then
+               call nlist(i,r2)
+            elseif(r2.gt.r2last) then
                if(usebrute) then
                   call brute_r2(i,r2,cnt,results)
                else
@@ -798,33 +737,7 @@
          r2=4.d0*hp(i)**2.d0
 !     dynhco=3: the list must also reach 2*htilde for chi when h is capped
          if(dynhco.eq.3 .and. u(i).eq.0.d0) r2=4.d0*max(hp(i),hdynco(i))**2
-         if(r2.le.r2last) then
-            ! there's no need to search the entire tree, because the
-            ! h we are trying is smaller than the last h we tried!
-            cnt=0
-            do in=1,nn(i)
-               jn=list(first(i)+in)
-               dist2=(x(i)-x(jn))**2+(y(i)-y(jn))**2+(z(i)-z(jn))**2
-               if(periodic) dist2=pbcdist2(i,jn)
-               if(dist2.lt.r2) then
-                  cnt=cnt+1
-                  list(first(i)+cnt)=jn
-               endif
-            enddo
-            nn(i)=cnt
-         else
-            if(usebrute) then
-               call brute_r2(i,r2,cnt,results)
-            else
-               call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                  correltime=-1,&
-                  r2=r2,nfound=cnt,nalloc=ntree,results=results)
-            endif
-            nn(i)=cnt
-            call check_neighbor_capacity(i)
-            list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
-            if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
-         endif
+         call nlist(i,r2)
          
          call bonetsumwithphi(i,rho(i), bonet_omega(i),&
               bonet_0mega(i),&
@@ -930,6 +843,89 @@
       endif
 
       return
+
+      contains
+
+!     Neighbour list of particle i out to 2h=sqrt(r2), in
+!     list(first(i)+1:first(i)+nn(i)).  r2last is the radius out to which
+!     the stored list, or with usecache the candidates, are complete.
+      subroutine nlist(i,r2)
+      integer i,k,cnt,in,jn
+      real*8 r2,dist2
+      if(usecache) then
+         if(r2.gt.r2last) call cache_search(i,r2)
+!     count first, so that a list too long for list() stops the run
+!     before anything is written past its end
+         nn(i)=count(results(1:ncand)%dis.lt.r2)
+         call check_neighbor_capacity(i)
+         cnt=0
+         do k=1,ncand
+            if(results(k)%dis.lt.r2) then
+               cnt=cnt+1
+               list(first(i)+cnt)=results(k)%idx
+            endif
+         enddo
+      elseif(r2.le.r2last) then
+         ! there's no need to search the entire tree, because the
+         ! h we are trying is smaller than the last h we tried!
+         cnt=0
+         do in=1,nn(i)
+            jn=list(first(i)+in)
+            dist2=(x(i)-x(jn))**2+(y(i)-y(jn))**2+(z(i)-z(jn))**2
+            if(periodic) dist2=pbcdist2(i,jn)
+            if(dist2.lt.r2) then
+               cnt=cnt+1
+               list(first(i)+cnt)=jn
+            endif
+         enddo
+         nn(i)=cnt
+         r2last=r2
+      else
+         if(usebrute) then
+            call brute_r2(i,r2,cnt,results)
+         else
+            call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
+               correltime=-1,&
+               r2=r2,nfound=cnt,nalloc=ntree,results=results)
+         endif
+         nn(i)=cnt
+         call check_neighbor_capacity(i)
+         list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+         if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
+         r2last=r2
+      endif
+      end subroutine nlist
+
+!     bonetfuncd for the smoothing length h with 4h^2=r2: its neighbours
+!     are found first
+      subroutine bfun(i,r2,bonetfunc,dbonetfuncdh)
+      integer i
+      real*8 r2,bonetfunc,dbonetfuncdh,bonetrhos,bonetdrhodh
+      if(usecache) then
+         if(r2.gt.r2last) call cache_search(i,r2)
+         call bonetsum_d2(i,r2,ncand,results,bonetrhos,bonetdrhodh)
+         bonetfunc    = bonetrhos - nnopt
+         dbonetfuncdh = bonetdrhodh
+      else
+         call nlist(i,r2)
+         call bonetfuncd(i,bonetfunc,dbonetfuncdh)
+      endif
+      end subroutine bfun
+
+!     One tree search that serves the trial values of h around the one being
+!     tried: it reaches fpad further than r2 asks for, so a next h that is a
+!     little larger needs no new search, and a smaller one is a filter on the
+!     squared distances found here.  A wider margin only adds candidates:
+!     0.02 was the fastest of 0, 0.01, 0.02, 0.03, 0.05, 0.1 and 0.2.
+      subroutine cache_search(i,r2)
+      integer i
+      real*8 r2
+      real*8, parameter :: fpad=0.02d0
+      r2last=r2*(1.d0+fpad)**2
+      call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
+           r2=r2last,nfound=ncand,nalloc=ntree,results=results)
+      end subroutine cache_search
+
       end
 !***********************************************************************
       subroutine bonetsum(i,bonet1_wn, bonet1_0mega)
@@ -984,6 +980,42 @@
 
 !       write(69,*) 'i= ', i, 'h= ', hp(i), 'nn= ', nn(i), 'wn= ', bonet1_wn
       
+      return
+      end
+!***********************************************************************
+      subroutine bonetsum_d2(i,r2cut,ncand,cand,bonet1_wn, bonet1_0mega)
+!     bonetsum over the candidates of rho_and_h that lie within sqrt(r2cut)
+!     of particle i; their squared distances come from the tree search, with
+!     the same arithmetic as bonetsum, which sums them in the same order
+      use kdtree2_module
+      include 'starsmasher.h'
+      integer i,ncand,j,k,itab
+      type(kdtree2_result) :: cand(ncand)
+      real*8 r2cut,bonet1_wn, bonet1_0mega
+      real*8 h2,hpi,ctaboverh2,xq,fq
+
+      bonet1_wn    = 0
+      bonet1_0mega = 0
+
+      hpi=hp(i)
+      h2=hpi**2
+      ctaboverh2=ctab/h2
+      do k=1,ncand
+         if(cand(k)%dis.lt.r2cut) then
+            j=cand(k)%idx
+            if(u(j).ne.0.d0) then
+               xq=min(ctaboverh2*cand(k)%dis,4.d0*ctab)
+               itab=int(xq) + 1
+               fq=xq-dble(itab-1)
+               bonet1_wn     = bonet1_wn    + (gtab(itab)&
+                    +fq*(gtab(itab+1)-gtab(itab)))
+               bonet1_0mega  = bonet1_0mega - (dgdhtab(itab)&
+                    +fq*(dgdhtab(itab+1)-dgdhtab(itab)))
+            endif
+         endif
+      enddo
+      bonet1_0mega = bonet1_0mega/hpi
+
       return
       end
 !***********************************************************************
