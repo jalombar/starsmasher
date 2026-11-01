@@ -518,6 +518,8 @@ module kdtree2_module
 
   integer, parameter :: taskmin = 2048
   integer, parameter :: maxtreethreads = 32
+  integer, parameter :: spreadmin = 40000
+  ! ranges of more points than this are looked at by several tasks when the spread of a node is found
   ! the team that builds or frees a tree has at most this many threads
   ! with OpenMP the subtrees of more than this many points are built (and freed) by tasks of their own.
   ! The nodes are the same as in the serial build: a task works on its own part of ind and the
@@ -962,6 +964,8 @@ contains
       ! the spread in coordinate 'c', between l and u. 
       !
       ! return lower bound in 'smin', and upper in 'smax', 
+      ! A long range is cut in pieces for tasks to do: the minimum and the maximum do not
+      ! depend on the order in which the points are looked at.
       ! ..
       ! .. structure arguments ..
       type (kdtree2), pointer :: tp
@@ -971,8 +975,9 @@ contains
       integer, intent (in) :: c, l, u
       ! ..
       ! .. local scalars ..
-      real(kdkind) :: last, lmax, lmin, t, smin,smax
-      integer :: i, ulocal
+      integer, parameter :: npiece = 16
+      integer :: k, a, b, seg
+      real(kdkind) :: pmin(npiece), pmax(npiece)
       ! ..
       ! .. local arrays ..
       real(kdkind), pointer :: v(:,:)
@@ -980,6 +985,38 @@ contains
       ! ..
       v => tp%the_data(1:,1:)
       ind => tp%ind(1:)
+      if (u-l+1 .gt. spreadmin) then
+         seg = (u-l+1+npiece-1)/npiece
+         do k = 1, npiece
+            a = l + (k-1)*seg
+            b = min(u, a+seg-1)
+            if (a .gt. u) then
+               pmin(k) = huge(pmin(k))
+               pmax(k) = -huge(pmax(k))
+            else
+!$omp task firstprivate(k,a,b) shared(pmin,pmax,v,ind,c)
+               call range_minmax(v,ind,c,a,b,pmin(k),pmax(k))
+!$omp end task
+            end if
+         end do
+!$omp taskwait
+         interv%lower = minval(pmin)
+         interv%upper = maxval(pmax)
+      else
+         call range_minmax(v,ind,c,l,u,interv%lower,interv%upper)
+      end if
+
+    end subroutine spread_in_coordinate
+
+    subroutine range_minmax(v,ind,c,l,u,smin,smax)
+      ! smallest and largest value of coordinate c of the points ind(l:u)
+      integer, intent (in) :: c, l, u
+      real(kdkind), intent(out) :: smin, smax
+      real(kdkind) :: v(1:,1:)
+      integer :: ind(1:)
+      real(kdkind) :: last, lmax, lmin, t
+      integer :: i, ulocal
+
       smin = v(c,ind(l))
       smax = smin
 
@@ -1002,10 +1039,7 @@ contains
          if (smax<last) smax = last
       end if
 
-      interv%lower = smin
-      interv%upper = smax
-
-    end subroutine spread_in_coordinate
+    end subroutine range_minmax
 
 
   subroutine kdtree2_destroy(tp)
