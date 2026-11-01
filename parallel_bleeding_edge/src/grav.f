@@ -13,6 +13,7 @@
       if(myrank.lt.ngravprocs) then
 c     each processor will compute gravity for its chunk of particles
          call wall_time(time0)
+!$omp parallel do simd schedule(static) private(i)
          do i=1,ntot
             range(i) = 4*hp(i)**2;
             if(u(i).eq.0.d0) range(i)=-range(i)

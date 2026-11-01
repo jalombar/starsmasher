@@ -108,6 +108,7 @@
          endif
       endif
 
+!$omp parallel do schedule(static) private(i,ttherm)
       do i=1,n
          x(i)=x(i)+dt*vx(i)    ! update x to half-timestep
          y(i)=y(i)+dt*vy(i)    ! update y to half-timestep
@@ -171,6 +172,7 @@
       dthnew=0.5d0*dt
 
 !     advance velocities:
+!$omp parallel do simd schedule(static) private(i)
       do i=1,n
          vx(i)=vxo(i)+(dth+dthnew)*vxdot(i) ! update vx next half-timestep
          vy(i)=vyo(i)+(dth+dthnew)*vydot(i) ! update vy next half-timestep
@@ -178,6 +180,8 @@
       enddo
 !     advance specific internal energies (nintvar=2) or entropies (nintvar=1):
       amnotte=0.d0
+!     erad and amnotte (ncooling/=0) are running sums in particle order: that case stays on one thread
+!$omp parallel do schedule(static) private(i,uorig,ttherm) if(ncooling.eq.0)
       do i=1,n
          if(u(i).ne.0.d0) then
             if(ncooling.eq.0) then
@@ -282,6 +286,7 @@
       delvy2=-vycm2
       delvz2=-vzcm2
 
+!$omp parallel do schedule(static) private(i)
       do i=1,n1
          x(i)=x(i)+delx1
          y(i)=y(i)+dely1
@@ -290,6 +295,7 @@
          vy(i)=vy(i)+delvy1
          vz(i)=vz(i)+delvz1
       enddo
+!$omp parallel do schedule(static) private(i)
       do i=n1+1,ntot
          x(i)=x(i)+delx2
          y(i)=y(i)+dely2
@@ -374,6 +380,7 @@
 !     calculate hp(i) and rho(i) according to the method of bonet
       use kdtree2_module
       use riemann_data
+      use omp_utils
       include 'starsmasher.h'
       include 'mpif.h'
       double precision drhodhi,dphidhi
@@ -459,6 +466,7 @@
       endif
       ntree=n+nimg
       allocate(my_array(3,ntree))
+!$omp parallel do simd schedule(static) private(k)
       do k=1,n
          my_array(1,k)=x(k)
          my_array(2,k)=y(k)
@@ -1012,9 +1020,15 @@
       integer k,j,i,nown,nx,ny,nz,ix,iy,iz,ix0,ix1,iy0,iy1,iz0,iz1
       real*8 hg,rb,rbmax,xmin,xmax,ymin,ymax,zmin,zmax,c
       integer(1), allocatable :: cellmark(:)
+!     the particles outside the own range that lie in marked cells are counted and then listed block
+!     by block (blocks of redblock consecutive particles), so that the list is in index order
+!     whatever the number of threads
+      integer ib,nb,kk,run,tmp
+      integer, allocatable :: bcnt(:)
       nown=n_upper-n_lower+1
       allocate(rb2(nown))
       rbmax=0.d0
+!$omp parallel do schedule(static) private(k,i,hg,rb) reduction(max:rbmax)
       do k=1,nown
          i=n_lower+k-1
          hg=max(hp(i)*(1.d0+divv(i)*dt/3.d0),2.d-6*hp(i))
@@ -1022,12 +1036,21 @@
          rb2(k)=rb*rb
          rbmax=max(rbmax,rb)
       enddo
-      xmin=minval(x(1:n))
-      xmax=maxval(x(1:n))
-      ymin=minval(y(1:n))
-      ymax=maxval(y(1:n))
-      zmin=minval(z(1:n))
-      zmax=maxval(z(1:n))
+      xmin=1.d300
+      ymin=1.d300
+      zmin=1.d300
+      xmax=-1.d300
+      ymax=-1.d300
+      zmax=-1.d300
+!$omp parallel do schedule(static) private(j) reduction(min:xmin,ymin,zmin) reduction(max:xmax,ymax,zmax)
+      do j=1,n
+         xmin=min(xmin,x(j))
+         xmax=max(xmax,x(j))
+         ymin=min(ymin,y(j))
+         ymax=max(ymax,y(j))
+         zmin=min(zmin,z(j))
+         zmax=max(zmax,z(j))
+      enddo
       c=0.5d0*rbmax
       if(.not.(c.gt.0.d0) .or. c.gt.1.d300) then
          deallocate(rb2)
@@ -1044,6 +1067,7 @@
       nz=int((zmax-zmin)/c)+1
       allocate(cellmark(0:nx*ny*nz-1))
       cellmark=0
+!$omp parallel do schedule(dynamic,256) private(k,i,rb,ix0,ix1,iy0,iy1,iz0,iz1,ix,iy,iz)
       do k=1,nown
          if(.not.(rb2(k).ge.0.d0)) cycle
          i=n_lower+k-1
@@ -1057,48 +1081,69 @@
          do iz=iz0,iz1
             do iy=iy0,iy1
                do ix=ix0,ix1
+!     every thread stores the same value, but two stores to one cell are still a race without this
+!$omp atomic write
                   cellmark(ix+nx*(iy+ny*iz))=1
                enddo
             enddo
          enddo
       enddo
-      nsub=nown
-      do j=1,n
-         if(j.ge.n_lower .and. j.le.n_upper) cycle
-         ix=min(int((x(j)-xmin)/c),nx-1)
-         iy=min(int((y(j)-ymin)/c),ny-1)
-         iz=min(int((z(j)-zmin)/c),nz-1)
-         if(cellmark(ix+nx*(iy+ny*iz)).ne.0) nsub=nsub+1
+      nb=nredblocks(n)
+      allocate(bcnt(nb))
+!$omp parallel do schedule(static) private(ib,j,kk,ix,iy,iz)
+      do ib=1,nb
+         kk=0
+         do j=(ib-1)*redblock+1,min(ib*redblock,n)
+            if(j.ge.n_lower .and. j.le.n_upper) cycle
+            ix=min(int((x(j)-xmin)/c),nx-1)
+            iy=min(int((y(j)-ymin)/c),ny-1)
+            iz=min(int((z(j)-zmin)/c),nz-1)
+            if(cellmark(ix+nx*(iy+ny*iz)).ne.0) kk=kk+1
+         enddo
+         bcnt(ib)=kk
       enddo
+      nsub=nown
+      run=0
+      do ib=1,nb
+         tmp=bcnt(ib)
+         bcnt(ib)=run
+         run=run+tmp
+      enddo
+      nsub=nown+run
 !     with most of the particles in it the tree is no saving
       if(nsub.gt.(9*n)/10 .or. nsub.lt.4) then
-         deallocate(rb2,cellmark)
+         deallocate(rb2,cellmark,bcnt)
          nsub=0
          useown=.false.
          return
       endif
       allocate(sub2glob(nsub),sub_array(3,nsub))
+!$omp parallel do simd schedule(static) private(k)
       do k=1,nown
          sub2glob(k)=n_lower+k-1
       enddo
-      k=nown
-      do j=1,n
-         if(j.ge.n_lower .and. j.le.n_upper) cycle
-         ix=min(int((x(j)-xmin)/c),nx-1)
-         iy=min(int((y(j)-ymin)/c),ny-1)
-         iz=min(int((z(j)-zmin)/c),nz-1)
-         if(cellmark(ix+nx*(iy+ny*iz)).ne.0) then
-            k=k+1
-            sub2glob(k)=j
-         endif
+!$omp parallel do schedule(static) private(ib,j,kk,ix,iy,iz)
+      do ib=1,nb
+         kk=nown+bcnt(ib)
+         do j=(ib-1)*redblock+1,min(ib*redblock,n)
+            if(j.ge.n_lower .and. j.le.n_upper) cycle
+            ix=min(int((x(j)-xmin)/c),nx-1)
+            iy=min(int((y(j)-ymin)/c),ny-1)
+            iz=min(int((z(j)-zmin)/c),nz-1)
+            if(cellmark(ix+nx*(iy+ny*iz)).ne.0) then
+               kk=kk+1
+               sub2glob(kk)=j
+            endif
+         enddo
       enddo
+!$omp parallel do schedule(static) private(k,j)
       do k=1,nsub
          j=sub2glob(k)
          sub_array(1,k)=x(j)
          sub_array(2,k)=y(j)
          sub_array(3,k)=z(j)
       enddo
-      deallocate(cellmark)
+      deallocate(cellmark,bcnt)
       treeown => kdtree2_create(sub_array,sort=.false.,rearrange=.true.)
       end subroutine build_own_tree
 
@@ -1330,6 +1375,9 @@
       else
          nloop=n_upper-n_lower+1
       endif
+!     every particle sums its own neighbours in list order: one thread per particle, so no
+!     sum depends on the number of threads
+!$omp parallel do schedule(dynamic,64) private(iw,i,hpi,h2,h3,invh2,in,j,r2,xq,itab,fq,wij)
       do iw=1,nloop
          if(blkdist) then
             i=wmine(iw)
