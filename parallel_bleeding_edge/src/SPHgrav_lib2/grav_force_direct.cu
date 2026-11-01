@@ -1373,21 +1373,57 @@ namespace SPHgrav
     // point no longer matters.  Without it, two separated stars cannot both
     // be near the reference point, and the farther one's close separations
     // lose digits.
+    // The sums are made over blocks of 4096 particles, added in the order of the blocks, so that the
+    // reference point does not depend on how many threads do the blocks (the code is built with
+    // OpenMP when the rest of StarSmasher is).
+    const int BLK = 4096;
+    const int nblk = (nj + BLK - 1) / BLK;
+    std::vector<double> part(10 * (size_t)nblk);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (int b = 0; b < nblk; b++)
+    {
+      double bw = 0.0, bx = 0.0, by = 0.0, bz = 0.0;
+      double mn[3] = {1.0e300, 1.0e300, 1.0e300}, mx[3] = {-1.0e300, -1.0e300, -1.0e300};
+      const int i1 = std::min(nj, (b + 1) * BLK);
+      for (int i = b * BLK; i < i1; i++)
+      {
+        if (h2[i] > 0.0)
+        {
+          const double w = mass[i];
+          bw += w;
+          bx += w*px[i];
+          by += w*py[i];
+          bz += w*pz[i];
+        }
+        mn[0] = std::min(mn[0], px[i]);  mx[0] = std::max(mx[0], px[i]);
+        mn[1] = std::min(mn[1], py[i]);  mx[1] = std::max(mx[1], py[i]);
+        mn[2] = std::min(mn[2], pz[i]);  mx[2] = std::max(mx[2], pz[i]);
+      }
+      part[10*b] = bw;
+      part[10*b+1] = bx;
+      part[10*b+2] = by;
+      part[10*b+3] = bz;
+      for (int c = 0; c < 3; c++)
+      {
+        part[10*b+4+c] = mn[c];
+        part[10*b+7+c] = mx[c];
+      }
+    }
     double wsum = 0.0, xref = 0.0, yref = 0.0, zref = 0.0;
     double bmn[3] = {1.0e300, 1.0e300, 1.0e300}, bmx[3] = {-1.0e300, -1.0e300, -1.0e300};
-    for (int i = 0; i < nj; i++)
+    for (int b = 0; b < nblk; b++)
     {
-      if (h2[i] > 0.0)
+      wsum += part[10*b];
+      xref += part[10*b+1];
+      yref += part[10*b+2];
+      zref += part[10*b+3];
+      for (int c = 0; c < 3; c++)
       {
-        const double w = mass[i];
-        wsum += w;
-        xref += w*px[i];
-        yref += w*py[i];
-        zref += w*pz[i];
+        bmn[c] = std::min(bmn[c], part[10*b+4+c]);
+        bmx[c] = std::max(bmx[c], part[10*b+7+c]);
       }
-      bmn[0] = std::min(bmn[0], px[i]);  bmx[0] = std::max(bmx[0], px[i]);
-      bmn[1] = std::min(bmn[1], py[i]);  bmx[1] = std::max(bmx[1], py[i]);
-      bmn[2] = std::min(bmn[2], pz[i]);  bmx[2] = std::max(bmx[2], pz[i]);
     }
     if (wsum > 0.0)
     {
@@ -1400,6 +1436,10 @@ namespace SPHgrav
     grav.bbmin[1] = (float)(bmn[1] - yref);  grav.bbmax[1] = (float)(bmx[1] - yref);
     grav.bbmin[2] = (float)(bmn[2] - zref);  grav.bbmax[2] = (float)(bmx[2] - zref);
 
+    // each particle is converted on its own: no thread writes another's element
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
     for (int i = 0; i < nj; i++)
     {
       assert(h2  [i] != 0.0);
@@ -1459,9 +1499,18 @@ namespace SPHgrav
     const float dt = grav.last_half();
 
     if (grav.uselist)
+    {
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
       for (int j = grav.nibeg; j < grav.nibeg + grav.nrange; j++)
         ax[j] = ay[j] = az[j] = pot[j] = 0.0;
+    }
 
+    // the ni results go to distinct elements (the entries of ilist are distinct)
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
     for (int i = 0; i < ni; i++)
     {
       const int j = grav.uselist ? grav.ilist[i] : i + grav.nibeg;

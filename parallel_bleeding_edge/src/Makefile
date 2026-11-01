@@ -213,7 +213,7 @@ balAV3.o: pairbuf.o riemann_data.o
 
 # ----------------------------------------------------------------- targets ---
 gpu: check-gpu-backend $(GPUOBJS)
-	$(MAKE) -C $(GRAVLIB) CUDAPATH=$(CUDAPATH) OLEVEL=$(OLEVEL)
+	$(MAKE) -C $(GRAVLIB) CUDAPATH=$(CUDAPATH) OLEVEL=$(OLEVEL) $(if $(filter 1,$(OPENMP)),OMPCXX=-fopenmp)
 	$(LINK) -o $(GPUEXEC) $(LDFLAGS) $(GPUOBJS) $(LIBS) $(GPU_LIBS)
 	cp -p $(GPUEXEC) ..
 	@echo "***MADE VERSION THAT USES GPUS***  ->  ../$(GPUEXEC)"

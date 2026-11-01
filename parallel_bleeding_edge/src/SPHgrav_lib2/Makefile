@@ -34,6 +34,11 @@ NVCCFLAGS += -Xcompiler="-Wall"
 CUDA_LIBS = -L$(CUDAPATH)/lib64 -lcudart
 
 CXXFLAGS  +=  -Wall -g -O4
+# the host code of the library uses OpenMP when StarSmasher is built with OPENMP=1 (the top Makefile passes OMPCXX)
+ifneq ($(OMPCXX),)
+override NVCCFLAGS += -Xcompiler=$(OMPCXX)
+override CXXFLAGS += $(OMPCXX)
+endif
 # LDFLAGS   +=  -fopenmp
 LDGPUGLAGS := $(LDFLAGS) $(CUDA_LIBS)
 
