@@ -371,7 +371,9 @@ c     get min/max values of various quantities:
       nown=n_upper-n_lower+1
       nb=nblk(nown,redblock_fine)
       call reserve_rpart(25,nb)
-!$omp parallel do schedule(static) private(ib,i,bsm,bmm,pressi,rhocgs,ucgs,temperature,ugas,v2i)
+c     the equation of state inversion costs more in some blocks than in others (the core, the envelope): blocks are handed out
+c     dynamically; each block has its own partial sum, so the bits do not depend on who does it
+!$omp parallel do schedule(dynamic,4) private(ib,i,bsm,bmm,pressi,rhocgs,ucgs,temperature,ugas,v2i)
       do ib=1,nb
          bmm(1)=nmax
          bmm(2)=0.d0
