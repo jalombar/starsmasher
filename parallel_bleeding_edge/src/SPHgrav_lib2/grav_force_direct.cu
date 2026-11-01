@@ -754,7 +754,10 @@ __global__ void __launch_bounds__(NTHREAD, MINB_S) dev_compute_forces_s(
     const int usefast,
     const float pad,
     __gravout devForce *force_out,
-    const int jchunk)
+    const int jchunk,
+    unsigned char *mask,
+    const int mode,
+    const int ntiles)
 {
   const int tid = threadIdx.x;
   const int ib = blockIdx.x * (NTHREAD * NI);
@@ -831,6 +834,9 @@ __global__ void __launch_bounds__(NTHREAD, MINB_S) dev_compute_forces_s(
 
   for (int j0 = jbeg; j0 < jend; j0 += NTHREAD)
   {
+    // mode 2: the tiles that the far pass (mode 1) has done are not done again
+    if (mode == 2 && mask[(size_t)blockIdx.x * ntiles + j0 / NTHREAD] != 0)
+      continue;
     bool far = false;
     if (usefast)
     {
@@ -840,6 +846,14 @@ __global__ void __launch_bounds__(NTHREAD, MINB_S) dev_compute_forces_s(
       const float gz = fmaxf(fmaxf(fmaxf(tb.lo.z - bhz, blz - tb.hi.z), 0.0f) - pad, 0.0f);
       const float sep2 = gx * gx + gy * gy + gz * gz;
       far = tb.hi.w == 0.0f && sep2 >= 1.00002f * fmaxf(bh2, tb.lo.w);
+    }
+    // mode 1: only the far tiles, and a note of which they are for the near pass
+    if (mode == 1)
+    {
+      if (tid == 0)
+        mask[(size_t)blockIdx.x * ntiles + j0 / NTHREAD] = far ? 1 : 0;
+      if (!far)
+        continue;
     }
     if (far)
     {
@@ -978,6 +992,34 @@ UNROLL_N(FAR_UNROLL)
       force_out[blockIdx.y * ni + ib + tid + k * NTHREAD] = iforce[k];
 }
 
+// as dev_sum_forces for the splits of two passes: the nsplit of the far pass (parta) and then those of the near pass (partb), in this order
+__global__ void dev_sum_forces2(
+    const int ni,
+    const int nsplit,
+    const devForce *parta,
+    const devForce *partb,
+    __gravout devForce *force_out,
+    const int *omap)
+{
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= ni)
+    return;
+  devForce f = parta[idx];
+  for (int s = 1; s < 2 * nsplit; s++)
+  {
+    const devForce g = s < nsplit ? parta[s * ni + idx] : partb[(s - nsplit) * ni + idx];
+    f.ax += g.ax.val.x;  f.ax += g.ax.val.y;
+    f.ay += g.ay.val.x;  f.ay += g.ay.val.y;
+    f.az += g.az.val.x;  f.az += g.az.val.y;
+#ifdef _GPOTDP_
+    f.pot += g.pot.val.x;  f.pot += g.pot.val.y;
+#else
+    f.pot += g.pot;
+#endif
+  }
+  force_out[omap != NULL ? omap[idx] : idx] = f;
+}
+
 template<int NTHREAD, bool PINNED>
 struct SPHgrav_direct
 {
@@ -1005,6 +1047,15 @@ struct SPHgrav_direct
   unsigned long long *keys_a, *keys_b;
   int *perm_a, *perm_b, *isort, *omap, *dnum;
   TileBox *tbox, *gbox;
+  // the far and near passes (ngravoverlap): the second sorted copy, boxes and partial forces of the near pass, the record of the far tiles
+  // (one byte per block of i and tile of j), and what the far pass chose
+  devParticle *sptcl2;
+  TileBox *tbox2, *gbox2;
+  devForce *part2;
+  unsigned char *dmask;
+  size_t part2cap, dmaskcap;
+  int s2cap, t2cap, g2cap;
+  int lmode, nsplit_far;
   void *ctemp;
   size_t ctempcap;
   int scap, slocap, tcap, gcap, icap, kcap, pcap, ocap, dcap;
@@ -1018,6 +1069,7 @@ struct SPHgrav_direct
   std::vector<bool> can_use_device;
   SPHgrav_direct(const int rank = 0) : hilo(false), part(NULL), partcap(0), nreal(0),
     sptcl(NULL), splo(NULL), keys_a(NULL), keys_b(NULL), perm_a(NULL), perm_b(NULL), isort(NULL), omap(NULL), dnum(NULL), tbox(NULL), gbox(NULL),
+    sptcl2(NULL), tbox2(NULL), gbox2(NULL), part2(NULL), dmask(NULL), part2cap(0), dmaskcap(0), s2cap(0), t2cap(0), g2cap(0), lmode(0), nsplit_far(0),
     ctemp(NULL), ctempcap(0), scap(0), slocap(0), tcap(0), gcap(0), icap(0), kcap(0), pcap(0), ocap(0), dcap(0), events_made(false)
   {
     assert(cudaGetDeviceCount(&ndevice) == 0);
@@ -1100,13 +1152,14 @@ struct SPHgrav_direct
 
   // the kernel of the new order for NI particles per thread
   template<int NI, bool HI, int NK>
-  void launch_s_one(const int ni, const int nsplit, const int jchunk, devForce *out, const dim3 grid)
+  void launch_s_one(const int ni, const int nsplit, const int jchunk, devForce *out, const dim3 grid,
+      const devParticle *spp, const TileBox *tb, const TileBox *gb, unsigned char *mask, const int mode, const int ntiles)
   {
     const int nj = ptcl.size;
     const float pad = 4.0e-7f * std::max(std::max(std::max(fabsf(bbmin[0]), fabsf(bbmax[0])), std::max(fabsf(bbmin[1]), fabsf(bbmax[1]))),
                                          std::max(fabsf(bbmin[2]), fabsf(bbmax[2])));
-    dev_compute_forces_s<NTHREAD, NI, HI, NK><<<grid, dim3(NTHREAD, 1, 1)>>>(nj, ni, sptcl, HI ? splo : (const devParticleLo*)NULL,
-        isort, tbox, gbox, 1, pad, out, jchunk);
+    dev_compute_forces_s<NTHREAD, NI, HI, NK><<<grid, dim3(NTHREAD, 1, 1)>>>(nj, ni, spp, HI ? splo : (const devParticleLo*)NULL,
+        isort, tb, gb, 1, pad, out, jchunk, mask, mode, ntiles);
     CUDA_SAFE_CALL(cudaGetLastError());
   }
 
@@ -1141,6 +1194,8 @@ struct SPHgrav_direct
     const int tiles = (ntiles + nsplit - 1) / nsplit;
     nsplit = (ntiles + tiles - 1) / tiles;
     const int jchunk = tiles * NTHREAD;
+    // the near pass has the same split as the far pass (it depends on ni and nj only), and adds its partial forces to those of the far pass
+    assert(lmode != 2 || nsplit == nsplit_far);
     const size_t need = (size_t)nsplit * ni;
     if (need > partcap)
     {
@@ -1150,11 +1205,45 @@ struct SPHgrav_direct
       partcap = need;
     }
     const dim3 grid(nblocks, nsplit, 1);
-    if (nkernel == 0)      launch_s_one<NI, HI, 0>(ni, nsplit, jchunk, part, grid);
-    else if (nkernel == 1) launch_s_one<NI, HI, 1>(ni, nsplit, jchunk, part, grid);
-    else                   launch_s_one<NI, HI, 2>(ni, nsplit, jchunk, part, grid);
-    dev_sum_forces<<<(ni - 1) / 256 + 1, 256>>>(ni, nsplit, part, force, omap);
-    CUDA_SAFE_CALL(cudaGetLastError());
+    const int nt = ptcl.size / NTHREAD;
+    if (lmode == 0)
+    {
+      if (nkernel == 0)      launch_s_one<NI, HI, 0>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
+      else if (nkernel == 1) launch_s_one<NI, HI, 1>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
+      else                   launch_s_one<NI, HI, 2>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
+      dev_sum_forces<<<(ni - 1) / 256 + 1, 256>>>(ni, nsplit, part, force, omap);
+      CUDA_SAFE_CALL(cudaGetLastError());
+    }
+    else if (lmode == 1)
+    {
+      nsplit_far = nsplit;
+      const size_t mneed = (size_t)nblocks * nt;
+      if (mneed > dmaskcap)
+      {
+        if (dmask != NULL)
+          CUDA_SAFE_CALL(cudaFree(dmask));
+        CUDA_SAFE_CALL(cudaMalloc((void**)&dmask, mneed));
+        dmaskcap = mneed;
+      }
+      if (nkernel == 0)      launch_s_one<NI, HI, 0>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
+      else if (nkernel == 1) launch_s_one<NI, HI, 1>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
+      else                   launch_s_one<NI, HI, 2>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
+    }
+    else
+    {
+      if (need > part2cap)
+      {
+        if (part2 != NULL)
+          CUDA_SAFE_CALL(cudaFree(part2));
+        CUDA_SAFE_CALL(cudaMalloc((void**)&part2, need * sizeof(devForce)));
+        part2cap = need;
+      }
+      if (nkernel == 0)      launch_s_one<NI, HI, 0>(ni, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
+      else if (nkernel == 1) launch_s_one<NI, HI, 1>(ni, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
+      else                   launch_s_one<NI, HI, 2>(ni, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
+      dev_sum_forces2<<<(ni - 1) / 256 + 1, 256>>>(ni, nsplit, part, part2, force, omap);
+      CUDA_SAFE_CALL(cudaGetLastError());
+    }
   }
   template<typename T>
   void ensure(T **p, int &cap, const int need)
@@ -1301,6 +1390,49 @@ struct SPHgrav_direct
 
     assert(ptcl.size % NTHREAD == 0);
     launch(ni, nkernel, (const int*)NULL);
+  }
+
+  // ngravoverlap.  The far pass (called before the smoothing lengths are solved, with a limit for each h): the sorted order, the boxes of
+  // the tiles with the limits, and the kernel for the tiles that are far whatever the h, which it notes in dmask.  The near pass (with the
+  // h found): the second sorted copy, with the new h, the kernel for the rest of the tiles, and the sum of the partial forces of the two
+  // passes (the far ones first).  Everything is queued on the default stream, so the host does not wait for the far pass.
+  void first_half_far(const int nibeg, const int ni, const int nkernel)
+  {
+    make_events();
+    cudaEventRecord( start, 0 );
+    this->nibeg = nibeg;
+    this->ni    = ni;
+    this->uselist = false;
+    force.allocate(ni);
+    ptcl.h2d();
+    if (hilo) plo.h2d();
+    assert(ptcl.size % NTHREAD == 0);
+    prepare_sorted(ni);
+    lmode = 1;
+    launch_sorted_only(ni, nkernel);
+    lmode = 0;
+  }
+
+  void first_half_near(const int nkernel)
+  {
+    const int n = ptcl.size;
+    ensure(&sptcl2, s2cap, n);
+    ensure(&tbox2, t2cap, n / NTHREAD);
+    ensure(&gbox2, g2cap, n / 32);
+    ptcl.h2d_async();
+    dev_gather_sorted<<<(n - 1) / 256 + 1, 256>>>(n, nreal, perm_b, ptcl, (const devParticleLo*)NULL, sptcl2, splo);
+    dev_tile_boxes<NTHREAD><<<n / NTHREAD, NTHREAD>>>(nreal, sptcl2, tbox2);
+    dev_tile_boxes<32><<<n / 32, 32>>>(nreal, sptcl2, gbox2);
+    CUDA_SAFE_CALL(cudaGetLastError());
+    lmode = 2;
+    launch_sorted_only(ni, nkernel);
+    lmode = 0;
+  }
+
+  // the far pass is not wanted after all (a smoothing length went past its limit): wait for it, and the usual first_half follows
+  void abort_far()
+  {
+    CUDA_SAFE_CALL(cudaDeviceSynchronize());
   }
 
   // forces on the ni particles listed (0-based) in ilist.host_pointer only
@@ -1471,6 +1603,32 @@ namespace SPHgrav
     grav.first_half(nibeg, ni, nkernel);
   }
 
+  // ngravoverlap: the far pass, before the smoothing lengths are solved (h2 is a limit for each of them), and the near pass with the h found.
+  // ok is 0 if the far pass could not be started.
+  void firsthalf_grav_force_far(
+      const int nj, const int nibeg, const int ni,
+      double *px, double *py, double *pz,
+      double *mass, double *h2, const int nkernel, int *ok)
+  {
+    assert(nibeg >= 0);
+    load_particles(nj, px, py, pz, mass, h2);
+    grav.first_half_far(nibeg, ni, nkernel);
+    *ok = 1;
+  }
+
+  void firsthalf_grav_force_near(
+      const int nj, double *px, double *py, double *pz,
+      double *mass, double *h2, const int nkernel)
+  {
+    load_particles(nj, px, py, pz, mass, h2);
+    grav.first_half_near(nkernel);
+  }
+
+  void gravity_far_abort()
+  {
+    grav.abort_far();
+  }
+
   // block timesteps: forces only on the nlist particles in list (1-based,
   // all within nibeg+1..nibeg+nrange), out of all nj
   void firsthalf_grav_force_list(
@@ -1549,6 +1707,26 @@ extern "C"
       double *mass, double *range2, int *q_, int *nkernel)
   {
     SPHgrav::firsthalf_grav_force(*n, *n_lower - 1, *my_length, px, py, pz, mass, range2, *nkernel);
+  }
+
+  void firsthalf_grav_forces_far_(
+      int *n, int *n_lower, int *my_length,
+      double *px, double *py, double *pz,
+      double *mass, double *range2, int *q_, int *nkernel, int *ok)
+  {
+    SPHgrav::firsthalf_grav_force_far(*n, *n_lower - 1, *my_length, px, py, pz, mass, range2, *nkernel, ok);
+  }
+
+  void firsthalf_grav_forces_near_(
+      int *n, double *px, double *py, double *pz,
+      double *mass, double *range2, int *nkernel)
+  {
+    SPHgrav::firsthalf_grav_force_near(*n, px, py, pz, mass, range2, *nkernel);
+  }
+
+  void gravity_far_abort_()
+  {
+    SPHgrav::gravity_far_abort();
   }
 
   void firsthalf_grav_forces_list_(

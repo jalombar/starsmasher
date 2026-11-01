@@ -426,3 +426,22 @@ c     nkernel=2 is the Wendland C4 kernel
       integer ngravhilo
       return
       end
+
+      subroutine firsthalf_grav_forces_far(ntot, ngrav_lower, mygravlength,
+     $     x, y, z, am, range, q, nkernel, ok)
+      integer ntot,ngrav_lower,mygravlength,q,nkernel,ok
+      real*8 x(ntot),y(ntot),z(ntot),am(ntot),range(ntot)
+      ok=0
+      return
+      end
+
+      subroutine firsthalf_grav_forces_near(ntot, x, y, z, am, range,
+     $     nkernel)
+      integer ntot,nkernel
+      real*8 x(ntot),y(ntot),z(ntot),am(ntot),range(ntot)
+      return
+      end
+
+      subroutine gravity_far_abort
+      return
+      end

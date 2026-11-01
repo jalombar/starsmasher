@@ -89,6 +89,12 @@ struct cuVector
     if (size > 0)
       this->h2d(size);
   }
+  // queued on the default stream: the host does not wait for the kernels already queued (host_pointer must stay as it is until they are done)
+  void h2d_async()
+  {
+    if (size > 0)
+      CUDA_SAFE_CALL(cudaMemcpyAsync(dev_pointer, host_pointer, size * sizeof(T), cudaMemcpyHostToDevice, 0));
+  }
   void d2h(int count)
   {
     assert(count <= size);
