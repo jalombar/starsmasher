@@ -50,6 +50,17 @@
       allocate(rpart(max(k,8),max(nb,64)))
       end subroutine reserve_rpart
 
+!     index of the calling thread and the number of threads a parallel region will have
+      integer function thread_id()
+      thread_id=0
+!$    thread_id=omp_get_thread_num()
+      end function thread_id
+
+      integer function max_threads()
+      max_threads=1
+!$    max_threads=omp_get_max_threads()
+      end function max_threads
+
 !     MPI_Init, or MPI_Init_thread with MPI_THREAD_FUNNELED in the OpenMP
 !     build: only the master thread calls MPI (and CUDA)
       subroutine omp_mpi_init(ierr)

@@ -19,6 +19,27 @@
       integer :: sn = 0
       integer*8 :: nrebuild = 0, ncalls = 0
       end module stale_tree_mod
+!*********************************************************
+!     What a thread of rho_and_h needs for the particle it is solving: the
+!     candidate neighbours (res(1:ncand), every particle within sqrt(r2last)
+!     of it, with its squared distance) and its current block of the
+!     neighbour list array.  Procedures called from the parallel region
+!     must not share these, and a "private" clause does not reach the
+!     internal procedures of rho_and_h, so they are passed as an argument.
+      module hscratch_mod
+      use kdtree2_module
+      implicit none
+      type hscratch
+         type(kdtree2_result), allocatable :: res(:)
+         integer :: ncand=0, nfb=0
+         real*8 :: r2last=-1.d30
+!        the block of list() of this thread: the end of the list of the last
+!        particle it solved (lpos), the end of the block (lend) and where the
+!        list of the particle being solved starts (pstart); positions are
+!        offsets, the entries being list(offset+1:offset+nn)
+         integer :: lpos=0, lend=0, pstart=0
+      end type hscratch
+      end module hscratch_mod
 ! 
 ! pretty much where everything happens
 !
@@ -381,34 +402,19 @@
       use kdtree2_module
       use riemann_data
       use omp_utils
+      use hscratch_mod
       include 'starsmasher.h'
       include 'mpif.h'
-      double precision drhodhi,dphidhi
-      real*8 divv(nmax),hpguess
+      real*8 divv(nmax)
       common/commdivv/divv
       ! dynhco=2 with limits: last unlimited softening solution of each point particle, so
       ! its solve restarts next to the root instead of from a clamped value
       real*8 hdynlast(nmax)
-      real*8 hlowco,hbhco,facco,chico,facfl
       save hdynlast
       data hdynlast/nmax*0.d0/
-      integer maxit,i,j
-      double precision ezrtsafe,xtmp,xacc,dxmax
-      parameter (maxit=50)
-      double precision df,dx,ff,fh,fl,xh,xl
       integer k
       real(kdkind), dimension(:,:), allocatable :: my_array
-      real*8 r2
-      integer cnt
-      type(kdtree2_result), allocatable :: results(:)
       type(kdtree2), pointer :: tree2
-      real*8 r2last
-      integer in, jn
-      real*8 dist2
-!     candidate neighbours of the particle being solved: results(1:ncand),
-!     every particle within sqrt(r2last) of it, in the order of the tree
-!     search and with its squared distance (see cache_search)
-      integer ncand
       logical usecache
 !     A rank that does not need all the particles for its searches builds its
 !     tree over its own particles and the ones around them only (build_own_tree).
@@ -416,8 +422,8 @@
 !     point, and rb2(i-n_lower+1) is the largest squared search radius around
 !     own particle i that the tree is complete for.  The tree over all the
 !     particles, tree2, is then built only if a search goes beyond that.
-      logical useown,ownall
-      integer nsub,nfb,nfbsum
+      logical useown
+      integer nsub,nfb
       integer, allocatable :: sub2glob(:)
       real*8, allocatable :: rb2(:)
       real(kdkind), dimension(:,:), allocatable :: sub_array
@@ -427,11 +433,8 @@
       integer mylength,irank,ierr
       real*8 dxfrac
       logical usebrute
-      integer nsolve,nloop,iprev,iw
+      integer nsolve,nloop,iw
       real*8 hsmall
-!     table position in units of the table spacing, and its fraction
-      integer itab
-      real*8 xq,fq
 !     periodic box: the tree also holds the images within pad of a face,
 !     image k being a copy of particle imgmap(k)
       integer ntree,nimg
@@ -439,6 +442,18 @@
       real*8, allocatable :: ximg(:,:)
       real*8 pad(3),padmin,pbcdist2,xdum(3,1)
       integer idum(1)
+!     The smoothing lengths are solved by the threads of the rank, each
+!     particle by one thread with its own scratch (hsc).  The neighbour lists
+!     are packed in blocks: a thread takes a block of listblock entries of
+!     list() from listtop when the list of a particle does not fit in what
+!     is left of its block.  A list longer than a block gets a block of its
+!     own size.  Where a list lies in list() does not matter to anyone, only
+!     its entries and their order do.
+      integer, parameter :: listblock=16384
+!     the particles are handed out in chunks of this many consecutive indices
+      integer, parameter :: hchunk=64
+      type(hscratch), allocatable, save :: hsc(:)
+      integer listtop,listfail,failfirst,failneed,nthr,it
 
       if(myrank.eq.nprocs-1) call wall_time(time1)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -497,8 +512,6 @@
 !     over a part of them relies on
       useown=usecache .and. nprocs.gt.1 .and. .not.blkdist .and.&
            (nblock.eq.0 .or. nblockfull.ne.0)
-!     the same on every rank (build_own_tree can turn useown off on one rank)
-      ownall=useown
       nsub=0
       nfb=0
       if(useown) call build_own_tree
@@ -520,7 +533,6 @@
 !     the above have replaced the call to linkedlists
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-      allocate(results(ntree))
 
 !     Floor on the drift step used to bracket the smoothing-length root, as a
 !     fraction of hp(i).  Normally 2e-5 (this is exactly the old 10*xacc, since
@@ -549,34 +561,148 @@
             nn(k)=0
          enddo
       endif
-      iprev=0
+      nthr=max_threads()
+      if(allocated(hsc)) then
+         if(size(hsc).lt.nthr) deallocate(hsc)
+      endif
+      if(.not.allocated(hsc)) allocate(hsc(nthr))
+      do it=1,nthr
+!     room for the candidates: the searches of the cached path find a few tens, and are
+!     repeated with more room if there are more (cache_search); the others need ntree
+         if(usecache) then
+            if(allocated(hsc(it)%res)) then
+               if(size(hsc(it)%res).lt.min(ntree,4096)) deallocate(hsc(it)%res)
+            endif
+            if(.not.allocated(hsc(it)%res)) allocate(hsc(it)%res(min(ntree,4096)))
+         else
+            if(allocated(hsc(it)%res)) then
+               if(size(hsc(it)%res).lt.ntree) deallocate(hsc(it)%res)
+            endif
+            if(.not.allocated(hsc(it)%res)) allocate(hsc(it)%res(ntree))
+         endif
+         hsc(it)%lpos=0
+         hsc(it)%lend=0
+         hsc(it)%pstart=0
+         hsc(it)%nfb=0
+         hsc(it)%ncand=0
+         hsc(it)%r2last=-1.d30
+      enddo
+      listtop=0
+      listfail=0
+      failfirst=0
+      failneed=0
+!     The particles are independent: each one is solved by one thread, which
+!     writes only the elements of the arrays with the index of the particle
+!     and the list in its own block.  usebrute keeps one thread (brute_r2
+!     works in the arrays of stale_tree_mod).
+!$omp parallel default(shared) private(iw,it) num_threads(nthr) if(.not.usebrute)
+      it=thread_id()+1
+!$omp do schedule(dynamic,hchunk)
       do iw=1,nloop
+         if(listfailed()) cycle
+         call solve_particle(iw,hsc(it))
+      enddo
+!$omp end do
+!$omp end parallel
+      nfb=0
+      do it=1,nthr
+         nfb=nfb+hsc(it)%nfb
+      enddo
+!     a neighbour list that does not fit in list(): stop with the message
+      if(listfail.ne.0) then
+         first(listfail)=failfirst
+         nn(listfail)=failneed
+         call check_neighbor_capacity(listfail)
+      endif
+      if(associated(tree2)) call kdtree2_destroy(tree2)
+      if(associated(treeown)) call kdtree2_destroy(treeown)
+      if(allocated(sub2glob)) deallocate(sub2glob,rb2,sub_array)
+      deallocate(my_array)
+      if(periodic) deallocate(ximg,imgmap)
+
+! make mpi call to insure all processors doing gravity have the same
+! hp values (only nodes doing gravity need the hp values):
+      mylength=n_upper-n_lower+1
+      ! one collective gives every rank the whole array (formerly one gather per rank)
+      if(.not.blkdist .and. nprocs.gt.1) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,hp,&
+           recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
+
+      call pressure
+      if(blkdist) then
+!     each listed particle's values from the rank that solved it
+         call sync_w(hp)
+         call sync_w(rho)
+         call sync_w(por2)
+!     with neos=0 every Gamma_1 is gam (riemann_alloc), so there is nothing to share
+         if(nav.eq.4 .and. neos.ne.0) call sync_w(gam1p)
+         call sync_w(bonet_omega)
+         call sync_w(bonet_0mega)
+         call sync_w(bonet_psi)
+         call sync_w(hdynco)
+         call sync_w(hdynlast)
+         call sync_wi(nn)
+      else if(nblock.eq.1) then
+         call sync_all(hp)
+         call sync_all(rho)
+         call sync_all(por2)
+         if(nav.eq.4 .and. neos.ne.0) call sync_all(gam1p)
+         call sync_all(bonet_omega)
+         call sync_all(bonet_0mega)
+         call sync_all(bonet_psi)
+         call sync_all(hdynco)
+      endif
+      if(myrank.eq.nprocs-1) then
+         call wall_time(time2)
+         write (6,'(a,f6.3,a,i4)')&
+              'rho\&h: ',time2-time1
+      endif
+
+      return
+
+      contains
+
+!     true when a thread has found that a neighbour list does not fit in list(): the others stop
+!     solving (read atomically, listfail being written by another thread)
+      logical function listfailed()
+      integer lf
+!$omp atomic read
+      lf=listfail
+      listfailed=lf.ne.0
+      end function listfailed
+
+!     The solve for the particle with number iw of this rank's work (or of
+!     wmine, with blkdist): the body of the loop of rho_and_h.  Everything it
+!     changes is an element of an array with the index of the particle, the
+!     list of the particle, or the scratch s of its thread, and the variables
+!     below are its own, since the variables of the host are shared.
+      subroutine solve_particle(iw,s)
+      integer iw
+      type(hscratch) :: s
+      integer i,j,in,jn,cnt,itab
+      integer, parameter :: maxit=50
+      real*8 xq,fq,r2,dist2,hpguess,xacc,dxmax,xl,xh,xtmp,dx,fl,fh,ff,df,ezrtsafe
+      real*8 hlowco,hbhco,facco,chico,facfl
          if(blkdist) then
             i=wmine(iw)
          else
             i=n_lower+iw-1
          endif
-
-         if(iprev.eq.0) then
-            first(i)=0
-         else
-            first(i)=first(iprev)+nn(iprev)
-         endif
-         iprev=i
+         s%pstart=s%lpos
 
 !     block timesteps: only active particles re-solve h, and inactive ones keep
 !     the values predicted in advance_block
          if(nblock.eq.1 .and. nblockfull.eq.0 .and. .not.actblk(i)&
               .and. .not.refblk(i)) then
             nn(i)=0
-            cycle
+            first(i)=s%pstart
+            return
          endif
 
 !     With dynhco=1 a point particle solves eq. (A1) for its softening length
 !     exactly as an SPH particle does, counting only SPH neighbours.
          if(u(i).eq.0.d0 .and. dynhco.eq.0) then
 !            if(myrank.eq.0)write(69,*)'hp(core)=',hp(i),i
-            r2last=-1.d30
+            s%r2last=-1.d30
             goto 60909
          endif
 
@@ -608,8 +734,8 @@
          hp(i)=xl
 
          r2=4.d0*hp(i)**2.d0
-         r2last=-1.d30
-         call bfun(i,r2,fl,df)
+         s%r2last=-1.d30
+         call bfun(i,r2,fl,df,s)
 
          dx=fl/df
          if(abs(dx).lt.xacc) then
@@ -627,7 +753,7 @@
          hp(i)=xh
 
          r2=4.d0*hp(i)**2.d0
-         call bfun(i,r2,fh,df)
+         call bfun(i,r2,fh,df,s)
          dx=fh/df
          
          if(abs(dx).lt.xacc) then
@@ -672,7 +798,7 @@
             hp(i)=ezrtsafe
 
             r2=4.d0*hp(i)**2.d0
-            call bfun(i,r2,ff,df)
+            call bfun(i,r2,ff,df,s)
             
             if(ff.lt.0.d0) then
                xl=ezrtsafe
@@ -732,20 +858,22 @@
             ! neighbour list out to 2*max(h,h_dyn), and chi at h_dyn from it
             r2=4.d0*max(hbhco,hp(i))**2
             if(usecache) then
-               call nlist(i,r2)
-            elseif(r2.gt.r2last) then
+               call nlist(i,r2,s)
+            elseif(r2.gt.s%r2last) then
                if(usebrute) then
-                  call brute_r2(i,r2,cnt,results)
+                  call brute_r2(i,r2,cnt,s%res)
                else
                   call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
-                     correltime=-1,r2=r2,nfound=cnt,nalloc=ntree,results=results)
+                     correltime=-1,r2=r2,nfound=cnt,nalloc=size(s%res),results=s%res)
                endif
                nn(i)=cnt
-               call check_neighbor_capacity(i)
-               list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+               call reserve_list(i,s)
+               if(listfailed()) return
+               list(first(i)+1:first(i)+nn(i))=s%res(1:nn(i))%idx
                if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
-               r2last=r2
+               s%r2last=r2
             endif
+            if(listfailed()) return
             chico=0.d0
             do in=1,nn(i)
                jn=list(first(i)+in)
@@ -771,7 +899,8 @@
          r2=4.d0*hp(i)**2.d0
 !     dynhco=3: the list must also reach 2*htilde for chi when h is capped
          if(dynhco.eq.3 .and. u(i).eq.0.d0) r2=4.d0*max(hp(i),hdynco(i))**2
-         call nlist(i,r2)
+         call nlist(i,r2,s)
+         if(listfailed()) return
          
          call bonetsumwithphi(i,rho(i), bonet_omega(i),&
               bonet_0mega(i),&
@@ -833,82 +962,68 @@
 
 !      myhp(i)=hp(i)
 
-      enddo
-!     searches that went beyond the tree over own particles: in the log only
-!     when there were some
-      if(ownall) then
-         call mpi_reduce(nfb,nfbsum,1,mpi_integer,mpi_sum,0,mpi_comm_world,ierr)
-         if(myrank.eq.0 .and. nfbsum.gt.0) write(69,*)'rho_and_h: ',nfbsum,&
-              ' searches went beyond the trees over own particles at t=',t
+!     the next particle of this thread starts its list here
+         s%lpos=first(i)+nn(i)
+      end subroutine solve_particle
+
+!     Put the list of particle i, whose length is nn(i), in list().  It goes where the
+!     list of the previous particle of the thread ended, or in a new block if it does not fit
+!     in what is left of the block.  A list of the same particle that is written again (the
+!     second search of a point particle) starts where the first one did.
+      subroutine reserve_list(i,s)
+      integer i,need,ibase,sz
+      type(hscratch) :: s
+      need=nn(i)
+      if(s%pstart+need.le.s%lend) then
+         first(i)=s%pstart
+         return
       endif
-      if(associated(tree2)) call kdtree2_destroy(tree2)
-      if(associated(treeown)) call kdtree2_destroy(treeown)
-      if(allocated(sub2glob)) deallocate(sub2glob,rb2,sub_array)
-      deallocate(results)
-      deallocate(my_array)
-      if(periodic) deallocate(ximg,imgmap)
-
-! make mpi call to insure all processors doing gravity have the same
-! hp values (only nodes doing gravity need the hp values):
-      mylength=n_upper-n_lower+1
-      ! one collective gives every rank the whole array (formerly one gather per rank)
-      if(.not.blkdist .and. nprocs.gt.1) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,hp,&
-           recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
-
-      call pressure
-      if(blkdist) then
-!     each listed particle's values from the rank that solved it
-         call sync_w(hp)
-         call sync_w(rho)
-         call sync_w(por2)
-!     with neos=0 every Gamma_1 is gam (riemann_alloc), so there is nothing to share
-         if(nav.eq.4 .and. neos.ne.0) call sync_w(gam1p)
-         call sync_w(bonet_omega)
-         call sync_w(bonet_0mega)
-         call sync_w(bonet_psi)
-         call sync_w(hdynco)
-         call sync_w(hdynlast)
-         call sync_wi(nn)
-      else if(nblock.eq.1) then
-         call sync_all(hp)
-         call sync_all(rho)
-         call sync_all(por2)
-         if(nav.eq.4 .and. neos.ne.0) call sync_all(gam1p)
-         call sync_all(bonet_omega)
-         call sync_all(bonet_0mega)
-         call sync_all(bonet_psi)
-         call sync_all(hdynco)
+      sz=max(listblock,need)
+!$omp atomic capture
+      ibase=listtop
+      listtop=listtop+sz
+!$omp end atomic
+      if(ibase+need.gt.nnmax*nmax) then
+!     list() is full.  check_neighbor_capacity reports it, from the master thread after the region
+!$omp critical (rhh_listfail)
+         if(listfail.eq.0) then
+!$omp atomic write
+            listfail=i
+            failfirst=ibase
+            failneed=need
+         endif
+!$omp end critical (rhh_listfail)
+         nn(i)=0
+         first(i)=0
+         return
       endif
-      if(myrank.eq.nprocs-1) then
-         call wall_time(time2)
-         write (6,'(a,f6.3,a,i4)')&
-              'rho\&h: ',time2-time1
-      endif
-
-      return
-
-      contains
+      s%pstart=ibase
+      s%lend=ibase+min(sz,nnmax*nmax-ibase)
+      first(i)=ibase
+      end subroutine reserve_list
 
 !     Neighbour list of particle i out to 2h=sqrt(r2), in
-!     list(first(i)+1:first(i)+nn(i)).  r2last is the radius out to which
+!     list(first(i)+1:first(i)+nn(i)).  s%r2last is the radius out to which
 !     the stored list, or with usecache the candidates, are complete.
-      subroutine nlist(i,r2)
+      subroutine nlist(i,r2,s)
       integer i,k,cnt,in,jn
       real*8 r2,dist2
+      type(hscratch) :: s
       if(usecache) then
-         if(r2.gt.r2last) call cache_search(i,r2)
+         if(r2.gt.s%r2last) call cache_search(i,r2,s)
 !     count first, so that a list too long for list() stops the run
 !     before anything is written past its end
-         nn(i)=count(results(1:ncand)%dis.lt.r2)
-         call check_neighbor_capacity(i)
+         nn(i)=count(s%res(1:s%ncand)%dis.lt.r2)
+         call reserve_list(i,s)
+         if(listfailed()) return
          cnt=0
-         do k=1,ncand
-            if(results(k)%dis.lt.r2) then
+         do k=1,s%ncand
+            if(s%res(k)%dis.lt.r2) then
                cnt=cnt+1
-               list(first(i)+cnt)=results(k)%idx
+               list(first(i)+cnt)=s%res(k)%idx
             endif
          enddo
-      elseif(r2.le.r2last) then
+      elseif(r2.le.s%r2last) then
          ! there's no need to search the entire tree, because the
          ! h we are trying is smaller than the last h we tried!
          cnt=0
@@ -922,35 +1037,37 @@
             endif
          enddo
          nn(i)=cnt
-         r2last=r2
+         s%r2last=r2
       else
          if(usebrute) then
-            call brute_r2(i,r2,cnt,results)
+            call brute_r2(i,r2,cnt,s%res)
          else
             call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,&
                correltime=-1,&
-               r2=r2,nfound=cnt,nalloc=ntree,results=results)
+               r2=r2,nfound=cnt,nalloc=size(s%res),results=s%res)
          endif
          nn(i)=cnt
-         call check_neighbor_capacity(i)
-         list(first(i)+1:first(i)+nn(i))=results(1:nn(i))%idx
+         call reserve_list(i,s)
+         if(listfailed()) return
+         list(first(i)+1:first(i)+nn(i))=s%res(1:nn(i))%idx
          if(periodic) call pbcmap(list(first(i)+1),nn(i),imgmap,r2,padmin)
-         r2last=r2
+         s%r2last=r2
       endif
       end subroutine nlist
 
 !     bonetfuncd for the smoothing length h with 4h^2=r2: its neighbours
 !     are found first
-      subroutine bfun(i,r2,bonetfunc,dbonetfuncdh)
+      subroutine bfun(i,r2,bonetfunc,dbonetfuncdh,s)
       integer i
       real*8 r2,bonetfunc,dbonetfuncdh,bonetrhos,bonetdrhodh
+      type(hscratch) :: s
       if(usecache) then
-         if(r2.gt.r2last) call cache_search(i,r2)
-         call bonetsum_d2(i,r2,ncand,results,bonetrhos,bonetdrhodh)
+         if(r2.gt.s%r2last) call cache_search(i,r2,s)
+         call bonetsum_d2(i,r2,s%ncand,s%res,bonetrhos,bonetdrhodh)
          bonetfunc    = bonetrhos - nnopt
          dbonetfuncdh = bonetdrhodh
       else
-         call nlist(i,r2)
+         call nlist(i,r2,s)
          call bonetfuncd(i,bonetfunc,dbonetfuncdh)
       endif
       end subroutine bfun
@@ -960,49 +1077,64 @@
 !     little larger needs no new search, and a smaller one is a filter on the
 !     squared distances found here.  A wider margin only adds candidates:
 !     0.02 was the fastest of 0, 0.01, 0.02, 0.03, 0.05, 0.1 and 0.2.
-!     With the tree over own particles the candidates are put in index order,
-!     so that every sum over them adds the terms in the same order whatever
-!     tree was searched, and so whatever the number of ranks.  Without the
-!     tree over own particles, every search is of tree2, whose order does not
-!     change from run to run, so the candidates are left in tree order.
-      subroutine cache_search(i,r2)
+!     The candidates are put in index order, so that every sum over them
+!     adds the terms in the same order whatever tree was searched, and so
+!     whatever the number of ranks.  If there are more candidates than s%res
+!     holds, the search is made again with room for all of them.
+      subroutine cache_search(i,r2,s)
       integer i,k
       real*8 r2
-      r2last=r2*(1.d0+fpad)**2
+      type(hscratch) :: s
+      logical ovf
+      s%r2last=r2*(1.d0+fpad)**2
       if(useown) then
-         if(r2last.le.rb2(i-n_lower+1)) then
-            call kdtree2_r_nearest_around_point(tp=treeown,idxin=i-n_lower+1,&
-                 correltime=-1,r2=r2last,nfound=ncand,nalloc=nsub,&
-                 results=results)
-            do k=1,ncand
-               results(k)%idx=sub2glob(results(k)%idx)
+         if(s%r2last.le.rb2(i-n_lower+1)) then
+            do
+               call kdtree2_r_nearest_around_point(tp=treeown,idxin=i-n_lower+1,&
+                    correltime=-1,r2=s%r2last,nfound=s%ncand,nalloc=size(s%res),&
+                    results=s%res,overflow=ovf)
+               if(.not.ovf) exit
+               deallocate(s%res)
+               allocate(s%res(2*s%ncand))
             enddo
-            call sort_candidates
+            do k=1,s%ncand
+               s%res(k)%idx=sub2glob(s%res(k)%idx)
+            enddo
+            call sort_candidates(s)
             return
          endif
-!     the search goes beyond what the tree over a part of the particles has
-         nfb=nfb+1
+!     the search goes beyond what the tree over a part of the particles has:
+!     the tree over all of them is built once, by the first thread that gets here
+         s%nfb=s%nfb+1
+!$omp critical (rhh_tree2)
          if(.not.associated(tree2)) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.)
+!$omp end critical (rhh_tree2)
       endif
-      call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
-           r2=r2last,nfound=ncand,nalloc=ntree,results=results)
-      if(useown) call sort_candidates
+      do
+         call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
+              r2=s%r2last,nfound=s%ncand,nalloc=size(s%res),results=s%res,overflow=ovf)
+         if(.not.ovf) exit
+         deallocate(s%res)
+         allocate(s%res(2*s%ncand))
+      enddo
+      call sort_candidates(s)
       end subroutine cache_search
 
 !     insertion sort of the candidates by particle index: they number a few
 !     tens, and come from the tree in an order that is already local
-      subroutine sort_candidates
+      subroutine sort_candidates(s)
+      type(hscratch) :: s
       integer k,m
       type(kdtree2_result) :: cand
-      do k=2,ncand
-         cand=results(k)
+      do k=2,s%ncand
+         cand=s%res(k)
          m=k-1
          do while(m.ge.1)
-            if(results(m)%idx.le.cand%idx) exit
-            results(m+1)=results(m)
+            if(s%res(m)%idx.le.cand%idx) exit
+            s%res(m+1)=s%res(m)
             m=m-1
          enddo
-         results(m+1)=cand
+         s%res(m+1)=cand
       enddo
       end subroutine sort_candidates
 

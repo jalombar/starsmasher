@@ -601,6 +601,8 @@ module kdtree2_module
   ! everything else is private.
 
   type(tree_search_record), save, target :: sr   ! a global variable for search
+  ! every thread searches with its own record: the searches only read the tree
+!$omp threadprivate(sr)
 
 contains
 
@@ -1171,7 +1173,7 @@ contains
   end subroutine kdtree2_r_nearest
 
   subroutine kdtree2_r_nearest_around_point(tp,idxin,correltime,r2,&
-   nfound,nalloc,results)
+   nfound,nalloc,results,overflow)
     !
     ! like kdtree2_r_nearest, but around a point 'idxin' already existing
     ! in the data set. 
@@ -1183,6 +1185,9 @@ contains
     real(kdkind), intent(in)             :: r2
     integer, intent(out)         :: nfound
     type(kdtree2_result), target :: results(:)
+    ! if present, the search reports in overflow that results(:) was too small (nfound is then the
+    ! number of points found) instead of printing a warning, so that the caller can search again
+    logical, intent(out), optional :: overflow
     ! ..
     ! .. intrinsic functions ..
     intrinsic huge
@@ -1228,7 +1233,9 @@ contains
        call kdtree2_sort_results(nfound,results)
     endif
 
-    if (sr%overflow) then
+    if (present(overflow)) then
+       overflow = sr%overflow
+    else if (sr%overflow) then
        write (*,*) 'kd_tree_trans: warning! return from kdtree2_r_nearest found more neighbors'
        write (*,*) 'kd_tree_trans: than storage was provided for.  answer is not smallest ball'
        write (*,*) 'kd_tree_trans: with that number of neighbors!  i.e. it is wrong.'
