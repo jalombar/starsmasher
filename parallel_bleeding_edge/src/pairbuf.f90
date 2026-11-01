@@ -12,13 +12,15 @@
 !     of the particles and neighbour lists of its chunk.  So the bits of the
 !     accelerations depend on neither the number of threads nor the schedule.
 !     The particles of a chunk are close to each other, so the buffer of a
-!     chunk of 128 has about a fifth as many entries as the chunk has pairs.
+!     chunk of 512 has about a tenth as many entries as the chunk has pairs.
+!     (Chunks of 64, 128, 256, 512 and 1024 were timed at 5*10^5 particles and 63
+!     threads: the loop takes 28, 18, 13, 11 and 11 ms.)
 !***********************************************************************
       module pairbuf_mod
       use omp_utils
       implicit none
 !     own particles per chunk, and targets per block of the final addition
-      integer, parameter :: pb_chunk=128
+      integer, parameter :: pb_chunk=512
       integer, parameter :: pb_tb=1024
       type pbrec
 !        the particles that the chunk touched (their indices, ascending) and
