@@ -455,7 +455,7 @@ c     rho of inactive particles are predicted from it)
 c     one collective gives every rank the whole array (formerly one gather per rank)
       if(blkdist) then
          call sync_w(udot)
-      else
+      else if(nprocs.gt.1) then
          call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,udot,
      $        recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
       endif
@@ -664,6 +664,15 @@ c     with one collective instead of one for each component
       real*8, allocatable, save :: buf(:)
       integer i,ierr
 
+c     with one rank there is nothing to add: the accelerations are the ones given
+      if(nprocs.eq.1) then
+         do i=1,n
+            vxdot(i)=ax(i)
+            vydot(i)=ay(i)
+            vzdot(i)=az(i)
+         enddo
+         return
+      endif
       if(allocated(buf)) then
          if(size(buf).lt.3*n) deallocate(buf)
       endif
