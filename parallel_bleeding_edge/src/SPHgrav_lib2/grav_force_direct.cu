@@ -681,7 +681,7 @@ struct SPHgrav_direct
 namespace SPHgrav
 {
   const int NTHREAD = 256;
-  const bool PINNED = false;
+  const bool PINNED = true;
 
   SPHgrav_direct<NTHREAD, PINNED> grav;
 
