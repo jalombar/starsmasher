@@ -475,6 +475,7 @@ end module kdtree2_priority_queue_module
 module kdtree2_module
   use kdtree2_precision_module
   use kdtree2_priority_queue_module
+!$ use omp_lib
   ! k-d tree routines in fortran 90 by matt kennel.
   ! original program was written in sather by steve omohundro and
   ! matt kennel.  only the euclidean metric is supported. 
@@ -514,6 +515,13 @@ module kdtree2_module
 
   integer, parameter :: bucket_size = 12
   ! the maximum number of points to keep in a terminal node.
+
+  integer, parameter :: taskmin = 2048
+  integer, parameter :: maxtreethreads = 32
+  ! the team that builds or frees a tree has at most this many threads
+  ! with OpenMP the subtrees of more than this many points are built (and freed) by tasks of their own.
+  ! The nodes are the same as in the serial build: a task works on its own part of ind and the
+  ! cut of a node does not depend on the order in which the nodes are done.
 
   type interval
       real(kdkind) :: lower,upper
@@ -678,6 +686,7 @@ contains
 
     if (mr%rearrange) then
        allocate(mr%rearranged_data(mr%dimen,mr%n))
+!$omp parallel do schedule(static) private(i) if(mr%n.gt.4*taskmin .and. .not.omp_in_parallel())
        do i=1,mr%n
           mr%rearranged_data(:,i) = mr%the_data(:, &
            mr%ind(i))
@@ -698,7 +707,13 @@ contains
       forall (j=1:tp%n)
          tp%ind(j) = j
       end forall
+!     inside a parallel region (the tree over all the particles that a search may need beyond the
+!     partial one) the tasks go to the threads of that region; otherwise a team of its own does them
+!$omp parallel if(tp%n.gt.4*taskmin .and. .not.omp_in_parallel()) num_threads(min(omp_get_max_threads(),maxtreethreads))
+!$omp single
       tp%root => build_tree_for_range(tp,1,tp%n, dummy)
+!$omp end single
+!$omp end parallel
     end subroutine build_tree
 
     recursive function build_tree_for_range(tp,l,u,parent) result (res)
@@ -812,8 +827,18 @@ contains
          res%u = u
 !         res%cut_val = tp%the_data(c,tp%ind(m))
 
-         res%left => build_tree_for_range(tp,l,m,res)
-         res%right => build_tree_for_range(tp,m+1,u,res)
+         if(u-l.gt.taskmin) then
+!$omp task firstprivate(tp,l,m,res)
+            res%left => build_tree_for_range(tp,l,m,res)
+!$omp end task
+!$omp task firstprivate(tp,u,m,res)
+            res%right => build_tree_for_range(tp,m+1,u,res)
+!$omp end task
+!$omp taskwait
+         else
+            res%left => build_tree_for_range(tp,l,m,res)
+            res%right => build_tree_for_range(tp,m+1,u,res)
+         endif
 
          if (associated(res%right) .eqv. .false.) then
             res%box = res%left%box
@@ -988,7 +1013,11 @@ contains
     ! .. structure arguments ..
     type (kdtree2), pointer :: tp
     ! ..
+!$omp parallel if(tp%n.gt.4*taskmin .and. .not.omp_in_parallel()) num_threads(min(omp_get_max_threads(),maxtreethreads))
+!$omp single
     call destroy_node(tp%root)
+!$omp end single
+!$omp end parallel
 
     deallocate (tp%ind)
     nullify (tp%ind)
@@ -1009,6 +1038,17 @@ contains
       ! .. intrinsic functions ..
       intrinsic associated
       ! ..
+      if (np%u-np%l.gt.taskmin .and. associated(np%left) .and. associated(np%right)) then
+!$omp task firstprivate(np)
+         call destroy_node(np%left)
+!$omp end task
+!$omp task firstprivate(np)
+         call destroy_node(np%right)
+!$omp end task
+!$omp taskwait
+         nullify (np%left)
+         nullify (np%right)
+      end if
       if (associated(np%left)) then
          call destroy_node(np%left)
          nullify (np%left)
