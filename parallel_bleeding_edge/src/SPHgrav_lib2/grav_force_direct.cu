@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <vector>
+#include <algorithm>
 #include "cuVector.h"
 #include "cuVec3.h"
 
@@ -414,8 +415,19 @@ __forceinline__ __device__ devForce dev_force_ij_nkernel2(
   return iforce;
 }
 
+// The kernel took 52 or 55 registers per thread, which lets 4 blocks of 256
+// threads share a multiprocessor.  Capped at 48 registers (a few bytes of
+// spill) 5 fit, and on an RTX 4070 Ti SUPER it runs 8-10% faster: more warps
+// to hide the latencies with.  6 blocks (42 registers) is slower again.
+// Turing holds 1024 threads per multiprocessor, so there 4 is the most.
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 750
+#define MIN_BLOCKS_PER_SM 4
+#else
+#define MIN_BLOCKS_PER_SM 5
+#endif
+
 template<const int NTHREAD, const bool HILO>
-__global__ void dev_compute_forces(
+__global__ void __launch_bounds__(NTHREAD, MIN_BLOCKS_PER_SM) dev_compute_forces(
     const int nj,
     const int nibeg,
     const int ni,
@@ -423,10 +435,17 @@ __global__ void dev_compute_forces(
     const devParticleLo *plo_in,
     __gravout devForce    *force_out,
     const int nkernel,
-    const int *ilist)
+    const int *ilist,
+    const int jchunk)
 {
   const int tid = threadIdx.x;
   const int idx = blockIdx.x * blockDim.x + tid;
+
+  // blockIdx.y picks the block of jchunk consecutive j that this block sums
+  // over, and force_out then holds one partial force for each of them,
+  // blockIdx.y * ni + idx, to be added up by dev_sum_forces
+  const int jbeg = blockIdx.y * jchunk;
+  const int jend = min(nj, jbeg + jchunk);
 
   // ilist (block timesteps): force_out[idx] is for particle ilist[idx]
   // rather than for particle nibeg+idx
@@ -440,7 +459,7 @@ __global__ void dev_compute_forces(
 
   if(nkernel==0)
   {
-    for (int j = 0; j < nj; j += NTHREAD)
+    for (int j = jbeg; j < jend; j += NTHREAD)
     {
 #if 1
       float4 *src = (float4*)&ptcl_in[j];
@@ -470,7 +489,7 @@ __global__ void dev_compute_forces(
   }
   else if (nkernel==1)
   {
-    for (int j = 0; j < nj; j += NTHREAD)
+    for (int j = jbeg; j < jend; j += NTHREAD)
     {
 #if 1
       float4 *src = (float4*)&ptcl_in[j];
@@ -500,7 +519,7 @@ __global__ void dev_compute_forces(
   }
   else if (nkernel==2)
   {
-    for (int j = 0; j < nj; j += NTHREAD)
+    for (int j = jbeg; j < jend; j += NTHREAD)
     {
 #if 1
       float4 *src = (float4*)&ptcl_in[j];
@@ -530,7 +549,34 @@ __global__ void dev_compute_forces(
   }
 
   if (idx < ni)
-    force_out[idx] = iforce;
+    force_out[blockIdx.y * ni + idx] = iforce;
+}
+
+// Adds the nsplit partial forces of each particle in the order of the splits,
+// in double-single arithmetic: the same result every time.
+__global__ void dev_sum_forces(
+    const int ni,
+    const int nsplit,
+    const devForce *part,
+    __gravout devForce *force_out)
+{
+  const int idx = blockIdx.x * blockDim.x + threadIdx.x;
+  if (idx >= ni)
+    return;
+  devForce f = part[idx];
+  for (int s = 1; s < nsplit; s++)
+  {
+    const devForce g = part[s * ni + idx];
+    f.ax += g.ax.val.x;  f.ax += g.ax.val.y;
+    f.ay += g.ay.val.x;  f.ay += g.ay.val.y;
+    f.az += g.az.val.x;  f.az += g.az.val.y;
+#ifdef _GPOTDP_
+    f.pot += g.pot.val.x;  f.pot += g.pot.val.y;
+#else
+    f.pot += g.pot;
+#endif
+  }
+  force_out[idx] = f;
 }
 
 template<int NTHREAD, bool PINNED>
@@ -542,6 +588,10 @@ struct SPHgrav_direct
   cuVector<devForce,    PINNED> force;
   cuVector<int,         PINNED> ilist;
 
+  // partial forces of the splits in j (see launch), on the device only
+  devForce *part;
+  size_t partcap;
+
   // uselist: the last first_half computed forces only on the ni particles
   // in ilist (0-based), and last_half zeroes the rest of nibeg..nibeg+nrange-1
   bool uselist;
@@ -552,7 +602,7 @@ struct SPHgrav_direct
   int nibeg, ni;
   int ndevice;
   std::vector<bool> can_use_device;
-  SPHgrav_direct(const int rank = 0) : hilo(false)
+  SPHgrav_direct(const int rank = 0) : hilo(false), part(NULL), partcap(0)
   {
     assert(cudaGetDeviceCount(&ndevice) == 0);
     if (rank == 0)
@@ -604,6 +654,68 @@ struct SPHgrav_direct
     }
   }
 
+  // The grid has one block of NTHREAD particles i along x, and the sum over
+  // j is split in nsplit pieces along y.  With the whole sum in each block
+  // the 391 blocks of a 10^5-particle run need 1.48 times the blocks that
+  // fit on the device at once, so the second round leaves half of it idle.
+  // Splitting makes the rounds many and short.  nsplit is the one for which
+  // the rounds cost the least, taking the smallest of those within 1%.
+  template<bool HI>
+  int choose_split(const int nblocks, const int nj)
+  {
+    int dev = 0, nsm = 0, nb = 0;
+    cudaGetDevice(&dev);
+    cudaDeviceGetAttribute(&nsm, cudaDevAttrMultiProcessorCount, dev);
+    cudaOccupancyMaxActiveBlocksPerMultiprocessor(&nb,
+        dev_compute_forces<NTHREAD, HI>, NTHREAD, 0);
+    const int resident = nsm * nb;
+    // pieces of at least 8 tiles of NTHREAD, so that a block's loop stays long
+    const int smax = std::max(1, std::min(32, nj / NTHREAD / 8));
+    if (resident <= 0)
+      return 1;
+    double best = 1.0e30;
+    for (int s = 1; s <= smax; s++)
+      best = std::min(best, (double)((nblocks * s + resident - 1) / resident) / s);
+    for (int s = 1; s <= smax; s++)
+      if ((double)((nblocks * s + resident - 1) / resident) / s <= 1.01 * best)
+        return s;
+    return 1;
+  }
+
+  void launch(const int ni, const int nkernel, const int *ilist_dev)
+  {
+    const int nj = ptcl.size;
+    const int nblocks = (ni - 1) / NTHREAD + 1;
+    int nsplit = hilo ? choose_split<true>(nblocks, nj) : choose_split<false>(nblocks, nj);
+    const int ntiles = nj / NTHREAD;
+    const int tiles = (ntiles + nsplit - 1) / nsplit;
+    nsplit = (ntiles + tiles - 1) / tiles;
+    const int jchunk = tiles * NTHREAD;
+
+    devForce *out = force;
+    if (nsplit > 1)
+    {
+      const size_t need = (size_t)nsplit * ni;
+      if (need > partcap)
+      {
+        if (part != NULL)
+          CUDA_SAFE_CALL(cudaFree(part));
+        CUDA_SAFE_CALL(cudaMalloc((void**)&part, need * sizeof(devForce)));
+        partcap = need;
+      }
+      out = part;
+    }
+
+    const dim3 block(NTHREAD, 1, 1);
+    const dim3 grid (nblocks, nsplit, 1);
+    if (hilo)
+      dev_compute_forces<NTHREAD, true ><<<grid, block>>>(nj, nibeg, ni, ptcl, plo, out, nkernel, ilist_dev, jchunk);
+    else
+      dev_compute_forces<NTHREAD, false><<<grid, block>>>(nj, nibeg, ni, ptcl, (const devParticleLo*)NULL, out, nkernel, ilist_dev, jchunk);
+    if (nsplit > 1)
+      dev_sum_forces<<<(ni - 1) / 256 + 1, 256>>>(ni, nsplit, part, force);
+  }
+
   void first_half(const int nibeg, const int ni, const int nkernel)
   {
     cudaEventCreate( &start );
@@ -618,19 +730,8 @@ struct SPHgrav_direct
     if (hilo) plo.h2d();
 
 
-    const int nthreads =        NTHREAD;
-    const int nblocks  = (ni-1)/NTHREAD + 1;
-
-    const dim3 block(nthreads, 1, 1);
-    const dim3 grid (nblocks,  1, 1);
-
-    const int nj = ptcl.size;
-    assert(nj % NTHREAD == 0);
-
-    if (hilo)
-      dev_compute_forces<NTHREAD, true ><<<grid, block>>>(nj, nibeg, ni, ptcl, plo, force, nkernel, (const int*)NULL);
-    else
-      dev_compute_forces<NTHREAD, false><<<grid, block>>>(nj, nibeg, ni, ptcl, (const devParticleLo*)NULL, force, nkernel, (const int*)NULL);
+    assert(ptcl.size % NTHREAD == 0);
+    launch(ni, nkernel, (const int*)NULL);
   }
 
   // forces on the ni particles listed (0-based) in ilist.host_pointer only
@@ -650,19 +751,8 @@ struct SPHgrav_direct
     if (hilo) plo.h2d();
     ilist.h2d();
 
-    const int nthreads =        NTHREAD;
-    const int nblocks  = (ni-1)/NTHREAD + 1;
-
-    const dim3 block(nthreads, 1, 1);
-    const dim3 grid (nblocks,  1, 1);
-
-    const int nj = ptcl.size;
-    assert(nj % NTHREAD == 0);
-
-    if (hilo)
-      dev_compute_forces<NTHREAD, true ><<<grid, block>>>(nj, nibeg, ni, ptcl, plo, force, nkernel, (const int*)ilist);
-    else
-      dev_compute_forces<NTHREAD, false><<<grid, block>>>(nj, nibeg, ni, ptcl, (const devParticleLo*)NULL, force, nkernel, (const int*)ilist);
+    assert(ptcl.size % NTHREAD == 0);
+    launch(ni, nkernel, (const int*)ilist);
   }
 
   float last_half()
