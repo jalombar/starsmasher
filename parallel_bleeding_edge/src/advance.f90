@@ -153,10 +153,10 @@
 !      if( ngr.ne.0 .and. mod(nit,nitpot).eq.0 ) call gravpot
       if(ngr.ne.0) call gravforce
 
-      if(myrank.eq.nprocs-1) call cpu_time(time1)
+      if(myrank.eq.nprocs-1) call wall_time(time1)
       call uvdots                ! evaluate udot and accelerations at half-timestep
       if(myrank.eq.nprocs-1) then
-         call cpu_time(time2)
+         call wall_time(time2)
          write (6,'(a,f6.3,a,i4)')&
               'uvdots: ',time2-time1
       endif
@@ -433,7 +433,7 @@
       real*8 pad(3),padmin,pbcdist2,xdum(3,1)
       integer idum(1)
 
-      if(myrank.eq.nprocs-1) call cpu_time(time1)
+      if(myrank.eq.nprocs-1) call wall_time(time1)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !      call linkedlists
 !     is being replaced with the creation of a kd tree...
@@ -872,7 +872,7 @@
          call sync_all(hdynco)
       endif
       if(myrank.eq.nprocs-1) then
-         call cpu_time(time2)
+         call wall_time(time2)
          write (6,'(a,f6.3,a,i4)')&
               'rho\&h: ',time2-time1
       endif

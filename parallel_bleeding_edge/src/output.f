@@ -49,13 +49,13 @@ c     myrank=0 needs the rho, divv values to make the output file
 
          if(myrank.ne.0) return
 
-         call cpu_time(time1)
+         call wall_time(time1)
          write (69,*) 'checkpt: writing local checkpt file at nit=',
      $        nit
          open(12,file='restartrad.sph',form='unformatted',err=100)
          call dump(12)
          close (12)
-         call cpu_time(time2)
+         call wall_time(time2)
          seconds = time2-time1
          write (6,*) 'restartrad:',seconds,'s'
       endif

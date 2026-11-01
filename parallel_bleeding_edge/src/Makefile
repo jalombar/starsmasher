@@ -102,9 +102,28 @@ endif
 
 # ------------------------------------------------------------------ flags ----
 OLEVEL   ?= -O4
-FFLAGS    = $(OLEVEL) $(MCMODEL) $(PLATFORM_FFLAGS)
+# Hybrid MPI x OpenMP: make OPENMP=1.  The default is the plain MPI build.
+# gfortran's -fopenmp implies -frecursive, which would put every local array on
+# the stack, including the (nmax)-sized ones of the setup routines; with
+# -fmax-stack-var-size the arrays above 64 kB are static again, as in the MPI
+# build.  The routines that run inside parallel regions have no such arrays.
+OPENMP   ?= 0
+ifeq ($(OPENMP),1)
+  ifeq ($(MPI_VENDOR),GNU)
+    OMPFLAGS = -fopenmp -fmax-stack-var-size=65536
+    OMPLINK  = -fopenmp
+  else
+    OMPFLAGS = -qopenmp
+    OMPLINK  = -qopenmp
+  endif
+else
+  OMPFLAGS =
+  OMPLINK  =
+endif
+FFLAGS    = $(OLEVEL) $(MCMODEL) $(PLATFORM_FFLAGS) $(OMPFLAGS)
 CFLAGS    = $(OLEVEL)
 CXXFLAGS  = $(OLEVEL)
+LDFLAGS  += $(OMPLINK)
 
 LIBS = -lm
 
@@ -142,7 +161,7 @@ NNMAX ?= $(DEFAULT_NNMAX)
 NTAB ?= $(DEFAULT_NTAB)
 
 # ---------------------------------------------------------------- objects ----
-FOBJS = eos_table_data.o riemann_data.o kdtree2.o advance.o balAV3.o            \
+FOBJS = omp_utils.o eos_table_data.o riemann_data.o kdtree2.o advance.o balAV3.o  \
         blockstep.o                                              \
         getderivs.o getTemperature.o                             \
         initialize_hyperbolic.o init.o kernels.o                 \
@@ -177,6 +196,7 @@ $(LIMITS_FILE): Makefile FORCE
 	  echo "      parameter(nmax=$(NMAX),nnmax=$(NNMAX))"; \
 	  echo "      integer ntab"; \
 	  echo "      parameter(ntab=$(NTAB))"; \
+	  echo "! the compiler flags of this build (a change rebuilds every object): $(FFLAGS)"; \
 	} > "$$tmp"; \
 	if test -f "$@" && cmp -s "$$tmp" "$@"; then /bin/rm -f "$$tmp"; else mv "$$tmp" "$@"; fi
 
@@ -188,6 +208,7 @@ $(LIMITS_FILE): Makefile FORCE
 
 initialize_parent.o initialize_polyes.o useeostable.o: eos_table_data.o
 advance.o balAV3.o pressure.o riemann.o: riemann_data.o
+advance.o balAV3.o blockstep.o kdtree2.o main.o output.o pressure.o relax.o resplintmu.o tstep.o grav.o: omp_utils.o
 
 # ----------------------------------------------------------------- targets ---
 gpu: check-gpu-backend $(GPUOBJS)
@@ -242,6 +263,7 @@ config:
 	@echo "  runtime libdir  $(CUDA_LIBDIR)"
 	@echo "Compilation"
 	@echo "  FFLAGS          $(FFLAGS)"
+	@echo "  OpenMP          $(if $(filter 1,$(OPENMP)),ON  (OPENMP=1: $(OMPFLAGS)),off (OPENMP=0; make OPENMP=1 for the hybrid MPI x OpenMP build))"
 	@echo "  code model      $(if $(MCMODEL),$(MCMODEL),default (small))"
 	@echo "  nmax            $(NMAX)"
 	@echo "  nnmax           $(NNMAX)"

@@ -6,6 +6,7 @@
       real*8 ptab,dlpr,dlpu,eps
       parameter(eps=0.01d0)
       integer i,iw,nil,ilist(nmax)
+      save ilist
 !     Subroutine calculating pressure.
 !     
 !     The calculation is dependent on the equation of state used

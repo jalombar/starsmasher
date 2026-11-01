@@ -47,6 +47,7 @@ c     variables used for radiative cooling portion of the code:
       real*8 zeroin,mucgs
       common/ueqstuff/rhocgs,teq,mucgs
       real*8 grpottot(nmax),uraddoti
+      save grpottot
       real*8 hpitilde,h2tilde,invh2tilde,htil
       integer itabtilde
 c     table position in units of the table spacing, and its fraction
@@ -591,7 +592,7 @@ c     one collective gives every rank the whole array (formerly one gather per r
 
 c      write(6,'(a)')'hydrompi_complete'
       if(ngr.ne.0 .and. myrank.lt.ngravprocs)then
-         if(myrank.eq.ngravprocs-1) call cpu_time(time0)
+         if(myrank.eq.ngravprocs-1) call wall_time(time0)
          if(nusegpus.eq.1)then
             call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
          else
@@ -603,7 +604,7 @@ c     90% are active, when the symmetric pair loop over all pairs is cheaper
                call get_gravity_using_cpus
             endif
          endif   
-         if(myrank.eq.ngravprocs-1) call cpu_time(time1)
+         if(myrank.eq.ngravprocs-1) call wall_time(time1)
          if(ngravprocs.gt.1) then
             if(nusegpus.eq.1)then
                mygravlength=ngrav_upper-ngrav_lower+1
