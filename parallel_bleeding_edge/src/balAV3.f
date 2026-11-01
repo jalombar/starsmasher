@@ -125,301 +125,9 @@ c     share of the particles to be solved, otherwise its own index range):
       else
          nloop=n_upper-n_lower+1
       endif
-      do iw=1,nloop
-         if(blkdist) then
-            i=wmine(iw)
-         else
-            i=n_lower+iw-1
-         endif
-c     block steps (nblock=1): only particles with a neighbour list from this
-c     substep take part, i.e. the active ones and the inactive ones that
-c     were refreshed because an active particle lies inside their kernel.
-c     Each list gives the terms of particle i's kernel, which act on i and
-c     on its neighbour j, and only active particles keep their results.
-c     This finds every term on an active particle.  With shared steps every
-c     particle is active (actblk), so nothing is skipped.
-         if(.not.(actblk(i) .or. refblk(i))) cycle
-         hpi=hp(i)
-         hpitilde=hpi - hfloor
-         if(dynhco.eq.3) hpitilde=hdynco(i)
-         h2=hpi**2
-         h2tilde=hpitilde**2
-         h5=hpi*h2**2
-         invh  = 1.0/hpi
-         invh2 = 1.0/h2
-         invh2tilde = 1.0/h2tilde
-         invh5 = 1.0/h5
-         ami=am(i)
-         por2i=por2(i)
-         if(nav.eq.4) then
-            ci2=gam1p(i)*por2i*rho(i)
-         else
-            ci2=gam*por2i*rho(i)
-         endif
-         ci=sqrt(ci2)
-         vxi=vx(i)
-         vyi=vy(i)
-         vzi=vz(i)
-         call getderivs(i,curlvxi,curlvyi,curlvzi,divvi)
-         divv(i)=divvi
-         abscurli=sqrt(curlvxi**2+curlvyi**2+curlvzi**2)
-
-c     calculate gradwij's to all neighbors:
-         offset = first(i)
-         nni    = nn(i)
-         do in=1,nni
-            j=list(offset+in)
-            if(.not.(actblk(i) .or. actblk(j))) cycle
-       
-            dx = x(i) - x(j)
-            dy = y(i) - y(j)
-            dz = z(i) - z(j)
-            if(periodic) call pbcwrap(dx,dy,dz)
-            dvx = vxi - vx(j)
-            dvy = vyi - vy(j)
-            dvz = vzi - vz(j)
-            r2 = dx*dx + dy*dy + dz*dz 
-c     a capped point particle's list reaches beyond 2h (to 2*htilde)
-            xq=ctab*min(r2*invh2,4.d0)
-            itab=int(xq)+1
-            fq=xq-dble(itab-1)
-
-            if(r2.lt.4d0*h2tilde) then
-               xqtilde=ctab*r2*invh2tilde
-               itabtilde=int(xqtilde)+1
-               fqtilde=xqtilde-dble(itabtilde-1)
-               diwkin = (dgtab(itabtilde)
-     $              +fqtilde*(dgtab(itabtilde+1)-dgtab(itabtilde)))
-     $              * invh2tilde
-            else
-               diwkin = 0d0
-            endif
-
-            dwijin = (dwtab(itab)+fq*(dwtab(itab+1)-dwtab(itab))) * invh5
-
-            if(u(j).ne.0.d0 .and. u(i).ne.0) then
-              divin = dx*dvx + dy*dvy + dz*dvz
-               if (divin.lt.0.d0 .and. nav.ne.4) then
-c                  r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0
-c     $                 +(z(i)-z(j))**2.d0
-c     cj=sqrt(5.d0/3.d0*por2(j)*rho(j))
-                  
-c     calculate dinshaw balsara's (db) \mu_{ij}: see equation (a12) of http://adsabs.harvard.edu/abs/2012apj...745...71p
-                  fi=abs(divvi)/(abs(divvi)+abscurli+
-     $                 0.00001d0*ci*invh)
-c                 fj=abs(divv(j))/(abs(divv(j))+
-c     $                    sqrt(curlvx(j)**2+curlvy(j)**2+curlvz(j)**2)+
-c     $                    0.00001d0*cj/hp(j))
-c     modified from very old version:
-                  if(r2.gt.0) then
-                     if(nav.eq.3) then
-                        udbij=divin/(ci*r2**0.5d0)*fi
-                     else
-                        udbij=hpi*divin/(ci*r2)*fi
-                     endif
-                  else
-                     udbij=0d0
-                  endif
-
-c     old version:
-c     udbij=div(in)/((ci+cj)*r2**0.5d0)*(fi+fj)
-c     udbij=divin/(ci*r2**0.5d0)*fi
-                  if(abs(udbij).gt.1.d8) then
-                     write(69,*)'c warning large udbij...',i,j, udbij,divin,ci,
-     $                    am(i),am(j),u(i),u(j)
-                     if(dt.lt.1d-17)then
-                        write(69,*)'unreasonably small dt. abort run.'
-                        call mpi_finalize(ierr)
-                        stop
-                     endif
-                  endif
-c                               a     +    b * c   (multiply-add, cpu likes these)
-                  pijin=por2i*(alpha1 + beta1*udbij)*udbij
-               else
-                  pijin=0.d0
-               endif
-
-c     nav=4: the Riemann problem along r_hat=(r_i-r_j)/|r_i-r_j|, on which
-c     j is the left state and i the right, each with its particle's own
-c     density, pressure and velocity along r_hat.  pstat is the star
-c     pressure of the same problem with the two particles at rest, so
-c     p*-pstat is the part that comes from their relative motion, and
-c     (p*-pstat)(1/rho_i^2+1/rho_j^2) takes the place of the AV.  It is
-c     the same from both ends of the pair, so the dissipation conserves
-c     energy pair by pair, and it is zero without relative motion, where
-c     the equations reduce to the variational ones.  (Second-order states
-c     reconstructed to the pair midpoint from limited gradients were
-c     tried and dropped: the limiter switching them on and off broke
-c     energy conservation by percents in black hole-star encounters.  On
-c     shock tubes with navsw=2 they were within a few per cent of these
-c     first-order states, and with navsw=1 up to 1.5 times more accurate.)
-               if(nav.eq.4 .and. r2.eq.0.d0) then
-                  vir=0.d0
-                  vjr=0.d0
-               elseif(nav.eq.4) then
-                  rij=sqrt(r2)
-                  vir=(vxi*dx+vyi*dy+vzi*dz)/rij
-                  vjr=(vx(j)*dx+vy(j)*dy+vz(j)*dz)/rij
-                  pl=por2(j)*rho(j)**2
-                  pr=por2i*rho(i)**2
-                  rhl=rho(j)
-                  rhr=rho(i)
-                  vl=vjr
-                  vr=vir
-c     navsw selects a switch: 2 or 3 drops receding pairs, 1 or 3
-c     multiplies by balsara's f_i as in nav=3
-                  if((navsw.eq.2 .or. navsw.eq.3) .and. divin.ge.0.d0) then
-                     pijin=0.d0
-                  else
-                     call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
-     $                    gam1p(i),nriemann,pstar)
-                     call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,pr,
-     $                    gam1p(i),nriemann,pstat)
-c     the exact p* falls as vr-vl rises, so p*-pstat must have the sign of
-c     vl-vr.  If the one-step solution does not, solve this pair to
-c     convergence (rare: never in the pairs of the collision dumps tested)
-                     if(nriemann.ne.0 .and.
-     $                    (pstar-pstat)*(vr-vl).gt.0.d0) then
-                        call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
-     $                       gam1p(i),0,pstar)
-                        call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,
-     $                       pr,gam1p(i),0,pstat)
-                     endif
-                     pijin=(pstar-pstat)*(1.d0/rho(i)**2+1.d0/rho(j)**2)
-                     if(navsw.eq.1 .or. navsw.eq.3) pijin=pijin*abs(divvi)/
-     $                    (abs(divvi)+abscurli+0.00001d0*ci*invh)
-                  endif
-               endif
-c     hydro correction part.  here we are implementing corrections as shown
-c     in equations (a11) and (a12) of gaburov et al. (2010):
-               invbonnet = 1.0/(bonet_0mega(i)*am(j))
-
-c     csij will not contain AV (pijin) contributions so that we can
-c     later use the acceleration derived from it to calculate scale height.
-c     All AV contributions to the acceleration will be accounted for with
-c     the help of csijgc below. (gc=gravity correction... this is for terms
-c     associated with the gravity correction *and* with AV)
-               csij = por2i * (-bonet_omega(i) * invbonnet * diwkin
-     $              + dwijin)
-               csijgc= 0.5d0 * pijin * dwijin
-
-c     hydro part
-               if (nrelax.eq.1 .and.t.lt.treloff) then
-                  csiju= csij ! No heating from AV during relaxation
-               else
-                  csiju= csij + csijgc
-               endif
-
-               if(nintvar.eq.2) then
-                  udot(i)=udot(i)+am(j)*csiju*divin
-               elseif (nrelax.eq.0 .or. t.ge.treloff) then
-                  udot(i)=udot(i)+am(j)*pijin*dwijin*divin
-               endif
-
-               if(nav.eq.4) then
-c     on the scale of the AV version's p/rho (c^2/Gamma_1): half the
-c     pair's signal speed, squared, over Gamma_1
-                  cj=sqrt(gam1p(j)*por2(j)*rho(j))
-                  vsig=ci+cj+max(vjr-vir,0.d0)
-                  if(actblk(i)) uijmax(i)=max(uijmax(i),
-     $                 (0.5d0*vsig)**2/gam1p(i))
-               elseif(actblk(i)) then
-                  uijmax(i)=max(uijmax(i),
-     $              (por2i + 0.5d0 * pijin)*rho(i))
-               endif
-c               uijmax(j)=max(uijmax(j),
-c     $              (por2i + 0.5d0 * pijin)*rho(i))
-
-               if(ngr.ne.0) then
-c     gravity correction part
-c                  csij = csij - 0.5d0*diwkin * bonet_psi(i) * invbonnet
-                  csijgc = csijgc - 0.5d0*diwkin * bonet_Psi(i) * invBonnet
-               endif
-            else if(u(i).eq.0.d0 .and. u(j).ne.0.d0 .and. dynhco.ge.1
-     $              .and. ngr.ne.0) then
-c     point particle i with a dynamic softening length: no hydro or AV, but
-c     the same gravity correction (a14),(a15) as for an sph particle, since
-c     its h_i obeys eq. (a1) summed over its sph neighbours j
-               csij=0.d0
-               if(hcolim) then
-c     grad G at the unlimited solution h_dyn (see rho_and_h)
-                  if(r2.lt.4.d0*hdynco(i)**2) then
-                     xqtilde=ctab*r2/hdynco(i)**2
-                     itabtilde=int(xqtilde)+1
-                     fqtilde=xqtilde-dble(itabtilde-1)
-                     diwkin=(dgtab(itabtilde)
-     $                    +fqtilde*(dgtab(itabtilde+1)-dgtab(itabtilde)))
-     $                    /hdynco(i)**2
-                  else
-                     diwkin=0.d0
-                  endif
-               endif
-               csijgc = -0.5d0*diwkin*bonet_psi(i)/(bonet_0mega(i)*am(j))
-            else
-               csij=0.d0
-               csijgc=0.d0
-            endif
-            
-            sxijin = csij * dx !(x(i) - x(j))
-            syijin = csij * dy !(y(i) - y(j))
-            szijin = csij * dz !(z(i) - z(j))
-            sxijingc = csijgc * dx !(x(i) - x(j))
-            syijingc = csijgc * dy !(y(i) - y(j))
-            szijingc = csijgc * dz !(z(i) - z(j))
-
-c     finally compute each component of dv/dt:
-
-c     note: sxijin has been calculated using pi/rhoi^2.  so in the "gather"
-c     part of the sum, everything is as you would expect.  but the gather part
-c     of the sum only gives half of the contributions for any given particle
-c     i.  for the sake of concreteness, let's say i=5.  the other half of the
-c     contributions to the acceleration of particle 5 comes from the scatter
-c     portion of the code with j=5 (note: this is *j*, not i).  in the scatter
-c     portion, the index i will be a number other than 5, and so the p/rho^2
-c     being used inside of sxijin will come from that particle with index
-c     different than 5.  the gather contributions to particle 5 all happen
-c     together in one big group.  the scatter contributions to particle 5 will
-c     happen haphazardly as the loop over particle index i gradually covers
-c     all the particles that have 5 as a neighbor.
-
-c     "gather" part of the sum:
-            myvxdot(i)=myvxdot(i)-am(j)*sxijin
-            myvydot(i)=myvydot(i)-am(j)*syijin
-            myvzdot(i)=myvzdot(i)-am(j)*szijin
-c     "scatter" part of the sum:
-            myvxdot(j)=myvxdot(j)+ami*sxijin
-            myvydot(j)=myvydot(j)+ami*syijin
-            myvzdot(j)=myvzdot(j)+ami*szijin
-c     "Gather" part of the sum:
-            myvxdotgc(i)=myvxdotgc(i)-am(j)*sxijingc
-            myvydotgc(i)=myvydotgc(i)-am(j)*syijingc
-            myvzdotgc(i)=myvzdotgc(i)-am(j)*szijingc
-c     "Scatter" part of the sum:
-            myvxdotgc(j)=myvxdotgc(j)+ami*sxijingc
-            myvydotgc(j)=myvydotgc(j)+ami*syijingc
-            myvzdotgc(j)=myvzdotgc(j)+ami*szijingc
-         enddo
-
-c     p=(gam-1)*rho*u=a*rho^gam, so a=(gam-1)*rho^(1-gam)*u
-         if(nintvar.eq.1 .and. u(i).ne.0.d0)
-     $        udot(i)=udot(i)*0.5d0*(gam-1.d0)*rho(i)**(1.d0-gam)
-
-c     ln A is the specific entropy up to the factor 3k/2mu and a constant, so
-c     d(lnA)/dt = (2 mu/3k) (du/dt)/T, with du/dt the dissipative part alone --
-c     which is exactly what the sum above holds, since the branch that fills it
-c     leaves out the adiabatic pdV work that does not change the entropy.  The
-c     temperature comes from pressure, which runs earlier in the same step over
-c     this same n_lower:n_upper range; the fallback covers the first call,
-c     before pressure has ever filled it.
-         if(nintvar.eq.3 .and. u(i).ne.0.d0) then
-            if(tempcache(i).le.0.d0)
-     $           call getT_from_lna(u(i),rho(i)*munit/runit**3.d0,
-     $           meanmolecular(i),-1.d0,tempcache(i))
-            udot(i)=udot(i)*0.5d0*gravconst*munit/runit
-     $           *2.d0*meanmolecular(i)/(3.d0*boltz*tempcache(i))
-         endif
-
-      enddo
+c     the pair loop, by chunks of particles on the threads (uvpairs, below)
+      call uvpairs(nloop,alpha1,beta1,myvxdot,myvydot,myvzdot,
+     $     myvxdotgc,myvydotgc,myvzdotgc)
 c      write(6,'(a)')'hydrompi'
 
       if(nblock.eq.1) then
@@ -719,5 +427,396 @@ c     with one rank there is nothing to add: the accelerations are the ones give
          vzdot(i)=buf(2*n+i)
       enddo
 
+      return
+      end
+c***********************************************************************
+      subroutine uvchunk(ic,nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz,
+     $     smap,bm,acc)
+c     The pair loop of uvdots for chunk ic of the particles of this rank
+c     (pb_chunk consecutive ones): the terms of each particle i, which go to i
+c     into mvx.. and mgx.. (the "gather" part) and to its neighbours j into the
+c     buffer of the chunk, smap/bm/acc being the working space of the thread
+c     (see pairbuf.f90).  Called from a parallel region, so every variable
+c     below is local to the call.
+      use riemann_data
+      use pairbuf_mod
+      include 'starsmasher.h'
+      include 'mpif.h'
+      integer ic,nloop
+      real*8 alpha1,beta1
+      real*8 mvx(*),mvy(*),mvz(*),mgx(*),mgy(*),mgz(*)
+      integer smap(*)
+      integer*8 bm(*)
+      real*8 acc(6,*)
+      integer iw0,iw1,cnt,jmin,jmax,jslot,jw
+      double precision curlvxi,curlvyi,curlvzi
+      real*8 csij,udbij,fi,ci,r2,
+     $     abscurli,divvi,vxi,vyi,vzi,ci2,ami,por2i,h5,
+     $     h2,hpi,csiju,csijgc
+      integer itab,j,in,i,iw
+      real*8 uijmax(nmax)
+      common/uijmax/ uijmax
+      real*8 dwijin,pijin,sxijin,syijin,szijin,divin, diwkin
+      real*8 sxijingc,syijingc,szijingc
+      double precision divv(nmax)
+      common/commdivv/divv
+      real*8 invh, invh2, invh5
+      real*8 dx, dy, dz
+      real*8 dvx, dvy, dvz
+      real*8 invbonnet
+      integer offset, nni
+      real*8 hpitilde,h2tilde,invh2tilde
+      integer itabtilde
+      real*8 xq,fq,xqtilde,fqtilde
+      real*8 rij,vir,vjr,pstar,pstat,vsig,cj
+      real*8 rhl,rhr,vl,vr,pl,pr
+
+      iw0=(ic-1)*pb_chunk+1
+      iw1=min(ic*pb_chunk,nloop)
+      cnt=0
+      jmin=nmax
+      jmax=0
+      do iw=iw0,iw1
+         if(blkdist) then
+            i=wmine(iw)
+         else
+            i=n_lower+iw-1
+         endif
+c     block steps (nblock=1): only particles with a neighbour list from this
+c     substep take part, i.e. the active ones and the inactive ones that
+c     were refreshed because an active particle lies inside their kernel.
+c     Each list gives the terms of particle i's kernel, which act on i and
+c     on its neighbour j, and only active particles keep their results.
+c     This finds every term on an active particle.  With shared steps every
+c     particle is active (actblk), so nothing is skipped.
+         if(.not.(actblk(i) .or. refblk(i))) cycle
+         hpi=hp(i)
+         hpitilde=hpi - hfloor
+         if(dynhco.eq.3) hpitilde=hdynco(i)
+         h2=hpi**2
+         h2tilde=hpitilde**2
+         h5=hpi*h2**2
+         invh  = 1.0/hpi
+         invh2 = 1.0/h2
+         invh2tilde = 1.0/h2tilde
+         invh5 = 1.0/h5
+         ami=am(i)
+         por2i=por2(i)
+         if(nav.eq.4) then
+            ci2=gam1p(i)*por2i*rho(i)
+         else
+            ci2=gam*por2i*rho(i)
+         endif
+         ci=sqrt(ci2)
+         vxi=vx(i)
+         vyi=vy(i)
+         vzi=vz(i)
+         call getderivs(i,curlvxi,curlvyi,curlvzi,divvi)
+         divv(i)=divvi
+         abscurli=sqrt(curlvxi**2+curlvyi**2+curlvzi**2)
+
+c     calculate gradwij's to all neighbors:
+         offset = first(i)
+         nni    = nn(i)
+         do in=1,nni
+            j=list(offset+in)
+            if(.not.(actblk(i) .or. actblk(j))) cycle
+       
+            dx = x(i) - x(j)
+            dy = y(i) - y(j)
+            dz = z(i) - z(j)
+            if(periodic) call pbcwrap(dx,dy,dz)
+            dvx = vxi - vx(j)
+            dvy = vyi - vy(j)
+            dvz = vzi - vz(j)
+            r2 = dx*dx + dy*dy + dz*dz 
+c     a capped point particle's list reaches beyond 2h (to 2*htilde)
+            xq=ctab*min(r2*invh2,4.d0)
+            itab=int(xq)+1
+            fq=xq-dble(itab-1)
+
+            if(r2.lt.4d0*h2tilde) then
+               xqtilde=ctab*r2*invh2tilde
+               itabtilde=int(xqtilde)+1
+               fqtilde=xqtilde-dble(itabtilde-1)
+               diwkin = (dgtab(itabtilde)
+     $              +fqtilde*(dgtab(itabtilde+1)-dgtab(itabtilde)))
+     $              * invh2tilde
+            else
+               diwkin = 0d0
+            endif
+
+            dwijin = (dwtab(itab)+fq*(dwtab(itab+1)-dwtab(itab))) * invh5
+
+            if(u(j).ne.0.d0 .and. u(i).ne.0) then
+              divin = dx*dvx + dy*dvy + dz*dvz
+               if (divin.lt.0.d0 .and. nav.ne.4) then
+c                  r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0
+c     $                 +(z(i)-z(j))**2.d0
+c     cj=sqrt(5.d0/3.d0*por2(j)*rho(j))
+                  
+c     calculate dinshaw balsara's (db) \mu_{ij}: see equation (a12) of http://adsabs.harvard.edu/abs/2012apj...745...71p
+                  fi=abs(divvi)/(abs(divvi)+abscurli+
+     $                 0.00001d0*ci*invh)
+c                 fj=abs(divv(j))/(abs(divv(j))+
+c     $                    sqrt(curlvx(j)**2+curlvy(j)**2+curlvz(j)**2)+
+c     $                    0.00001d0*cj/hp(j))
+c     modified from very old version:
+                  if(r2.gt.0) then
+                     if(nav.eq.3) then
+                        udbij=divin/(ci*r2**0.5d0)*fi
+                     else
+                        udbij=hpi*divin/(ci*r2)*fi
+                     endif
+                  else
+                     udbij=0d0
+                  endif
+
+c     old version:
+c     udbij=div(in)/((ci+cj)*r2**0.5d0)*(fi+fj)
+c     udbij=divin/(ci*r2**0.5d0)*fi
+                  if(abs(udbij).gt.1.d8) then
+                     write(69,*)'c warning large udbij...',i,j, udbij,divin,ci,
+     $                    am(i),am(j),u(i),u(j)
+                     if(dt.lt.1d-17)then
+                        write(69,*)'unreasonably small dt. abort run.'
+!$omp atomic write
+                        pb_fail=1
+                     endif
+                  endif
+c                               a     +    b * c   (multiply-add, cpu likes these)
+                  pijin=por2i*(alpha1 + beta1*udbij)*udbij
+               else
+                  pijin=0.d0
+               endif
+
+c     nav=4: the Riemann problem along r_hat=(r_i-r_j)/|r_i-r_j|, on which
+c     j is the left state and i the right, each with its particle's own
+c     density, pressure and velocity along r_hat.  pstat is the star
+c     pressure of the same problem with the two particles at rest, so
+c     p*-pstat is the part that comes from their relative motion, and
+c     (p*-pstat)(1/rho_i^2+1/rho_j^2) takes the place of the AV.  It is
+c     the same from both ends of the pair, so the dissipation conserves
+c     energy pair by pair, and it is zero without relative motion, where
+c     the equations reduce to the variational ones.  (Second-order states
+c     reconstructed to the pair midpoint from limited gradients were
+c     tried and dropped: the limiter switching them on and off broke
+c     energy conservation by percents in black hole-star encounters.  On
+c     shock tubes with navsw=2 they were within a few per cent of these
+c     first-order states, and with navsw=1 up to 1.5 times more accurate.)
+               if(nav.eq.4 .and. r2.eq.0.d0) then
+                  vir=0.d0
+                  vjr=0.d0
+               elseif(nav.eq.4) then
+                  rij=sqrt(r2)
+                  vir=(vxi*dx+vyi*dy+vzi*dz)/rij
+                  vjr=(vx(j)*dx+vy(j)*dy+vz(j)*dz)/rij
+                  pl=por2(j)*rho(j)**2
+                  pr=por2i*rho(i)**2
+                  rhl=rho(j)
+                  rhr=rho(i)
+                  vl=vjr
+                  vr=vir
+c     navsw selects a switch: 2 or 3 drops receding pairs, 1 or 3
+c     multiplies by balsara's f_i as in nav=3
+                  if((navsw.eq.2 .or. navsw.eq.3) .and. divin.ge.0.d0) then
+                     pijin=0.d0
+                  else
+                     call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
+     $                    gam1p(i),nriemann,pstar)
+                     call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,pr,
+     $                    gam1p(i),nriemann,pstat)
+c     the exact p* falls as vr-vl rises, so p*-pstat must have the sign of
+c     vl-vr.  If the one-step solution does not, solve this pair to
+c     convergence (rare: never in the pairs of the collision dumps tested)
+                     if(nriemann.ne.0 .and.
+     $                    (pstar-pstat)*(vr-vl).gt.0.d0) then
+                        call riemann_solve(rhl,vl,pl,gam1p(j),rhr,vr,pr,
+     $                       gam1p(i),0,pstar)
+                        call riemann_solve(rhl,0.d0,pl,gam1p(j),rhr,0.d0,
+     $                       pr,gam1p(i),0,pstat)
+                     endif
+                     pijin=(pstar-pstat)*(1.d0/rho(i)**2+1.d0/rho(j)**2)
+                     if(navsw.eq.1 .or. navsw.eq.3) pijin=pijin*abs(divvi)/
+     $                    (abs(divvi)+abscurli+0.00001d0*ci*invh)
+                  endif
+               endif
+c     hydro correction part.  here we are implementing corrections as shown
+c     in equations (a11) and (a12) of gaburov et al. (2010):
+               invbonnet = 1.0/(bonet_0mega(i)*am(j))
+
+c     csij will not contain AV (pijin) contributions so that we can
+c     later use the acceleration derived from it to calculate scale height.
+c     All AV contributions to the acceleration will be accounted for with
+c     the help of csijgc below. (gc=gravity correction... this is for terms
+c     associated with the gravity correction *and* with AV)
+               csij = por2i * (-bonet_omega(i) * invbonnet * diwkin
+     $              + dwijin)
+               csijgc= 0.5d0 * pijin * dwijin
+
+c     hydro part
+               if (nrelax.eq.1 .and.t.lt.treloff) then
+                  csiju= csij ! No heating from AV during relaxation
+               else
+                  csiju= csij + csijgc
+               endif
+
+               if(nintvar.eq.2) then
+                  udot(i)=udot(i)+am(j)*csiju*divin
+               elseif (nrelax.eq.0 .or. t.ge.treloff) then
+                  udot(i)=udot(i)+am(j)*pijin*dwijin*divin
+               endif
+
+               if(nav.eq.4) then
+c     on the scale of the AV version's p/rho (c^2/Gamma_1): half the
+c     pair's signal speed, squared, over Gamma_1
+                  cj=sqrt(gam1p(j)*por2(j)*rho(j))
+                  vsig=ci+cj+max(vjr-vir,0.d0)
+                  if(actblk(i)) uijmax(i)=max(uijmax(i),
+     $                 (0.5d0*vsig)**2/gam1p(i))
+               elseif(actblk(i)) then
+                  uijmax(i)=max(uijmax(i),
+     $              (por2i + 0.5d0 * pijin)*rho(i))
+               endif
+c               uijmax(j)=max(uijmax(j),
+c     $              (por2i + 0.5d0 * pijin)*rho(i))
+
+               if(ngr.ne.0) then
+c     gravity correction part
+c                  csij = csij - 0.5d0*diwkin * bonet_psi(i) * invbonnet
+                  csijgc = csijgc - 0.5d0*diwkin * bonet_Psi(i) * invBonnet
+               endif
+            else if(u(i).eq.0.d0 .and. u(j).ne.0.d0 .and. dynhco.ge.1
+     $              .and. ngr.ne.0) then
+c     point particle i with a dynamic softening length: no hydro or AV, but
+c     the same gravity correction (a14),(a15) as for an sph particle, since
+c     its h_i obeys eq. (a1) summed over its sph neighbours j
+               csij=0.d0
+               if(hcolim) then
+c     grad G at the unlimited solution h_dyn (see rho_and_h)
+                  if(r2.lt.4.d0*hdynco(i)**2) then
+                     xqtilde=ctab*r2/hdynco(i)**2
+                     itabtilde=int(xqtilde)+1
+                     fqtilde=xqtilde-dble(itabtilde-1)
+                     diwkin=(dgtab(itabtilde)
+     $                    +fqtilde*(dgtab(itabtilde+1)-dgtab(itabtilde)))
+     $                    /hdynco(i)**2
+                  else
+                     diwkin=0.d0
+                  endif
+               endif
+               csijgc = -0.5d0*diwkin*bonet_psi(i)/(bonet_0mega(i)*am(j))
+            else
+               csij=0.d0
+               csijgc=0.d0
+            endif
+            
+            sxijin = csij * dx !(x(i) - x(j))
+            syijin = csij * dy !(y(i) - y(j))
+            szijin = csij * dz !(z(i) - z(j))
+            sxijingc = csijgc * dx !(x(i) - x(j))
+            syijingc = csijgc * dy !(y(i) - y(j))
+            szijingc = csijgc * dz !(z(i) - z(j))
+
+c     finally compute each component of dv/dt:
+
+c     note: sxijin has been calculated using pi/rhoi^2.  so in the "gather"
+c     part of the sum, everything is as you would expect.  but the gather part
+c     of the sum only gives half of the contributions for any given particle
+c     i.  for the sake of concreteness, let's say i=5.  the other half of the
+c     contributions to the acceleration of particle 5 comes from the scatter
+c     portion of the code with j=5 (note: this is *j*, not i).  in the scatter
+c     portion, the index i will be a number other than 5, and so the p/rho^2
+c     being used inside of sxijin will come from that particle with index
+c     different than 5.  the gather contributions to particle 5 all happen
+c     together in one big group.  the scatter contributions to particle 5 will
+c     happen haphazardly as the loop over particle index i gradually covers
+c     all the particles that have 5 as a neighbor.
+
+c     "gather" part of the sum:
+            mvx(i)=mvx(i)-am(j)*sxijin
+            mvy(i)=mvy(i)-am(j)*syijin
+            mvz(i)=mvz(i)-am(j)*szijin
+c     "scatter" part of the sum, which goes to the j of this chunk (see pairbuf.f90):
+c     the slot of j in the buffer of the chunk, made when j is first touched
+            jslot=smap(j)
+            if(jslot.eq.0) then
+               cnt=cnt+1
+               smap(j)=cnt
+               jw=ishft(j-1,-6)+1
+               bm(jw)=ior(bm(jw),ishft(1_8,iand(j-1,63)))
+               jslot=cnt
+               acc(1,jslot)=0.d0
+               acc(2,jslot)=0.d0
+               acc(3,jslot)=0.d0
+               acc(4,jslot)=0.d0
+               acc(5,jslot)=0.d0
+               acc(6,jslot)=0.d0
+               jmin=min(jmin,j)
+               jmax=max(jmax,j)
+            endif
+            acc(1,jslot)=acc(1,jslot)+ami*sxijin
+            acc(2,jslot)=acc(2,jslot)+ami*syijin
+            acc(3,jslot)=acc(3,jslot)+ami*szijin
+c     "Gather" part of the sum:
+            mgx(i)=mgx(i)-am(j)*sxijingc
+            mgy(i)=mgy(i)-am(j)*syijingc
+            mgz(i)=mgz(i)-am(j)*szijingc
+c     "Scatter" part of the sum:
+            acc(4,jslot)=acc(4,jslot)+ami*sxijingc
+            acc(5,jslot)=acc(5,jslot)+ami*syijingc
+            acc(6,jslot)=acc(6,jslot)+ami*szijingc
+         enddo
+
+c     p=(gam-1)*rho*u=a*rho^gam, so a=(gam-1)*rho^(1-gam)*u
+         if(nintvar.eq.1 .and. u(i).ne.0.d0)
+     $        udot(i)=udot(i)*0.5d0*(gam-1.d0)*rho(i)**(1.d0-gam)
+
+c     ln A is the specific entropy up to the factor 3k/2mu and a constant, so
+c     d(lnA)/dt = (2 mu/3k) (du/dt)/T, with du/dt the dissipative part alone --
+c     which is exactly what the sum above holds, since the branch that fills it
+c     leaves out the adiabatic pdV work that does not change the entropy.  The
+c     temperature comes from pressure, which runs earlier in the same step over
+c     this same n_lower:n_upper range; the fallback covers the first call,
+c     before pressure has ever filled it.
+         if(nintvar.eq.3 .and. u(i).ne.0.d0) then
+            if(tempcache(i).le.0.d0)
+     $           call getT_from_lna(u(i),rho(i)*munit/runit**3.d0,
+     $           meanmolecular(i),-1.d0,tempcache(i))
+            udot(i)=udot(i)*0.5d0*gravconst*munit/runit
+     $           *2.d0*meanmolecular(i)/(3.d0*boltz*tempcache(i))
+         endif
+
+      enddo
+      call pb_store(ic,cnt,jmin,jmax,smap,bm,acc)
+
+      return
+      end
+c***********************************************************************
+      subroutine uvpairs(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
+c     the pair loop of uvdots, by chunks of particles shared among the threads, and then
+c     the terms on the neighbours added to the accelerations in the order of the chunks
+      use omp_utils
+      use pairbuf_mod
+      include 'starsmasher.h'
+      include 'mpif.h'
+      integer nloop,ic,it,nthr,ierr
+      real*8 alpha1,beta1
+      real*8 mvx(*),mvy(*),mvz(*),mgx(*),mgy(*),mgz(*)
+      pb_fail=0
+      nthr=max_threads()
+      call pb_begin(nloop,n,nthr)
+!$omp parallel default(shared) private(ic,it) num_threads(nthr)
+      it=thread_id()+1
+!$omp do schedule(dynamic,1)
+      do ic=1,pb_nchunk
+         call uvchunk(ic,nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz,
+     $        pb_scr(it)%smap,pb_scr(it)%bm,pb_scr(it)%acc)
+      enddo
+!$omp end do
+!$omp end parallel
+!     only the master thread may call MPI (MPI_THREAD_FUNNELED), so a thread that cannot go on says so
+      if(pb_fail.ne.0) call mpi_abort(mpi_comm_world,1,ierr)
+      call pb_merge(mvx,mvy,mvz,mgx,mgy,mgz)
       return
       end
