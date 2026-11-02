@@ -117,6 +117,7 @@
 !     vh = v(t_start) + a L/2, so changing L to L' changes vh by a (L'-L)/2,
 !     and the positions already drifted with the old vh are corrected to match.
       nwake=0
+!$omp parallel do schedule(static) private(i,k,snew,tend,hstep_new) reduction(+:nwake)
       do i=1,ntot
          if(dtpart(i).ge.0.5d0*dble(slen(i))*dtick) cycle
          k=0
@@ -142,6 +143,7 @@
 
 !     next tick at which some particle's step ends
       tnext=huge(tnext)
+!$omp parallel do schedule(static) private(i,span) reduction(min:tnext)
       do i=1,ntot
          span=slen(i)
          tnext=min(tnext,tstart(i)+span)
@@ -149,6 +151,7 @@
       dtt=dble(tnext-tick)*dtick
 
 !     drift all positions with their half-step velocities
+!$omp parallel do simd schedule(static) private(i)
       do i=1,ntot
          x(i)=x(i)+dtt*vhx(i)
          y(i)=y(i)+dtt*vhy(i)
@@ -161,6 +164,7 @@
 
 !     velocities and u predicted to time t for the force evaluation
       nact=0
+!$omp parallel do schedule(static) private(i,span,tmid) reduction(+:nact)
       do i=1,ntot
          span=slen(i)
          active(i)=(tstart(i)+span.eq.tick)
@@ -187,6 +191,7 @@
 !     set by the field rather than by the timestep limits.  Add the lag for the
 !     force evaluation only and remove it afterwards, so the leapfrog itself is
 !     unchanged.  It is zero for active particles, whose steps end now.
+!$omp parallel do schedule(static) private(i,span,pfac)
       do i=1,ntot
          span=slen(i)
          pfac=0.5d0*dble(tick-tstart(i))*dble(tick-tstart(i)-span)*dtick**2
@@ -198,6 +203,7 @@
          z(i)=z(i)+dzp(i)
       enddo
 
+!$omp parallel do simd schedule(static) private(i)
       do i=1,ntot
          actblk(i)=active(i)
       enddo
@@ -213,6 +219,7 @@
          call uvdots
       else
 !     inactive gas particles: rho and h predicted from div v over the substep
+!$omp parallel do schedule(static) private(i)
          do i=1,ntot
             if(.not.active(i) .and. u(i).ne.0.d0) then
                rho(i)=rho(i)*exp(-divv(i)*dtt)
@@ -232,6 +239,7 @@
 !     accelerations and kicks are unchanged.  nav=4 also uses the state and
 !     gradients of every j inside an active particle's own kernel (the
 !     pair's Riemann problem), so there the test is r < 2 max(h_i,h_j)
+!$omp parallel do simd schedule(static) private(i)
          do i=1,ntot
             refblk(i)=.false.
          enddo
@@ -246,6 +254,7 @@
 !     many active particles: search a tree of the active ones instead
             call refresh_by_tree(nalist,alist)
          else
+!$omp parallel do schedule(static) private(j,in,i)
             do j=1,ntot
                if(active(j) .or. u(j).eq.0.d0) cycle
                do in=1,nalist
@@ -268,6 +277,7 @@
       endif
 
 !     back to the chord positions that the leapfrog carries
+!$omp parallel do simd schedule(static) private(i)
       do i=1,ntot
          x(i)=x(i)-dxp(i)
          y(i)=y(i)-dyp(i)
@@ -276,6 +286,7 @@
 
 !     inactive particles keep the accelerations of the start of their step,
 !     and active ones get the closing half-kick with the new accelerations
+!$omp parallel do schedule(static) private(i,span,hstep_old)
       do i=1,ntot
          if(active(i)) then
             span=slen(i)
@@ -304,6 +315,7 @@
 
 !     opening half-kick of the new step for active particles
       dtmin=1.d30
+!$omp parallel do schedule(static) private(i,span,hstep_new) reduction(min:dtmin)
       do i=1,ntot
          if(active(i)) then
             kbin(i)=knew(i)
@@ -323,6 +335,7 @@
 !     either mode (the start-up above inverts exactly this).  The internal
 !     half-step values vh,uh are untouched.
       dt=dtmin
+!$omp parallel do schedule(static) private(i,span,tmid)
       do i=1,ntot
          span=slen(i)
          tmid=t0b+(dble(tstart(i))+0.5d0*dble(span))*dtick
@@ -359,6 +372,7 @@
       integer kbin(nmax),knew(nmax)
       integer(kind=8) tick,nticks
       integer i,j,in,k,knat,ierr,iw,nloop
+!$omp parallel do simd schedule(static) private(i)
       do i=1,ntot
          knew(i)=-1
       enddo
@@ -369,6 +383,7 @@
       else
          nloop=n_upper-n_lower+1
       endif
+!$omp parallel do schedule(static) private(iw,i,k,j,in,knat)
       do iw=1,nloop
          if(blkdist) then
             i=wmine(iw)
@@ -391,13 +406,16 @@
             j=list(first(i)+in)
             knat=max(knat,kbin(j)-nblimit)
          enddo
+!$omp critical (assign_bins_warn)
          if(dtmaxblk/dble(2_8**nbinmax).gt.dtpart(i)) write(69,*)&
               'warning: particle',i,' wants dt=',dtpart(i),&
               ' below the finest block step, so raise nbinmax'
+!$omp end critical (assign_bins_warn)
          knew(i)=min(knat,nbinmax)
       enddo
       call mpi_allreduce(mpi_in_place,knew,ntot,mpi_integer,mpi_max,&
            mpi_comm_world,ierr)
+!$omp parallel do simd schedule(static) private(i)
       do i=1,ntot
          if(.not.active(i)) knew(i)=kbin(i)
       enddo
@@ -601,12 +619,11 @@
       include 'starsmasher.h'
       integer nalist,alist(nmax)
       real(kdkind), allocatable :: ad(:,:)
-      real(kdkind), target :: qv(3)
       type(kdtree2), pointer :: atree
       type(kdtree2_result), allocatable :: res(:)
-      integer j,k,i,nf,ix,iy,iz,nsx,nsy,nsz
-      real*8 hamax,reach,sep2,rad
-      allocate(ad(3,nalist),res(nalist))
+      integer j,k
+      real*8 hamax,reach,sep2
+      allocate(ad(3,nalist))
       hamax=0.d0
       if(nav.eq.4) then
          do k=1,nalist
@@ -619,44 +636,65 @@
          ad(3,k)=z(alist(k))
       enddo
       atree => kdtree2_create(ad,sort=.false.,rearrange=.true.)
+!     the inactive particles are looked up independently of one another: each one writes only refblk(j)
+!$omp parallel default(shared) private(res)
+      allocate(res(nalist))
+!$omp do schedule(dynamic,256)
       do j=1,ntot
-         if(actblk(j) .or. u(j).eq.0.d0) cycle
-         rad=2.d0*max(hp(j),hamax)
+         call refresh_one(j,res)
+      enddo
+!$omp end do
+      deallocate(res)
+!$omp end parallel
+      call kdtree2_destroy(atree)
+      deallocate(ad)
+      return
+
+      contains
+
+      subroutine refresh_one(j,res)
+!     the body of the loop of refresh_by_tree for particle j: marks it if an active particle is inside its kernel
+      integer j
+      type(kdtree2_result) :: res(nalist)
+      real(kdkind), target :: qv(3)
+      integer i,k,nf,ix,iy,iz,nsx,nsy,nsz
+      real*8 rad
+      if(actblk(j) .or. u(j).eq.0.d0) return
+      rad=2.d0*max(hp(j),hamax)
 !     in a periodic box j is also looked up at its images across each face
 !     within rad of it (the tree holds the active particles once)
-         nsx=0
-         nsy=0
-         nsz=0
-         if(periodic) then
-            if(boxx.gt.0.d0 .and. abs(x(j)).gt.0.5d0*boxx-rad) nsx=1
-            if(boxy.gt.0.d0 .and. abs(y(j)).gt.0.5d0*boxy-rad) nsy=1
-            if(boxz.gt.0.d0 .and. abs(z(j)).gt.0.5d0*boxz-rad) nsz=1
-         endif
-         do ix=-nsx,nsx
-         do iy=-nsy,nsy
-         do iz=-nsz,nsz
-            if(refblk(j)) cycle
-            qv(1)=x(j)+ix*boxx
-            qv(2)=y(j)+iy*boxy
-            qv(3)=z(j)+iz*boxz
-            call kdtree2_r_nearest(tp=atree,qv=qv,&
-                 r2=rad**2*(1.d0+1.d-12),&
-                 nfound=nf,nalloc=nalist,results=res)
-            do k=1,nf
-               i=alist(res(k)%idx)
-               if(sep2(i,j).lt.4.d0*reach(i,j)**2) then
-                  refblk(j)=.true.
-                  exit
-               endif
-            enddo
-         enddo
-         enddo
+      nsx=0
+      nsy=0
+      nsz=0
+      if(periodic) then
+         if(boxx.gt.0.d0 .and. abs(x(j)).gt.0.5d0*boxx-rad) nsx=1
+         if(boxy.gt.0.d0 .and. abs(y(j)).gt.0.5d0*boxy-rad) nsy=1
+         if(boxz.gt.0.d0 .and. abs(z(j)).gt.0.5d0*boxz-rad) nsz=1
+      endif
+      do ix=-nsx,nsx
+      do iy=-nsy,nsy
+      do iz=-nsz,nsz
+         if(refblk(j)) cycle
+         qv(1)=x(j)+ix*boxx
+         qv(2)=y(j)+iy*boxy
+         qv(3)=z(j)+iz*boxz
+         call kdtree2_r_nearest(tp=atree,qv=qv,&
+              r2=rad**2*(1.d0+1.d-12),&
+              nfound=nf,nalloc=nalist,results=res)
+         do k=1,nf
+            i=alist(res(k)%idx)
+            if(sep2(i,j).lt.4.d0*reach(i,j)**2) then
+               refblk(j)=.true.
+               exit
+            endif
          enddo
       enddo
-      call kdtree2_destroy(atree)
-      deallocate(ad,res)
+      enddo
+      enddo
       return
-      end
+      end subroutine refresh_one
+
+      end subroutine refresh_by_tree
 
       real*8 function reach(i,j)
 !     the smoothing length that decides whether active particle i makes
