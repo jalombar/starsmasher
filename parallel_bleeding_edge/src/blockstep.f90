@@ -255,7 +255,7 @@
             call refresh_by_tree(nalist,alist)
          else
 !$omp parallel do schedule(static) private(j,in,i)
-            do j=1,ntot
+            do j=n_lower,n_upper
                if(active(j) .or. u(j).eq.0.d0) cycle
                do in=1,nalist
                   i=alist(in)
@@ -266,6 +266,9 @@
                enddo
             enddo
          endif
+!     (each rank marked the particles it owns, n_lower..n_upper; the marks of all the others come from their ranks)
+         if(nprocs.gt.1) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,refblk,&
+              recvcounts,displs,mpi_logical,mpi_comm_world,ierr)
          nacttot=nacttot+nact
          nreftot=nreftot+count(refblk(1:ntot))
          call build_worklists
@@ -684,7 +687,7 @@
 !$omp parallel default(shared) private(res)
       allocate(res(nalist))
 !$omp do schedule(dynamic,256)
-      do j=1,ntot
+      do j=n_lower,n_upper
          call refresh_one(j,res)
       enddo
 !$omp end do
