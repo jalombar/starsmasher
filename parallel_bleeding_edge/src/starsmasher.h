@@ -55,6 +55,9 @@
       common/blockwork/nwall,nwmine,wall,wmine,mywork,blkdist
       integer ngrav_lower,ngrav_upper,ngravprocs
       common/ngravlimits/ngrav_lower,ngrav_upper,ngravprocs
+!     ngpuperrank (input): the gpus each gravity process uses (see init.f)
+      integer ngpuperrank
+      common/gpuperrankcom/ngpuperrank
 !     ngravtree=1: gravity with a tree on the cpus (gravtree.f90) instead of the direct sum.  treeacc is the opening angle
 !     theta, nleafgrav the most particles in a leaf.  ngravoverlap=1 starts the far field of the direct sum on the gpus before the
 !     smoothing lengths are solved

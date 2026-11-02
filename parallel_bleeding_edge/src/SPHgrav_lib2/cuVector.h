@@ -55,7 +55,8 @@ struct cuVector
     dev_pointer = (T*)p;
     if (PINNED) 
     {
-      CUDA_SAFE_CALL(cudaMallocHost(&p, size * sizeof(T)));
+      // portable: page-locked for every device of the process (the particles are packed once and copied to all the gpus of ngpuperrank)
+      CUDA_SAFE_CALL(cudaHostAlloc(&p, size * sizeof(T), cudaHostAllocPortable));
     }
     else 
       p = malloc(size*sizeof(T));
@@ -105,6 +106,19 @@ struct cuVector
   {
     if (size > 0)
       this->d2h(size);
+  }
+  // several devices for one process: the device copy is filled from (and the first count elements copied to) host memory of another vector
+  void h2d_from(const T *src, int count)
+  {
+    assert(count <= size);
+    if (count > 0)
+      CUDA_SAFE_CALL(cudaMemcpy(dev_pointer, src, count * sizeof(T), cudaMemcpyHostToDevice));
+  }
+  void d2h_to(T *dst, int count)
+  {
+    assert(count <= size);
+    if (count > 0)
+      CUDA_SAFE_CALL(cudaMemcpy(dst, dev_pointer, count * sizeof(T), cudaMemcpyDeviceToHost));
   }
   T &operator [] (int i)
   {

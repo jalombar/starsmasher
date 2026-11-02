@@ -19,6 +19,11 @@
       return
       end
 
+      subroutine gpu_set_ndev(i,n,np)
+      integer i,n,np
+      return
+      end
+
       subroutine firsthalf_grav_forces_far(ntot, ngrav_lower, mygravlength,
      $     x, y, z, am, range, q, nkernel, ok)
       integer ntot,ngrav_lower,mygravlength,q,nkernel,ok
