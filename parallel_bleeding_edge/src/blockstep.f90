@@ -372,6 +372,7 @@
       integer kbin(nmax),knew(nmax)
       integer(kind=8) tick,nticks
       integer i,j,in,k,knat,ierr,iw,nloop
+      integer, allocatable :: kbuf(:)
 !$omp parallel do simd schedule(static) private(i)
       do i=1,ntot
          knew(i)=-1
@@ -413,8 +414,19 @@
 !$omp end critical (assign_bins_warn)
          knew(i)=min(knat,nbinmax)
       enddo
-      call mpi_allreduce(mpi_in_place,knew,ntot,mpi_integer,mpi_max,&
-           mpi_comm_world,ierr)
+!     (only the listed particles can have a new bin, the others are given their old one below)
+      if(nprocs.gt.1 .and. nwall.gt.0) then
+         allocate(kbuf(nwall))
+         do iw=1,nwall
+            kbuf(iw)=knew(wall(iw))
+         enddo
+         call mpi_allreduce(mpi_in_place,kbuf,nwall,mpi_integer,mpi_max,&
+              mpi_comm_world,ierr)
+         do iw=1,nwall
+            knew(wall(iw))=kbuf(iw)
+         enddo
+         deallocate(kbuf)
+      endif
 !$omp parallel do simd schedule(static) private(i)
       do i=1,ntot
          if(.not.active(i)) knew(i)=kbin(i)
