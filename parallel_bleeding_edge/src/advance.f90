@@ -642,17 +642,9 @@
       call pressure
       if(blkdist) then
 !     each listed particle's values from the rank that solved it
-         call sync_w(hp)
-         call sync_w(rho)
-         call sync_w(por2)
-!     with neos=0 every Gamma_1 is gam (riemann_alloc), so there is nothing to share
-         if(nav.eq.4 .and. neos.ne.0) call sync_w(gam1p)
-         call sync_w(bonet_omega)
-         call sync_w(bonet_0mega)
-         call sync_w(bonet_psi)
-         call sync_w(hdynco)
-         call sync_w(hdynlast)
-         call sync_wi(nn)
+!     (hp, rho, por2, Gamma_1, omega, chi, psi, hdynco, hdynlast and nn in one reduction; with neos=0 every Gamma_1 is gam
+!     (riemann_alloc), so there is nothing to share)
+         call sync_wpack(hdynlast,nav.eq.4 .and. neos.ne.0)
       else if(nblock.eq.1) then
          call sync_all(hp)
          call sync_all(rho)
