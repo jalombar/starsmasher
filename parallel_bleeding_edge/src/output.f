@@ -463,9 +463,17 @@ c     temperature before it can be added to the energy budget.
             endif
             if(neos.eq.1) then
                rhocgs=rho(i)*munit/runit**3.d0
-               call gettemperature(qconst*rhocgs/meanmolecular(i),
-     $              -ucgs*rhocgs/arad,
-     $              temperature )
+c     pressure_one found this temperature from these u, rho and mean molecular weight when pressure was called
+c     (same arguments of gettemperature): then it is not found again
+               if(nintvar.eq.tmemo_nv .and. tmemo_u(i).eq.u(i) .and.
+     $              tmemo_rho(i).eq.rho(i) .and.
+     $              tmemo_mu(i).eq.meanmolecular(i)) then
+                  temperature=tempcache(i)
+               else
+                  call gettemperature(qconst*rhocgs/meanmolecular(i),
+     $                 -ucgs*rhocgs/arad,
+     $                 temperature )
+               endif
                ugas=1.5d0*boltz*temperature/meanmolecular(i)
                bsm(4)=bsm(4)+am(i)*munit*(
      $              1.5d0*boltz/meanmolecular(i)*

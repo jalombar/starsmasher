@@ -1,10 +1,7 @@
       subroutine pressure
       use riemann_data
       include 'starsmasher.h'
-      real*8 pgas,prad
-      real*8 rhocgs,ucgs,beta1,temperature,gam1,useeostable
-      real*8 ptab,dlpr,dlpu,eps,gmaxdev
-      parameter(eps=0.01d0)
+      real*8 gmaxdev
       integer i,iw,nil,ilist(nmax)
       save ilist
 !     Subroutine calculating pressure.
@@ -30,6 +27,7 @@
 
 c     nav=4 needs each particle's Gamma_1 (gam1p) for its Riemann problems
       if(nav.eq.4) call riemann_alloc
+      call pressure_memo_set
 
 c     block steps (blkdist): this rank's share of the particles to be solved,
 c     otherwise its own index range
@@ -45,124 +43,156 @@ c     otherwise its own index range
             ilist(iw)=n_lower+iw-1
          enddo
       endif
+c     the loops are over the particles; the pressure of one particle is pressure_one (below)
+      if(neos.eq.1) then
+         gmaxdev=gam1maxdev
+c     the loop is long and every particle costs about the same: static
+!$omp parallel do schedule(static) private(iw,i) reduction(max:gmaxdev)
+         do iw=1,nil
+            i=ilist(iw)
+            call pressure_one(i,gmaxdev)
+         enddo
+         gam1maxdev=gmaxdev
+
+      else if(neos.eq.0 .or. neos.eq.2) then
+!$omp parallel do schedule(static) private(iw,i)
+         do iw=1,nil
+            i=ilist(iw)
+            call pressure_one(i,gmaxdev)
+         enddo
+      endif
+
+      return
+      end
+c***********************************************************************
+      subroutine pressure_one(i,gmaxdev)
+c     The pressure over density squared of particle i (see pressure above), and for neos=1 the largest departure of Gamma_1
+c     from gam found so far (gmaxdev, raised here when nintvar=1).  It reads only the particle's own rho, u and mean molecular
+c     weight, so any thread can do any particle once rho(i) is known.
+      use riemann_data
+      include 'starsmasher.h'
+      real*8 gmaxdev
+      real*8 pgas,prad
+      real*8 rhocgs,ucgs,beta1,temperature,gam1,useeostable
+      real*8 ptab,dlpr,dlpu,eps
+      parameter(eps=0.01d0)
+      integer i
+
       if(neos.eq.0) then
          if(nintvar.eq.1) then
-!$omp parallel do schedule(static) private(iw,i)
-            do iw=1,nil
-               i=ilist(iw)
 c     p=a*rho^gam, so p/rho^2=a*rho^(gam-2.d0)
-               por2(i)=u(i)*rho(i)**(gam-2.d0)
-            enddo
-
+            por2(i)=u(i)*rho(i)**(gam-2.d0)
          else
-!$omp parallel do schedule(static) private(iw,i)
-            do iw=1,nil
-               i=ilist(iw)
 c     p=(gam-1)*rho*u, so p/rho^2=(gam-1)*u/rho
-               if(u(i).ne.0.d0) por2(i)=(gam-1)*u(i)/rho(i)
-            enddo
+            if(u(i).ne.0.d0) por2(i)=(gam-1)*u(i)/rho(i)
          endif
 
       else if(neos.eq.1) then
-         gmaxdev=gam1maxdev
-c     the loop is long and every particle costs about the same: static
-!$omp parallel do schedule(static) private(iw,i,rhocgs,ucgs,temperature,pgas,prad,beta1,gam1) reduction(max:gmaxdev)
-         do iw=1,nil
-            i=ilist(iw)
 c     block steps: only active particles and refreshed neighbours need P
-            if(nblock.eq.1 .and. nblockfull.eq.0 .and.
-     $           .not.(actblk(i).or.refblk(i))) cycle
-            if(u(i).ne.0.d0) then
-               rhocgs=rho(i)*munit/runit**3.d0
-               if(nintvar.eq.3) then
+         if(nblock.eq.1 .and. nblockfull.eq.0 .and.
+     $        .not.(actblk(i).or.refblk(i))) return
+         if(u(i).ne.0.d0) then
+            rhocgs=rho(i)*munit/runit**3.d0
+            if(nintvar.eq.3) then
 c     ln A is stored.  Inverting it for the temperature has no closed form,
 c     unlike the quartic that the internal energy gives, because the gas
 c     contributes a logarithm of T and the radiation a power of it.  The
 c     temperature kept from the previous step is a very good starting point,
 c     so the Newton inside normally takes one or two passes.
-                  call getT_from_lna(u(i),rhocgs,meanmolecular(i),
-     $                 tempcache(i),temperature)
-               else
-                  if(nintvar.eq.1) then
-                     ucgs=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
-     $                    *gravconst*munit/runit
-                  else
-                     ucgs=u(i)*gravconst*munit/runit
-                  endif
-
-                  call gettemperature(qconst*rhocgs/meanmolecular(i),
-     $                 -ucgs*rhocgs/arad,temperature)
-               endif
-               tempcache(i)=temperature
-               pgas=rhocgs*boltz*temperature/meanmolecular(i)
-               prad=arad*temperature**4/3.d0
-               beta1=pgas/(pgas+prad)
-               gam1=(32.d0-24.d0*beta1-3.d0*beta1**2) /
-     $              (24.d0-21.d0*beta1)
-               
-c     a=p/rho^gam assumes a gam-law gas.  Record how far the true Gamma_1
-c     departs from gam so that the breakdown of that assumption is visible
-c     rather than silent; for a radiation-dominated envelope it will be large.
-               if(nintvar.eq.1) gmaxdev=
-     $              max(gmaxdev,abs(gam1-gam)/gam)
-
-               if(gam1.lt.0.999*4.d0/3.d0 .or. gam1.gt.1.001*5.d0/3.d0) then
-                  write(69,*)'warning gam1=',gam1,'at i=',i
-                  write(69,*) beta1,pgas,prad,temperature,rho(i),
-     $                 meanmolecular(i),rhocgs,ucgs,x(i),y(i),z(i),hp(i),
-     $                 qconst*rhocgs/meanmolecular(i),
-     $                 -ucgs*rhocgs/arad
-                  stop 'gam1 value does not make sense'
-               endif               
-               por2(i)=(pgas+prad)/rho(i)**2/punit
-               if(nav.eq.4) gam1p(i)=gam1
-
+               call getT_from_lna(u(i),rhocgs,meanmolecular(i),
+     $              tempcache(i),temperature)
             else
-               por2(i)=0.d0
-            endif
-         enddo
-         gam1maxdev=gmaxdev
-
-      else if(neos.eq.2) then
-!$omp parallel do schedule(static) private(iw,i,rhocgs,ucgs,ptab,dlpr,dlpu)
-         do iw=1,nil
-            i=ilist(iw)
-c     block steps: only active particles and refreshed neighbours need P
-            if(nblock.eq.1 .and. nblockfull.eq.0 .and.
-     $           .not.(actblk(i).or.refblk(i))) cycle
-            if(u(i).ne.0.d0) then
-               rhocgs=rho(i)*munit/runit**3.d0
                if(nintvar.eq.1) then
                   ucgs=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
      $                 *gravconst*munit/runit
-
                else
                   ucgs=u(i)*gravconst*munit/runit
                endif
 
-               ptab=useeostable(ucgs,rhocgs,meanmolecular(i),3)
-               por2(i)=ptab/rho(i)**2/punit
-               if(nav.eq.4) then
+               call gettemperature(qconst*rhocgs/meanmolecular(i),
+     $              -ucgs*rhocgs/arad,temperature)
+            endif
+            tempcache(i)=temperature
+            if(nintvar.ne.3) then
+               tmemo_u(i)=u(i)
+               tmemo_rho(i)=rho(i)
+               tmemo_mu(i)=meanmolecular(i)
+            endif
+            pgas=rhocgs*boltz*temperature/meanmolecular(i)
+            prad=arad*temperature**4/3.d0
+            beta1=pgas/(pgas+prad)
+            gam1=(32.d0-24.d0*beta1-3.d0*beta1**2) /
+     $           (24.d0-21.d0*beta1)
+            
+c     a=p/rho^gam assumes a gam-law gas.  Record how far the true Gamma_1
+c     departs from gam so that the breakdown of that assumption is visible
+c     rather than silent; for a radiation-dominated envelope it will be large.
+            if(nintvar.eq.1) gmaxdev=
+     $           max(gmaxdev,abs(gam1-gam)/gam)
+
+            if(gam1.lt.0.999*4.d0/3.d0 .or. gam1.gt.1.001*5.d0/3.d0) then
+               write(69,*)'warning gam1=',gam1,'at i=',i
+               write(69,*) beta1,pgas,prad,temperature,rho(i),
+     $              meanmolecular(i),rhocgs,ucgs,x(i),y(i),z(i),hp(i),
+     $              qconst*rhocgs/meanmolecular(i),
+     $              -ucgs*rhocgs/arad
+               stop 'gam1 value does not make sense'
+            endif               
+            por2(i)=(pgas+prad)/rho(i)**2/punit
+            if(nav.eq.4) gam1p(i)=gam1
+
+         else
+            por2(i)=0.d0
+         endif
+
+      else if(neos.eq.2) then
+c     block steps: only active particles and refreshed neighbours need P
+         if(nblock.eq.1 .and. nblockfull.eq.0 .and.
+     $        .not.(actblk(i).or.refblk(i))) return
+         if(u(i).ne.0.d0) then
+            rhocgs=rho(i)*munit/runit**3.d0
+            if(nintvar.eq.1) then
+               ucgs=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+     $              *gravconst*munit/runit
+
+            else
+               ucgs=u(i)*gravconst*munit/runit
+            endif
+
+            ptab=useeostable(ucgs,rhocgs,meanmolecular(i),3)
+            por2(i)=ptab/rho(i)**2/punit
+            if(nav.eq.4) then
 c     Gamma_1=(dlnp/dlnrho)_s from the table by central differences: at
 c     constant entropy du=(p/rho^2)drho, so
 c     Gamma_1=(dlnp/dlnrho)_u+(p/(rho*u))(dlnp/dlnu)_rho
-                  dlpr=log(useeostable(ucgs,rhocgs*(1.d0+eps),
-     $                 meanmolecular(i),3)/useeostable(ucgs,
-     $                 rhocgs*(1.d0-eps),meanmolecular(i),3))
-     $                 /log((1.d0+eps)/(1.d0-eps))
-                  dlpu=log(useeostable(ucgs*(1.d0+eps),rhocgs,
-     $                 meanmolecular(i),3)/useeostable(ucgs*(1.d0-eps),
-     $                 rhocgs,meanmolecular(i),3))
-     $                 /log((1.d0+eps)/(1.d0-eps))
-                  gam1p(i)=min(max(dlpr+ptab/(rhocgs*ucgs)*dlpu,
-     $                 1.05d0),3.d0)
-               endif
-
-            else
-               por2(i)=0.d0
+               dlpr=log(useeostable(ucgs,rhocgs*(1.d0+eps),
+     $              meanmolecular(i),3)/useeostable(ucgs,
+     $              rhocgs*(1.d0-eps),meanmolecular(i),3))
+     $              /log((1.d0+eps)/(1.d0-eps))
+               dlpu=log(useeostable(ucgs*(1.d0+eps),rhocgs,
+     $              meanmolecular(i),3)/useeostable(ucgs*(1.d0-eps),
+     $              rhocgs,meanmolecular(i),3))
+     $              /log((1.d0+eps)/(1.d0-eps))
+               gam1p(i)=min(max(dlpr+ptab/(rhocgs*ucgs)*dlpu,
+     $              1.05d0),3.d0)
             endif
-         enddo
-      endif
 
+         else
+            por2(i)=0.d0
+         endif
+      endif
+      return
+      end
+c***********************************************************************
+      subroutine pressure_memo_set
+c     Says whether the temperatures that pressure_one is going to keep (see tmemo_nv in starsmasher.h) are the ones enout can use:
+c     they are for the ideal gas plus radiation with u or entropy stored, and for no other equation of state.  Called by whoever
+c     is going to call pressure_one for the particles, before it does, outside any parallel region (that is pressure).
+      include 'starsmasher.h'
+      if(neos.eq.1 .and. nintvar.ne.3) then
+         tmemo_nv=nintvar
+      else
+         tmemo_nv=-1
+      endif
       return
       end
