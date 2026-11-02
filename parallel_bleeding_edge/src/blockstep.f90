@@ -584,25 +584,57 @@
       return
       end
 !***********************************************************************
-      subroutine sync_wi(iarr)
-!     integer version of sync_w
+      subroutine sync_wpack(hdl,withgam)
+!     sync_w of hp, rho, por2, gam1p (if withgam), bonet_omega, bonet_0mega, bonet_psi, hdynco and hdl, and of nn, in one
+!     reduction: the others contribute exact zeros to the sum (nn travels as a double, which holds it exactly)
+      use riemann_data
       include 'starsmasher.h'
       include 'mpif.h'
-      integer iarr(nmax),ibuf(nwall)
-      integer k,ierr
+      real*8 hdl(nmax)
+      logical withgam
+      real*8, allocatable :: buf(:,:)
+      integer k,ierr,j
       if(nprocs.eq.1 .or. nwall.eq.0) return
+      allocate(buf(10,nwall))
+!$omp parallel do schedule(static) private(k,j)
       do k=1,nwall
-         if(mywork(wall(k))) then
-            ibuf(k)=iarr(wall(k))
+         j=wall(k)
+         if(mywork(j)) then
+            buf(1,k)=hp(j)
+            buf(2,k)=rho(j)
+            buf(3,k)=por2(j)
+            if(withgam) then
+               buf(4,k)=gam1p(j)
+            else
+               buf(4,k)=0.d0
+            endif
+            buf(5,k)=bonet_omega(j)
+            buf(6,k)=bonet_0mega(j)
+            buf(7,k)=bonet_psi(j)
+            buf(8,k)=hdynco(j)
+            buf(9,k)=hdl(j)
+            buf(10,k)=dble(nn(j))
          else
-            ibuf(k)=0
+            buf(:,k)=0.d0
          endif
       enddo
-      call mpi_allreduce(mpi_in_place,ibuf,nwall,mpi_integer,&
+      call mpi_allreduce(mpi_in_place,buf,10*nwall,mpi_double_precision,&
            mpi_sum,mpi_comm_world,ierr)
+!$omp parallel do schedule(static) private(k,j)
       do k=1,nwall
-         iarr(wall(k))=ibuf(k)
+         j=wall(k)
+         hp(j)=buf(1,k)
+         rho(j)=buf(2,k)
+         por2(j)=buf(3,k)
+         if(withgam) gam1p(j)=buf(4,k)
+         bonet_omega(j)=buf(5,k)
+         bonet_0mega(j)=buf(6,k)
+         bonet_psi(j)=buf(7,k)
+         hdynco(j)=buf(8,k)
+         hdl(j)=buf(9,k)
+         nn(j)=nint(buf(10,k))
       enddo
+      deallocate(buf)
       return
       end
 
