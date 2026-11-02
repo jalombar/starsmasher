@@ -631,7 +631,7 @@ c      end
      $     mco,hfloor,
      $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
      $     equalmass,treloff,tresplintmuoff,nitpot,tscanon,sepfinal,
-     $     nintvar,tswitchtou,ngravprocs,qthreads,gflag,mbh,runit,munit,
+     $     nintvar,tswitchtou,ngravprocs,ngpuperrank,qthreads,gflag,mbh,runit,munit,
      $     dynhco,hcomin,hcomax,hcopnorm,
      $     nblock,nbinmax,dtmaxblk,dtforce,nblockfull,nblimit,
      $     nstartramp,twozone,rtwozone,
@@ -712,6 +712,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u, 3=integrate buoyancy ln A (needs neos=1), 12=a then u, 32=ln A then u
       tswitchtou=-1.d0         ! nintvar=12 or 32: time to hand over to u.  <0 means use treloff.
       ngravprocs=0             ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+      ngpuperrank=1            ! direct gravity on the gpus: how many gpus each gravity process uses.  1: one each.  N>1: the process with local number r uses gpus r*N .. r*N+N-1, which each take a share of the particles; the result has the same bits for any N.  0: all the gpus of the node divided among the gravity processes.  Works with ngravoverlap=1; the tree gravity on the cpus does not use gpus
       qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
       mbh=10d0                 ! mass of the point mass used as the second object when startfile2 is absent
       runit=6.957d10          ! number of cm in the unit of length.  use 6.957d10 if want MESA solar radius.
@@ -834,6 +835,8 @@ c     the tree gravity (gravtree.f90) is collected as the gpu's is: nusegpus=1 a
 c     self-gravity, every rank (up to ngravprocsmax of them) does the gravity of its
 c     own range of particles
       if(ngravtree.lt.0 .or. ngravtree.gt.1) stop 'init: ngravtree must be 0 or 1'
+      if(ngpuperrank.lt.0) stop 'init: ngpuperrank must not be negative'
+      if(ngravhilo.ne.0 .and. ngravhilo.ne.1) stop 'init: ngravhilo must be 0 or 1'
       if(ngravoverlap.lt.0 .or. ngravoverlap.gt.1) stop 'init: ngravoverlap must be 0 or 1'
       if(ngravtree.ne.0) then
          nusegpus=1

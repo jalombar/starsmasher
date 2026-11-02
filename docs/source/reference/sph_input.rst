@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **106** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **107** settings.
 
 
 .. _sph-input-time-and-output:
@@ -426,6 +426,10 @@ Parallelism and GPUs
      - ``0``
      - every run
      - the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
+   * - ``ngpuperrank``
+     - ``1``
+     - every run
+     - direct gravity on the gpus: how many gpus each gravity process uses.  1: one each.  N>1: the process with local number r uses gpus r\*N .. r\*N+N-1, which each take a share of the particles; the result has the same bits for any N.  0: all the gpus of the node divided among the gravity processes.  Works with ngravoverlap=1; the tree gravity on the cpus does not use gpus
    * - ``ngravhilo``
      - ``1``
      - every run

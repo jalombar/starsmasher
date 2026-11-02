@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include <vector>
 #include <algorithm>
+#include <thread>
 #include <cub/cub.cuh>
 #include <thrust/iterator/counting_iterator.h>
 
@@ -1040,6 +1041,19 @@ struct SPHgrav_direct
 
   // Spatial order and fast path (see dev_compute_forces_s).  nreal is the number of particles (ptcl.size is rounded
   // up to a multiple of NTHREAD), bbmin/bbmax the box of their positions.
+
+  // Several devices for one process (ngpuperrank).  Each device sorts all the particles and takes the entries mg_off.. mg_off+mg_ni of the
+  // sorted list of i, a whole number of blocks of the kernel, so the sum of every particle is the one of a single device (the split in j,
+  // nsplit, is that of the whole list).  mg_ni < 0: the device does all of it.  The data of the particles are those of the
+  // process (src_*), copied to every device; the forces of the device are in the order of the sorted list, from entry mg_off.
+  int mg_off, mg_ni;
+  const devParticle *src_ptcl;
+  const devParticleLo *src_plo;
+  const int *src_ilist;
+  const int *isort_use;
+  cudaEvent_t k0, k1, kn0, kn1;
+  bool kevents, farmg;
+  float kernel_ms, total_ms;
   int nreal;
   float bbmin[3], bbmax[3];
   devParticle *sptcl;
@@ -1067,7 +1081,7 @@ struct SPHgrav_direct
   int nibeg, ni;
   int ndevice;
   std::vector<bool> can_use_device;
-  SPHgrav_direct(const int rank = 0) : hilo(false), part(NULL), partcap(0), nreal(0),
+  SPHgrav_direct(const int rank = 0) : hilo(false), part(NULL), partcap(0), mg_off(0), mg_ni(-1), src_ptcl(NULL), src_plo(NULL), src_ilist(NULL), isort_use(NULL), kevents(false), farmg(false), kernel_ms(0.0f), total_ms(0.0f), nreal(0),
     sptcl(NULL), splo(NULL), keys_a(NULL), keys_b(NULL), perm_a(NULL), perm_b(NULL), isort(NULL), omap(NULL), dnum(NULL), tbox(NULL), gbox(NULL),
     sptcl2(NULL), tbox2(NULL), gbox2(NULL), part2(NULL), dmask(NULL), part2cap(0), dmaskcap(0), s2cap(0), t2cap(0), g2cap(0), lmode(0), nsplit_far(0),
     ctemp(NULL), ctempcap(0), scap(0), slocap(0), tcap(0), gcap(0), icap(0), kcap(0), pcap(0), ocap(0), dcap(0), events_made(false)
@@ -1159,7 +1173,7 @@ struct SPHgrav_direct
     const float pad = 4.0e-7f * std::max(std::max(std::max(fabsf(bbmin[0]), fabsf(bbmax[0])), std::max(fabsf(bbmin[1]), fabsf(bbmax[1]))),
                                          std::max(fabsf(bbmin[2]), fabsf(bbmax[2])));
     dev_compute_forces_s<NTHREAD, NI, HI, NK><<<grid, dim3(NTHREAD, 1, 1)>>>(nj, ni, spp, HI ? splo : (const devParticleLo*)NULL,
-        isort, tb, gb, 1, pad, out, jchunk, mask, mode, ntiles);
+        isort_use != NULL ? isort_use : isort, tb, gb, 1, pad, out, jchunk, mask, mode, ntiles);
     CUDA_SAFE_CALL(cudaGetLastError());
   }
 
@@ -1188,7 +1202,11 @@ struct SPHgrav_direct
   void launch_s_ni(const int ni, const int nkernel)
   {
     const int nj = ptcl.size;
-    const int nblocks = (ni - 1) / (NTHREAD * NI) + 1;
+    // several devices: this one does the entries mg_off.. of the sorted list (nloc of them), with the split in j of the whole list
+    const bool mg = (mg_ni >= 0);
+    const int nloc = mg ? mg_ni : ni;
+    const int nblocks = (nloc - 1) / (NTHREAD * NI) + 1;
+    isort_use = mg ? isort + mg_off : (const int*)isort;
     int nsplit = choose_split_s<NI, HI>(ni, nj);
     const int ntiles = nj / NTHREAD;
     const int tiles = (ntiles + nsplit - 1) / nsplit;
@@ -1196,7 +1214,7 @@ struct SPHgrav_direct
     const int jchunk = tiles * NTHREAD;
     // the near pass has the same split as the far pass (it depends on ni and nj only), and adds its partial forces to those of the far pass
     assert(lmode != 2 || nsplit == nsplit_far);
-    const size_t need = (size_t)nsplit * ni;
+    const size_t need = (size_t)nsplit * nloc;
     if (need > partcap)
     {
       if (part != NULL)
@@ -1208,10 +1226,11 @@ struct SPHgrav_direct
     const int nt = ptcl.size / NTHREAD;
     if (lmode == 0)
     {
-      if (nkernel == 0)      launch_s_one<NI, HI, 0>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
-      else if (nkernel == 1) launch_s_one<NI, HI, 1>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
-      else                   launch_s_one<NI, HI, 2>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
-      dev_sum_forces<<<(ni - 1) / 256 + 1, 256>>>(ni, nsplit, part, force, omap);
+      if (nkernel == 0)      launch_s_one<NI, HI, 0>(nloc, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
+      else if (nkernel == 1) launch_s_one<NI, HI, 1>(nloc, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
+      else                   launch_s_one<NI, HI, 2>(nloc, nsplit, jchunk, part, grid, sptcl, tbox, gbox, NULL, 0, nt);
+      // several devices: the forces stay in the order of the sorted list; the host puts them in place
+      dev_sum_forces<<<(nloc - 1) / 256 + 1, 256>>>(nloc, nsplit, part, force, mg ? (const int*)NULL : (const int*)omap);
       CUDA_SAFE_CALL(cudaGetLastError());
     }
     else if (lmode == 1)
@@ -1225,9 +1244,9 @@ struct SPHgrav_direct
         CUDA_SAFE_CALL(cudaMalloc((void**)&dmask, mneed));
         dmaskcap = mneed;
       }
-      if (nkernel == 0)      launch_s_one<NI, HI, 0>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
-      else if (nkernel == 1) launch_s_one<NI, HI, 1>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
-      else                   launch_s_one<NI, HI, 2>(ni, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
+      if (nkernel == 0)      launch_s_one<NI, HI, 0>(nloc, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
+      else if (nkernel == 1) launch_s_one<NI, HI, 1>(nloc, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
+      else                   launch_s_one<NI, HI, 2>(nloc, nsplit, jchunk, part, grid, sptcl, tbox, gbox, dmask, 1, nt);
     }
     else
     {
@@ -1238,10 +1257,10 @@ struct SPHgrav_direct
         CUDA_SAFE_CALL(cudaMalloc((void**)&part2, need * sizeof(devForce)));
         part2cap = need;
       }
-      if (nkernel == 0)      launch_s_one<NI, HI, 0>(ni, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
-      else if (nkernel == 1) launch_s_one<NI, HI, 1>(ni, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
-      else                   launch_s_one<NI, HI, 2>(ni, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
-      dev_sum_forces2<<<(ni - 1) / 256 + 1, 256>>>(ni, nsplit, part, part2, force, omap);
+      if (nkernel == 0)      launch_s_one<NI, HI, 0>(nloc, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
+      else if (nkernel == 1) launch_s_one<NI, HI, 1>(nloc, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
+      else                   launch_s_one<NI, HI, 2>(nloc, nsplit, jchunk, part2, grid, sptcl2, tbox2, gbox2, dmask, 2, nt);
+      dev_sum_forces2<<<(nloc - 1) / 256 + 1, 256>>>(nloc, nsplit, part, part2, force, mg ? (const int*)NULL : (const int*)omap);
       CUDA_SAFE_CALL(cudaGetLastError());
     }
   }
@@ -1435,6 +1454,124 @@ struct SPHgrav_direct
     CUDA_SAFE_CALL(cudaDeviceSynchronize());
   }
 
+  // items per thread of the kernel of the sorted order that launch_sorted_only will use: a block takes NTHREAD times this many entries
+  // of the sorted list
+  int items_per_thread() const
+  {
+    return GRAV_NI_DEFAULT;
+  }
+
+  // Several devices: this device's share (entries off.. off+nloc of the sorted list of the ni i, the particles nibeg_.. nibeg_+ni_-1).
+  // Everything is queued; the host waits in last_half_mg.
+  void first_half_mg(const int nibeg_, const int nrange_, const int ni_, const int nkernel, const int off, const int nloc)
+  {
+    first_half_mg_setup(nibeg_, nrange_, ni_, off, nloc);
+    farmg = false;
+    prepare_sorted(ni_);
+    cudaEventRecord(k0, 0);
+    if (nloc > 0)
+      launch_sorted_only(ni_, nkernel);
+    cudaEventRecord(k1, 0);
+  }
+
+  // ngravoverlap on several devices: the far pass for this device's entries (as first_half_far), queued
+  void first_half_far_mg(const int nibeg_, const int nrange_, const int ni_, const int nkernel, const int off, const int nloc)
+  {
+    first_half_mg_setup(nibeg_, nrange_, ni_, off, nloc);
+    farmg = true;
+    prepare_sorted(ni_);
+    lmode = 1;
+    cudaEventRecord(k0, 0);
+    if (nloc > 0)
+      launch_sorted_only(ni_, nkernel);
+    cudaEventRecord(k1, 0);
+    lmode = 0;
+  }
+
+  // the part of first_half_mg that comes before the sort: events, the data to the device, the buffer of the forces
+  void first_half_mg_setup(const int nibeg_, const int nrange_, const int ni_, const int off, const int nloc)
+  {
+    if (!kevents)
+    {
+      CUDA_SAFE_CALL(cudaEventCreate(&k0));
+      CUDA_SAFE_CALL(cudaEventCreate(&k1));
+      CUDA_SAFE_CALL(cudaEventCreate(&kn0));
+      CUDA_SAFE_CALL(cudaEventCreate(&kn1));
+      kevents = true;
+    }
+    make_events();
+    cudaEventRecord(start, 0);
+    this->nibeg = nibeg_;
+    this->nrange = nrange_;
+    this->ni = ni_;
+    this->uselist = false;
+    mg_off = off;
+    mg_ni = nloc;
+    if (src_ptcl != NULL)
+    {
+      ptcl.h2d_from(src_ptcl, ptcl.size);
+      if (hilo) plo.h2d_from(src_plo, plo.size);
+    }
+    else
+    {
+      ptcl.h2d();
+      if (hilo) plo.h2d();
+    }
+    if (nloc > force.size)
+      force.allocate(nloc + nloc / 4 + 256);
+    assert(ptcl.size % NTHREAD == 0);
+  }
+
+  // the near pass for this device's entries, with the smoothing lengths found (as first_half_near)
+  void first_half_near_mg(const int nkernel)
+  {
+    const int n = ptcl.size;
+    ensure(&sptcl2, s2cap, n);
+    ensure(&tbox2, t2cap, n / NTHREAD);
+    ensure(&gbox2, g2cap, n / 32);
+    if (src_ptcl != NULL)
+    {
+      CUDA_SAFE_CALL(cudaMemcpyAsync(ptcl.dev_pointer, src_ptcl, ptcl.size * sizeof(devParticle), cudaMemcpyHostToDevice, 0));
+    }
+    else
+    {
+      ptcl.h2d_async();
+    }
+    dev_gather_sorted<<<(n - 1) / 256 + 1, 256>>>(n, nreal, perm_b, ptcl, (const devParticleLo*)NULL, sptcl2, splo);
+    dev_tile_boxes<NTHREAD><<<n / NTHREAD, NTHREAD>>>(nreal, sptcl2, tbox2);
+    dev_tile_boxes<32><<<n / 32, 32>>>(nreal, sptcl2, gbox2);
+    lmode = 2;
+    cudaEventRecord(kn0, 0);
+    if (mg_ni > 0)
+      launch_sorted_only(ni, nkernel);
+    cudaEventRecord(kn1, 0);
+    lmode = 0;
+  }
+
+  // wait for the device and bring its forces to dst (nloc entries); returns the time of the kernels in ms
+  float last_half_mg(devForce *dst)
+  {
+    if (mg_ni > 0)
+      force.d2h_to(dst, mg_ni);
+    cudaEventRecord(stop, 0);
+    cudaDeviceSynchronize();
+    float ms = 0.0f;
+    cudaEventElapsedTime(&ms, k0, k1);
+    if (farmg)
+    {
+      // the two passes of ngravoverlap: the time of the kernels of both
+      float ms2 = 0.0f;
+      cudaEventElapsedTime(&ms2, kn0, kn1);
+      ms += ms2;
+      farmg = false;
+    }
+    kernel_ms = ms;
+    cudaEventElapsedTime(&total_ms, start, stop);
+    mg_ni = -1;
+    mg_off = 0;
+    return ms;
+  }
+
   // forces on the ni particles listed (0-based) in ilist.host_pointer only
   void first_half_list(const int nibeg, const int nrange, const int ni, const int nkernel)
   {
@@ -1477,6 +1614,185 @@ namespace SPHgrav
   const bool PINNED = true;
 
   SPHgrav_direct<NTHREAD, PINNED> grav;
+
+  // ------------------------------------------------------------------------------------------------------------------
+  // Several devices for one process (ngpuperrank in sph.input; gpu_set_ndev_).  grav is the first device; gdev[k-1] the others.  Every
+  // device sorts all the particles (the same order everywhere) and takes a run of whole blocks of the sorted list of i; the blocks
+  // are given to the devices in proportion to the speed they showed in the last calls, which only moves the borders between the runs: the
+  // sum of every particle depends on its block and on the tiles of j, so the forces have the same bits for any number of devices and any
+  // division.  One thread per device (cudaSetDevice is per thread).
+  // ------------------------------------------------------------------------------------------------------------------
+  int ndev = 1, dev0 = 0;
+  std::vector<SPHgrav_direct<NTHREAD, PINNED>*> gdev;
+  std::vector<int> mgblk;            // blocks of each device in the last call
+  std::vector<double> mgspeed;       // blocks per ms
+  std::vector<int> mgoff, mgnloc;    // entries of the sorted list of each device in the current call
+  std::vector<double> mgms;          // kernel time of each device in the last call
+  std::vector<int> omap_h;           // the order of the sorted list, on the host: entry k goes to omap_h[k]
+  cuVector<devForce, PINNED> hforce; // the forces of all the devices, in the order of the sorted list
+  int mgbad = 0;                     // calls in a row with a balance above 1.10
+  bool mg_on() { return ndev > 1; }
+
+  void setDevices(const int first, const int nd)
+  {
+    dev0 = first;
+    ndev = nd;
+    grav.setDevice(first);
+    for (size_t k = 0; k < gdev.size(); k++)
+      delete gdev[k];
+    gdev.clear();
+    for (int k = 1; k < nd; k++)
+    {
+      cudaSetDevice(first + k);
+      gdev.push_back(new SPHgrav_direct<NTHREAD, PINNED>(1));
+    }
+    cudaSetDevice(first);
+    mgblk.assign(nd, 0);
+    mgspeed.assign(nd, 1.0);
+    mgms.assign(nd, 0.0);
+  }
+
+  // the division of nblk blocks among the devices: equal at first, then in proportion to the speed measured (largest remainder)
+  void mg_divide(const int nblk)
+  {
+    std::vector<double> w(ndev);
+    double sw = 0.0;
+    for (int k = 0; k < ndev; k++) { w[k] = mgspeed[k] > 0.0 ? mgspeed[k] : 1.0; sw += w[k]; }
+    // a device with no blocks would give no new measure: keep at least one block each when there are enough
+    std::vector<double> rem(ndev);
+    int given = 0;
+    for (int k = 0; k < ndev; k++)
+    {
+      const double q = nblk * w[k] / sw;
+      mgblk[k] = (int)q;
+      rem[k] = q - mgblk[k];
+      given += mgblk[k];
+    }
+    while (given < nblk)
+    {
+      int kb = 0;
+      for (int k = 1; k < ndev; k++) if (rem[k] > rem[kb]) kb = k;
+      mgblk[kb]++;
+      rem[kb] = -1.0;
+      given++;
+    }
+    if (nblk >= ndev)
+      for (int k = 0; k < ndev; k++)
+        if (mgblk[k] == 0)
+        {
+          int kb = 0;
+          for (int q = 1; q < ndev; q++) if (mgblk[q] > mgblk[kb]) kb = q;
+          mgblk[kb]--;
+          mgblk[k]++;
+        }
+  }
+
+  // the first half of the force on the ni particles (the particles nibeg.. of the process) on all the devices
+  void mg_first_half(const int nibeg, const int nrange, const int ni, const int nkernel, const bool far = false)
+  {
+    const int bsz = NTHREAD * grav.items_per_thread();
+    const int nblk = (ni + bsz - 1) / bsz;
+    mg_divide(nblk);
+    mgoff.assign(ndev, 0);
+    mgnloc.assign(ndev, 0);
+    int b = 0;
+    for (int k = 0; k < ndev; k++)
+    {
+      mgoff[k] = std::min(b * bsz, ni);
+      b += mgblk[k];
+      mgnloc[k] = std::min(b * bsz, ni) - mgoff[k];
+    }
+    if (hforce.size < ni) hforce.allocate(ni + ni / 4 + 256);
+    const int n = grav.ptcl.size;
+    for (int k = 1; k < ndev; k++)
+    {
+      SPHgrav_direct<NTHREAD, PINNED> &g = *gdev[k - 1];
+      cudaSetDevice(dev0 + k);
+      g.hilo = grav.hilo;
+      g.nreal = grav.nreal;
+      for (int c = 0; c < 3; c++) { g.bbmin[c] = grav.bbmin[c]; g.bbmax[c] = grav.bbmax[c]; }
+      g.ptcl.allocate(n);
+      if (g.hilo) g.plo.allocate(n);
+      g.src_ptcl = grav.ptcl.host_pointer;
+      g.src_plo = grav.hilo ? grav.plo.host_pointer : NULL;
+    }
+    cudaSetDevice(dev0);
+    std::vector<std::thread> th;
+    for (int k = 1; k < ndev; k++)
+      th.emplace_back([=]() {
+        cudaSetDevice(dev0 + k);
+        if (far)
+          gdev[k - 1]->first_half_far_mg(nibeg, nrange, ni, nkernel, mgoff[k], mgnloc[k]);
+        else
+          gdev[k - 1]->first_half_mg(nibeg, nrange, ni, nkernel, mgoff[k], mgnloc[k]);
+      });
+    if (far)
+      grav.first_half_far_mg(nibeg, nrange, ni, nkernel, mgoff[0], mgnloc[0]);
+    else
+      grav.first_half_mg(nibeg, nrange, ni, nkernel, mgoff[0], mgnloc[0]);
+    for (size_t t = 0; t < th.size(); t++) th[t].join();
+  }
+
+  // ngravoverlap, near pass and abort on several devices
+  void mg_near(const int nkernel)
+  {
+    std::vector<std::thread> th;
+    for (int k = 1; k < ndev; k++)
+      th.emplace_back([=]() {
+        cudaSetDevice(dev0 + k);
+        gdev[k - 1]->first_half_near_mg(nkernel);
+      });
+    grav.first_half_near_mg(nkernel);
+    for (size_t t = 0; t < th.size(); t++) th[t].join();
+  }
+
+  void mg_abort_far()
+  {
+    std::vector<std::thread> th;
+    for (int k = 1; k < ndev; k++)
+      th.emplace_back([=]() {
+        cudaSetDevice(dev0 + k);
+        cudaDeviceSynchronize();
+      });
+    cudaDeviceSynchronize();
+    for (size_t t = 0; t < th.size(); t++) th[t].join();
+    for (int k = 0; k < ndev; k++) {}
+    grav.mg_ni = -1;
+    for (int k = 1; k < ndev; k++) gdev[k - 1]->mg_ni = -1;
+  }
+
+  // the end of mg_first_half: the forces of all the devices are in hforce; also the time of each, the balance and the new division
+  void mg_last_half(const int ni)
+  {
+    std::vector<std::thread> th;
+    for (int k = 1; k < ndev; k++)
+      th.emplace_back([=]() {
+        cudaSetDevice(dev0 + k);
+        mgms[k] = gdev[k - 1]->last_half_mg(hforce.host_pointer + mgoff[k]);
+      });
+    mgms[0] = grav.last_half_mg(hforce.host_pointer + mgoff[0]);
+    for (size_t t = 0; t < th.size(); t++) th[t].join();
+    if (omap_h.size() < (size_t)ni) omap_h.resize(ni);
+    CUDA_SAFE_CALL(cudaMemcpy(omap_h.data(), grav.omap, ni * sizeof(int), cudaMemcpyDeviceToHost));
+    double mx = 0.0, mean = 0.0;
+    for (int k = 0; k < ndev; k++) { mx = std::max(mx, mgms[k]); mean += mgms[k]; }
+    mean /= ndev;
+    // the speed of a device is the blocks it did per ms, relative to the fastest one; the division of the next call follows the mean of
+    // the old and the new value (only the borders between the runs of blocks move, not the bits of the result)
+    double smax = 0.0;
+    for (int k = 0; k < ndev; k++) smax = std::max(smax, mgblk[k] > 0 && mgms[k] > 0.0 ? mgblk[k] / mgms[k] : 0.0);
+    for (int k = 0; k < ndev; k++)
+      if (mgblk[k] > 0 && mgms[k] > 0.0 && smax > 0.0)
+        mgspeed[k] = 0.5 * mgspeed[k] + 0.5 * (mgblk[k] / mgms[k]) / smax;
+    const double bal = mean > 0.0 ? mx / mean : 1.0;
+    if (bal > 1.10) mgbad++; else mgbad = 0;
+    if (mgbad == 3)
+    {
+      fprintf(stderr, " >>> StarSmasher: warning: the gpus of this process were out of balance (max/mean above 1.10) in 3 calls in a row; kernel ms:");
+      for (int k = 0; k < ndev; k++) fprintf(stderr, " %.2f", mgms[k]);
+      fprintf(stderr, "\n");
+    }
+  }
 
   void load_particles(
       const int nj,
@@ -1600,6 +1916,12 @@ namespace SPHgrav
   {
     assert(nibeg >= 0);
     load_particles(nj, px, py, pz, mass, h2);
+    if (mg_on())
+    {
+      grav.nibeg = nibeg; grav.ni = ni; grav.uselist = false;
+      mg_first_half(nibeg, ni, ni, nkernel);
+      return;
+    }
     grav.first_half(nibeg, ni, nkernel);
   }
 
@@ -1612,6 +1934,13 @@ namespace SPHgrav
   {
     assert(nibeg >= 0);
     load_particles(nj, px, py, pz, mass, h2);
+    if (mg_on())
+    {
+      grav.nibeg = nibeg; grav.ni = ni; grav.uselist = false;
+      mg_first_half(nibeg, ni, ni, nkernel, true);
+      *ok = 1;
+      return;
+    }
     grav.first_half_far(nibeg, ni, nkernel);
     *ok = 1;
   }
@@ -1621,11 +1950,21 @@ namespace SPHgrav
       double *mass, double *h2, const int nkernel)
   {
     load_particles(nj, px, py, pz, mass, h2);
+    if (mg_on())
+    {
+      mg_near(nkernel);
+      return;
+    }
     grav.first_half_near(nkernel);
   }
 
   void gravity_far_abort()
   {
+    if (mg_on())
+    {
+      mg_abort_far();
+      return;
+    }
     grav.abort_far();
   }
 
@@ -1654,6 +1993,28 @@ namespace SPHgrav
     //fprintf(stderr, " -- 0: ni= %d  ni= %d  grav.ni= %d \n", ni, grav.ni);
     // assert(ni == grav.ni);
     const int ni = grav.ni;
+    // the first half was made on several devices if mg_ni of the first device was set
+    const bool mg = (ndev > 1 && grav.mg_ni >= 0);
+    if (mg)
+    {
+      mg_last_half(ni);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+      for (int k = 0; k < ni; k++)
+      {
+        const int j = omap_h[k] + grav.nibeg;
+        ax [j] = hforce.host_pointer[k].ax.to_double();
+        ay [j] = hforce.host_pointer[k].ay.to_double();
+        az [j] = hforce.host_pointer[k].az.to_double();
+#ifdef _GPOTDP_
+        pot[j] = hforce.host_pointer[k].pot.to_double();
+#else
+        pot[j] = hforce.host_pointer[k].pot;
+#endif
+      }
+      return;
+    }
     const float dt = grav.last_half();
 
     if (grav.uselist)
@@ -1691,6 +2052,25 @@ namespace SPHgrav
   void setDevice(const int device)
   {
     grav.setDevice(device);
+  }
+
+  // ngpuperrank: this process (the local number rank on its node, ngravprocs of them) uses nper devices from rank*nper on; nper <= 0 means
+  // all the devices divided among the processes
+  void setNdev(const int rank, const int nper, const int ngravprocs)
+  {
+    int nd = nper;
+    if (nd <= 0)
+      nd = std::max(1, grav.ndevice / std::max(1, ngravprocs));
+    if (nd == 1 && nper == 1)
+      return;
+    const int first = rank * nd;
+    if (first + nd > grav.ndevice)
+    {
+      fprintf(stderr, "\nStarSmasher: ngpuperrank=%d needs %d devices for process %d, but this node has only %d.\n\n", nper, first + nd, rank, grav.ndevice);
+      fflush(stderr);
+      exit(EXIT_FAILURE);
+    }
+    setDevices(first, nd);
   }
 
   void setHilo(const bool hilo)
@@ -1760,6 +2140,12 @@ extern "C"
 
   // ngravhilo in sph.input: 1 sends each position as a float plus its float
   // remainder, 0 as a float alone
+  // ngpuperrank in sph.input (see SPHgrav::setNdev)
+  void gpu_set_ndev_(int *rank, int *ngpuperrank, int *ngravprocs)
+  {
+    SPHgrav::setNdev(*rank, *ngpuperrank, *ngravprocs);
+  }
+
   void gpu_set_hilo_(int *ngravhilo)
   {
     SPHgrav::setHilo(*ngravhilo != 0);
