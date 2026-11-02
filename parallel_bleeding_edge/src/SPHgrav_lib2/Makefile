@@ -39,6 +39,11 @@ ifneq ($(OMPCXX),)
 override NVCCFLAGS += -Xcompiler=$(OMPCXX)
 override CXXFLAGS += $(OMPCXX)
 endif
+# MARCH (top Makefile): the host code is compiled for that architecture too
+ifneq ($(MARCH),)
+override NVCCFLAGS += -Xcompiler=-march=$(MARCH)
+override CXXFLAGS += -march=$(MARCH)
+endif
 # LDFLAGS   +=  -fopenmp
 LDGPUGLAGS := $(LDFLAGS) $(CUDA_LIBS)
 
