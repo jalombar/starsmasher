@@ -120,14 +120,25 @@ else
   OMPFLAGS =
   OMPLINK  =
 endif
-FFLAGS    = $(OLEVEL) $(MCMODEL) $(PLATFORM_FFLAGS) $(OMPFLAGS)
-CFLAGS    = $(OLEVEL)
-CXXFLAGS  = $(OLEVEL)
+# MARCH=native (or the name of an architecture, e.g. MARCH=znver5) adds -march=$(MARCH) to the flags of every Fortran, C and C++ file, the
+# host code of the CUDA library included, and replaces the -mavx2 -mfma of TREEFLAGS.  The default, empty, leaves the flags as they were.
+# The bits of the results change with it (fused multiply-add, wider vectors), but not with the number of threads.
+MARCH ?=
+ifneq ($(MARCH),)
+  MARCHFLAG = -march=$(MARCH)
+else
+  MARCHFLAG =
+endif
+FFLAGS    = $(OLEVEL) $(MCMODEL) $(PLATFORM_FFLAGS) $(OMPFLAGS) $(MARCHFLAG)
+CFLAGS    = $(OLEVEL) $(MARCHFLAG)
+CXXFLAGS  = $(OLEVEL) $(MARCHFLAG)
 LDFLAGS  += $(OMPLINK)
 
 LIBS = -lm
 
-ifeq ($(shell uname -m),x86_64)
+ifneq ($(MARCH),)
+  TREEFLAGS ?= -march=$(MARCH) -fno-trapping-math
+else ifeq ($(shell uname -m),x86_64)
   TREEFLAGS ?= -mavx2 -mfma -fno-trapping-math
 else
   TREEFLAGS ?=
@@ -225,7 +236,7 @@ gravtree.o gravpair.o: FFLAGS += $(TREEFLAGS)
 
 # ----------------------------------------------------------------- targets ---
 gpu: check-gpu-backend $(GPUOBJS)
-	$(MAKE) -C $(GRAVLIB) CUDAPATH=$(CUDAPATH) OLEVEL=$(OLEVEL) $(if $(filter 1,$(OPENMP)),OMPCXX=-fopenmp)
+	$(MAKE) -C $(GRAVLIB) CUDAPATH=$(CUDAPATH) OLEVEL=$(OLEVEL) $(if $(filter 1,$(OPENMP)),OMPCXX=-fopenmp) $(if $(MARCH),MARCH=$(MARCH))
 	$(LINK) -o $(GPUEXEC) $(LDFLAGS) $(GPUOBJS) $(LIBS) $(GPU_LIBS)
 	cp -p $(GPUEXEC) ..
 	@echo "***MADE VERSION THAT USES GPUS***  ->  ../$(GPUEXEC)"
@@ -281,6 +292,7 @@ config:
 	@echo "  nmax            $(NMAX)"
 	@echo "  nnmax           $(NNMAX)"
 	@echo "  ntab            $(NTAB)"
+	@echo "  march           $(if $(MARCH),-march=$(MARCH),default (no -march))"
 	@echo "Output"
 	@echo "  GPU executable  ../$(GPUEXEC)"
 	@echo "  CPU executable  ../$(CPUEXEC)"
