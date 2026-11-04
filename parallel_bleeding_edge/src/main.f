@@ -276,7 +276,8 @@ c     hydro), while myrank=2,3,4,5,6,7 do hydro (and no gravity):
          stop
       end if
       
-      if(myrank.lt.ngravprocs .and. .not. alreadyinitialized .and. computeexclusivemode.ne.1 .and. nusegpus.eq.1) then
+      if(myrank.lt.ngravprocs .and. .not. alreadyinitialized .and. computeexclusivemode.ne.1 .and. nusegpus.eq.1
+     $     .and. ngravtree.eq.0) then
 !          gpus must always be initialized, even if we use just 1 mpi process
 !                                                                 
 !     the following line assumes 8 cpu threads per node
@@ -354,7 +355,7 @@ c     an ordinary case rather than one needing separate treatment.
          endif
          
 
-         if(myrank.lt.ngravprocs .and. nusegpus.eq.1) then
+         if(myrank.lt.ngravprocs .and. nusegpus.eq.1 .and. ngravtree.eq.0) then
             if(qthreads .lt. 0)then
                if(myrank.eq.0) write(69,*)'timing to find best q...'
                mygravlength=ngrav_upper-ngrav_lower+1

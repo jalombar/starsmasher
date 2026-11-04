@@ -39,3 +39,16 @@ it. Pass `--exe /path/to/..._sph` to test an executable you have already built.
 The last four exist because each corresponds to a real defect: results that
 depended on rank count, a CPU/GPU disagreement, an unbounded write past the end
 of an array, and a segfault when `ngravprocs` exceeded the GPU count.
+
+## Running the suite with another solver
+
+`STARSMASHER_TEST_EXTRA` adds entries to the namelist of every run, separated by
+commas; the entries a test sets itself win. For example
+
+```
+STARSMASHER_TEST_EXTRA="ngravtree=1,treeacc=0.45" python3 tests/run_tests.py
+```
+
+runs the whole suite with the gravity tree on the CPUs. The reference values and
+the tolerances of the tests do not change, so this checks that the other solver
+passes the same physical and consistency tests as the default one.

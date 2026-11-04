@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **102** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **105** settings.
 
 
 .. _sph-input-time-and-output:
@@ -430,6 +430,18 @@ Parallelism and GPUs
      - ``1``
      - every run
      - GPU gravity only: 1 sends each position to the card as a float plus the float's remainder, so separations keep single precision however far the pair is from the reference point (the gas centre of mass), and with block timesteps the rounding of a pair's force cancels between its two particles.  0 sends the float alone, at the same cost for the whole system and about 15% less for the active particles of block steps, but a star far from that point loses digits in its close separations, and with nblock=1 momentum and angular momentum drift
+   * - ``ngravtree``
+     - ``0``
+     - every run
+     - gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), which uses the threads of every rank and no gpu.  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads, but it does not conserve momentum and angular momentum to machine precision
+   * - ``treeacc``
+     - ``0.45d0``
+     - every run
+     - opening angle theta of the tree (ngravtree=1): a node is used as a whole if theta^2 r^2 > (size\_A + size\_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
+   * - ``nleafgrav``
+     - ``24``
+     - every run
+     - most particles in a leaf of the gravity tree (ngravtree=1); the particles of a leaf share one Taylor series of the far field
    * - ``qthreads``
      - ``0``
      - every run

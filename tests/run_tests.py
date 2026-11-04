@@ -40,6 +40,11 @@ def build(target='gpu', base=None):
     return exe[0]
 
 def sph_input(**kw):
+    # STARSMASHER_TEST_EXTRA="ngravtree=1,treeacc=0.45" adds namelist entries to every run (the settings of a test win),
+    # to run the suite with another gravity solver; the reference values of the tests are not changed
+    for item in filter(None, os.environ.get('STARSMASHER_TEST_EXTRA', '').split(',')):
+        k, v = item.split('=', 1)
+        kw.setdefault(k.strip(), v.strip())
     body = '\n'.join(' %s=%s,' % (k, v) for k, v in kw.items())
     return ' &input\n%s\n &end\n' % body
 
