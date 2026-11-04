@@ -179,6 +179,20 @@ FOBJS = omp_utils.o pairbuf.o eos_table_data.o riemann_data.o kdtree2.o advance.
         initialize_asciiimage.o initialize_periodicbox.o \
         riemann.o
 
+# neighbour search of the smoothing-length solve by groups of particles.  Its squared distances must be the sums the kd tree makes, bit
+# for bit, so hgroup.f90 is compiled without fused multiply-add whatever else FFLAGS says.  It is also compiled for AVX2 on x86-64
+# (HGFLAGS); hgcpu.f90, compiled for any x86-64, then checks that the processor has it before the groups are used (without it the run
+# goes on without groups).  HGFLAGS= (empty) builds hgroup.f90 for any x86-64
+ifeq ($(shell uname -m),x86_64)
+  HGFLAGS ?= -mavx2
+endif
+HGDEFS = $(if $(findstring avx2,$(HGFLAGS)),-DHG_AVX2)
+FOBJS += hgroup.o hgcpu.o
+hgroup.o: FFLAGS += -ffp-contract=off $(HGFLAGS)
+hgcpu.o: FFLAGS += -cpp $(HGDEFS)
+hgroup.o: kdtree2.o
+advance.o: hgroup.o
+
 CPUOBJS = $(FOBJS) cpu_grav.o
 GPUOBJS = $(FOBJS) $(GPU_GRAV_OBJ)
 

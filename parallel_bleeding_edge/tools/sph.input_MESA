@@ -41,4 +41,5 @@
  ppn=16, ! set this to the number of cpu cores per node
  profilefile='profile8_1p0.data'
  stellarevolutioncodetype=0 ! 0 for TWIN, 1 for MESA
+ hgroup=32, ! groups of 32 particles share one neighbour search in the smoothing-length solve (faster); 0: one search for each particle
  &end
