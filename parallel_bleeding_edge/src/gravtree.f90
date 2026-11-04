@@ -1,0 +1,890 @@
+!***********************************************************************
+!     Gravity with a tree on the cpus (ngravtree=1), after the tree code of
+!     Phantom (Price et al. 2018, PASA 35, e031, src/main/kdtree.F90, GPLv3
+!     like StarSmasher).
+!
+!     The particles are put in a binary k-d tree, divided at the middle of the
+!     longest side of the box (treebuild.f90, the same builder as the one of
+!     the neighbour search), with leaves of at most nleafgrav particles.
+!     Each node holds its mass, centre of mass, the second moments of its mass
+!     about the centre of mass (the quadrupole), the radius of the smallest
+!     sphere about the centre of mass that holds all its particles (size) and
+!     the largest softening radius 2h of its particles (hmax).
+!
+!     The force is found one leaf at a time, as in the "classic" walk of
+!     Phantom.  The tree is walked from the root for the leaf L.  A node S is
+!     well separated from L if
+!        theta^2 r^2 > (size_L + size_S)^2   and   r > size_L + size_S + max(hmax_L, hmax_S)
+!     with r the distance between their centres of mass: then no particle of
+!     L is inside the softening of a particle of S (or the other way round), the
+!     force between them is Newtonian, and the quadrupole expansion of S is
+!     added to the Taylor series of the force about the centre of mass of L
+!     (m2l_loop).  Otherwise, a leaf S is added
+!     to the list of the particles that interact directly with those of L, and
+!     for any other node the two children are visited, the left one first.  The
+!     force on each particle of L is the Taylor series at its position plus
+!     the direct sum over the list with the pair formula of get_gravity_using_cpus
+!     (gravpair.f90), in double precision.
+!
+!     Nothing depends on the number of threads: the tree is the same (see
+!     treebuild.f90), the moments of a node come from its children in a fixed
+!     order, and a leaf is done by one thread, in an order of the nodes and of the
+!     sums that is fixed by the tree.  With theta=0 no node is well separated
+!     and the result is the direct sum.
+!***********************************************************************
+module gravtree
+!$ use omp_lib
+  use treebuild
+  use gravpair
+  implicit none
+  private
+  public :: gt_forces
+  integer, parameter :: dp = kind(1.d0)
+  integer, parameter :: lenf = 20
+  ! node data: 1:3 centre of mass, 4 size, 5 hmax, 6 mass, 7:12 second moments (xx,xy,xz,yy,yz,zz)
+  integer, parameter :: nfd = 12
+  integer, parameter :: stackmax = 1024
+  ! leaves handed to a thread at a time
+  integer, parameter :: leafchunk = 4
+
+  type(tbwork), save :: gtw
+  integer :: nsave = 0
+  real(dp), allocatable, save :: gxyz(:,:), gpos(:,:)
+  integer, allocatable, save :: gind(:)
+  ! the particles in tree order
+  real(dp), allocatable, save :: xt(:), yt(:), zt(:), mt(:), ht(:), h2t(:), ft(:)
+  real(dp), allocatable, save :: nd(:,:)
+  integer, allocatable, save :: leaves(:), leafcnt(:), leafoff(:)
+
+  ! the lists of a thread: mb nodes (dx dy dz q0 and the second moments), nb sources that are Newtonian for the whole leaf
+  ! (x y z m), cb the other sources (x y z m 2h (2h)^2 flag r^2), sb the pairs inside a softening of one particle
+  type walkbuf
+     integer :: capm = 0, capn = 0, capc = 0
+     real(dp), allocatable :: mb(:,:), nb(:,:), cb(:,:), sb(:,:)
+     integer, allocatable :: ci(:)
+     integer, allocatable :: stack(:)
+  end type walkbuf
+  type(walkbuf), allocatable, save :: wb(:)
+
+contains
+
+!     Gravity on the particles ilow..ihigh (and, with block steps, only the active ones: the others get zero).
+  subroutine gt_forces(n, x, y, z, am, hp, u, act, blk, ilow, ihigh, nk, theta, nleaf, gx, gy, gz, gpot)
+    integer, intent(in) :: n, ilow, ihigh, nk, nleaf
+    real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n), theta
+    logical, intent(in) :: act(n), blk
+    real(dp), intent(inout) :: gx(n), gy(n), gz(n), gpot(n)
+    integer :: i, j, id, nlf
+    real(dp) :: theta2
+    call reserve(n, nleaf)
+    theta2 = theta*theta
+!$omp parallel default(shared) private(i)
+!$omp do simd schedule(static)
+    do i = 1, n
+       gxyz(1,i) = x(i)
+       gxyz(2,i) = y(i)
+       gxyz(3,i) = z(i)
+    end do
+!$omp do simd schedule(static)
+    do i = ilow, ihigh
+       gx(i) = 0.d0
+       gy(i) = 0.d0
+       gz(i) = 0.d0
+       gpot(i) = 0.d0
+    end do
+!$omp end parallel
+    call tb_build(gtw, n, gxyz, gind, gpos, nleaf, 2)
+    ! the builder may have needed more node numbers than the estimate of reserve
+    if (size(nd,2) < gtw%nidmax) then
+       deallocate (nd)
+       allocate (nd(nfd,gtw%nidmax))
+    end if
+!$omp parallel do simd schedule(static) private(i)
+    do i = 1, n
+       j = gind(i)
+       xt(i) = gpos(1,i)
+       yt(i) = gpos(2,i)
+       zt(i) = gpos(3,i)
+       mt(i) = am(j)
+       ht(i) = 2*hp(j)
+       h2t(i) = ht(i)*ht(i)
+       if (u(j) /= 0.d0) then
+          ft(i) = 1.d0
+       else
+          ft(i) = 0.d0
+       end if
+    end do
+    call moments()
+    call leaflist(nlf)
+!$omp parallel default(shared) private(i,id)
+    call walk_setup()
+!$omp do schedule(dynamic,leafchunk)
+    do i = 1, nlf
+       id = leaves(i)
+       call walk_leaf(id, nk, theta2, ilow, ihigh, act, blk, gx, gy, gz, gpot, n)
+    end do
+!$omp end do
+!$omp end parallel
+  end subroutine gt_forces
+
+!     arrays for n particles, and the buffers of the threads
+  subroutine reserve(n, nleaf)
+    integer, intent(in) :: n, nleaf
+    integer :: nthr, ncap
+    ncap = 2*n + 4*(n/2048) + 64
+    if (nsave < n .or. .not. allocated(gxyz)) then
+       if (allocated(gxyz)) deallocate (gxyz, gpos, gind, xt, yt, zt, mt, ht, h2t, ft, nd, leaves, leafcnt, leafoff)
+       allocate (gxyz(3,n), gpos(3,n), gind(n), xt(n), yt(n), zt(n), mt(n), ht(n), h2t(n), ft(n))
+       allocate (nd(nfd,ncap))
+       allocate (leaves(n), leafcnt(4*(n/2048)+64), leafoff(4*(n/2048)+64))
+       nsave = n
+    end if
+    nthr = 1
+!$  nthr = omp_get_max_threads()
+    if (.not. allocated(wb)) allocate (wb(0:nthr-1))
+    if (size(wb) < nthr) then
+       deallocate (wb)
+       allocate (wb(0:nthr-1))
+    end if
+  end subroutine reserve
+
+!     the buffer of the calling thread
+  subroutine walk_setup()
+    integer :: it
+    it = 0
+!$  it = omp_get_thread_num()
+    if (wb(it)%capm == 0) then
+       wb(it)%capm = 2048
+       wb(it)%capn = 4096
+       wb(it)%capc = 4096
+       allocate (wb(it)%mb(2056,10), wb(it)%nb(4104,4), wb(it)%cb(4104,8), wb(it)%ci(4104), wb(it)%sb(4104,6))
+       allocate (wb(it)%stack(stackmax))
+    end if
+  end subroutine walk_setup
+
+!     The moments of all the nodes, from the bottom of the tree up: the subtrees, then the nodes above them.
+  subroutine moments()
+    integer :: j, id, k, ntop
+    ntop = gtw%ntop
+!$omp parallel default(shared) private(j,id,k)
+!$omp do schedule(dynamic,1)
+    do j = 1, gtw%nsub
+       do k = gtw%sub_base(j) + gtw%sub_used(j), gtw%sub_base(j) + 1, -1
+          call node_moments(k)
+       end do
+       call node_moments(gtw%sub_id(j))
+    end do
+!$omp end do
+!$omp end parallel
+    ! the nodes made while the big ones were divided: the children have the larger numbers
+    do id = ntop, 1, -1
+       if (gtw%lc(id) /= 0) call node_moments(id)
+    end do
+  end subroutine moments
+
+!     the moments of node id: from its particles if it is a leaf, from its two children otherwise
+  subroutine node_moments(id)
+    integer, intent(in) :: id
+    integer :: i, l, u, a, b
+    real(dp) :: m, sx, sy, sz, cx, cy, cz, dx, dy, dz, r2max, hm
+    real(dp) :: qxx, qxy, qxz, qyy, qyz, qzz, ma, mb, dax, day, daz, dbx, dby, dbz, sa, sb
+    if (gtw%lc(id) == 0) then
+       l = gtw%nl(id)
+       u = gtw%nu(id)
+       m = 0.d0
+       sx = 0.d0
+       sy = 0.d0
+       sz = 0.d0
+       hm = 0.d0
+       do i = l, u
+          m = m + mt(i)
+          sx = sx + mt(i)*xt(i)
+          sy = sy + mt(i)*yt(i)
+          sz = sz + mt(i)*zt(i)
+          hm = max(hm, ht(i))
+       end do
+       cx = sx/m
+       cy = sy/m
+       cz = sz/m
+       qxx = 0.d0
+       qxy = 0.d0
+       qxz = 0.d0
+       qyy = 0.d0
+       qyz = 0.d0
+       qzz = 0.d0
+       r2max = 0.d0
+       do i = l, u
+          dx = xt(i) - cx
+          dy = yt(i) - cy
+          dz = zt(i) - cz
+          qxx = qxx + mt(i)*dx*dx
+          qxy = qxy + mt(i)*dx*dy
+          qxz = qxz + mt(i)*dx*dz
+          qyy = qyy + mt(i)*dy*dy
+          qyz = qyz + mt(i)*dy*dz
+          qzz = qzz + mt(i)*dz*dz
+          r2max = max(r2max, dx*dx + dy*dy + dz*dz)
+       end do
+       nd(1,id) = cx
+       nd(2,id) = cy
+       nd(3,id) = cz
+       nd(4,id) = sqrt(r2max)
+       nd(5,id) = hm
+       nd(6,id) = m
+       nd(7,id) = qxx
+       nd(8,id) = qxy
+       nd(9,id) = qxz
+       nd(10,id) = qyy
+       nd(11,id) = qyz
+       nd(12,id) = qzz
+    else
+       a = gtw%lc(id)
+       b = gtw%rc(id)
+       ma = nd(6,a)
+       mb = nd(6,b)
+       m = ma + mb
+       cx = (ma*nd(1,a) + mb*nd(1,b))/m
+       cy = (ma*nd(2,a) + mb*nd(2,b))/m
+       cz = (ma*nd(3,a) + mb*nd(3,b))/m
+       dax = nd(1,a) - cx
+       day = nd(2,a) - cy
+       daz = nd(3,a) - cz
+       dbx = nd(1,b) - cx
+       dby = nd(2,b) - cy
+       dbz = nd(3,b) - cz
+       nd(1,id) = cx
+       nd(2,id) = cy
+       nd(3,id) = cz
+       sa = sqrt(dax*dax + day*day + daz*daz) + nd(4,a)
+       sb = sqrt(dbx*dbx + dby*dby + dbz*dbz) + nd(4,b)
+       nd(4,id) = max(sa, sb)
+       nd(5,id) = max(nd(5,a), nd(5,b))
+       nd(6,id) = m
+       nd(7,id) = nd(7,a) + nd(7,b) + ma*dax*dax + mb*dbx*dbx
+       nd(8,id) = nd(8,a) + nd(8,b) + ma*dax*day + mb*dbx*dby
+       nd(9,id) = nd(9,a) + nd(9,b) + ma*dax*daz + mb*dbx*dbz
+       nd(10,id) = nd(10,a) + nd(10,b) + ma*day*day + mb*dby*dby
+       nd(11,id) = nd(11,a) + nd(11,b) + ma*day*daz + mb*dby*dbz
+       nd(12,id) = nd(12,a) + nd(12,b) + ma*daz*daz + mb*dbz*dbz
+    end if
+  end subroutine node_moments
+
+!     the leaves, in the order of the subtrees (then the ones above them): leaves(1:nlf)
+  subroutine leaflist(nlf)
+    integer, intent(out) :: nlf
+    integer :: j, k, c, nsub
+    nsub = gtw%nsub
+    if (size(leafcnt) < nsub + 1) then
+       deallocate (leafcnt, leafoff)
+       allocate (leafcnt(nsub+64), leafoff(nsub+64))
+    end if
+!$omp parallel default(shared) private(j,k,c)
+!$omp do schedule(static)
+    do j = 1, nsub
+       c = 0
+       if (gtw%lc(gtw%sub_id(j)) == 0) c = 1
+       do k = gtw%sub_base(j) + 1, gtw%sub_base(j) + gtw%sub_used(j)
+          if (gtw%lc(k) == 0) c = c + 1
+       end do
+       leafcnt(j) = c
+    end do
+!$omp end do
+!$omp end parallel
+    nlf = 0
+    do j = 1, nsub
+       leafoff(j) = nlf
+       nlf = nlf + leafcnt(j)
+    end do
+!$omp parallel default(shared) private(j,k,c)
+!$omp do schedule(static)
+    do j = 1, nsub
+       c = leafoff(j)
+       if (gtw%lc(gtw%sub_id(j)) == 0) then
+          c = c + 1
+          leaves(c) = gtw%sub_id(j)
+       end if
+       do k = gtw%sub_base(j) + 1, gtw%sub_base(j) + gtw%sub_used(j)
+          if (gtw%lc(k) == 0) then
+             c = c + 1
+             leaves(c) = k
+          end if
+       end do
+    end do
+!$omp end do
+!$omp end parallel
+  end subroutine leaflist
+
+!     The force on the particles of leaf lf that are in ilow..ihigh (and active).
+!
+!     The tree is walked once for the leaf.  The nodes that are well separated go to the list m (their quadrupoles are summed
+!     into the Taylor coefficients in a vectorised loop); the particles of the leaves that are too near go to the list n if
+!     they cannot be inside a softening of any particle of this leaf (their distance from the centre of the leaf is more than
+!     size_L + max(hmax_L, 2h_j)), to the list c otherwise.  The force on a particle of the leaf is then the Taylor series, a
+!     branch-free sum over n, and a sum over c in which the pairs inside a softening are done together in a vectorised loop.
+  subroutine walk_leaf(lf, nk, theta2, ilow, ihigh, act, blk, gx, gy, gz, gpot, n)
+    integer, intent(in) :: lf, nk, ilow, ihigh, n
+    real(dp), intent(in) :: theta2
+    logical, intent(in) :: act(n), blk
+    real(dp), intent(inout) :: gx(n), gy(n), gz(n), gpot(n)
+    integer :: it, l, u, i, ig, s, ns, a, b, jj, nm, nn, nc, nmp, nnp, ncp
+    real(dp) :: xl, yl, zl, szl, hml, dx, dy, dz, r2, sz, rc, fnode(lenf), thr, rj2
+    real(dp) :: xi, yi, zi, h2i, hi, ax, ay, az, pt
+    logical :: need
+    it = 0
+!$  it = omp_get_thread_num()
+    l = gtw%nl(lf)
+    u = gtw%nu(lf)
+    ! is there a particle to do in this leaf?
+    need = .false.
+    do i = l, u
+       ig = gind(i)
+       if (ig >= ilow .and. ig <= ihigh) then
+          if (.not. blk) then
+             need = .true.
+          else if (act(ig)) then
+             need = .true.
+          end if
+       end if
+    end do
+    if (.not. need) return
+    xl = nd(1,lf)
+    yl = nd(2,lf)
+    zl = nd(3,lf)
+    szl = nd(4,lf)
+    hml = nd(5,lf)
+    nm = 0
+    nn = 0
+    nc = 0
+    ns = 1
+    wb(it)%stack(1) = 1
+    do while (ns > 0)
+       s = wb(it)%stack(ns)
+       ns = ns - 1
+       dx = xl - nd(1,s)
+       dy = yl - nd(2,s)
+       dz = zl - nd(3,s)
+       r2 = dx*dx + dy*dy + dz*dz
+       sz = szl + nd(4,s)
+       rc = sz + max(hml, nd(5,s))
+       if (theta2*r2 > sz*sz .and. r2 > rc*rc) then
+          ! well separated: to the list of the nodes
+          if (nm + 1 > wb(it)%capm) call grow_m(it, nm + 1)
+          nm = nm + 1
+          wb(it)%mb(nm,1) = dx
+          wb(it)%mb(nm,2) = dy
+          wb(it)%mb(nm,3) = dz
+          wb(it)%mb(nm,4) = nd(6,s)
+          wb(it)%mb(nm,5) = nd(7,s)
+          wb(it)%mb(nm,6) = nd(8,s)
+          wb(it)%mb(nm,7) = nd(9,s)
+          wb(it)%mb(nm,8) = nd(10,s)
+          wb(it)%mb(nm,9) = nd(11,s)
+          wb(it)%mb(nm,10) = nd(12,s)
+       else if (gtw%lc(s) == 0) then
+          ! a leaf too near: its particles are summed directly
+          a = gtw%nl(s)
+          b = gtw%nu(s)
+          if (nn + (b - a + 1) > wb(it)%capn) call grow_n(it, nn + (b - a + 1))
+          if (nc + (b - a + 1) > wb(it)%capc) call grow_c(it, nc + (b - a + 1))
+          do jj = a, b
+             dx = xt(jj) - xl
+             dy = yt(jj) - yl
+             dz = zt(jj) - zl
+             rj2 = dx*dx + dy*dy + dz*dz
+             thr = (szl + max(hml, ht(jj)))*(1.d0 + 1.d-9)
+             if (rj2 >= thr*thr) then
+                nn = nn + 1
+                wb(it)%nb(nn,1) = xt(jj)
+                wb(it)%nb(nn,2) = yt(jj)
+                wb(it)%nb(nn,3) = zt(jj)
+                wb(it)%nb(nn,4) = mt(jj)
+             else
+                nc = nc + 1
+                wb(it)%cb(nc,1) = xt(jj)
+                wb(it)%cb(nc,2) = yt(jj)
+                wb(it)%cb(nc,3) = zt(jj)
+                wb(it)%cb(nc,4) = mt(jj)
+                wb(it)%cb(nc,5) = ht(jj)
+                wb(it)%cb(nc,6) = h2t(jj)
+                wb(it)%cb(nc,7) = ft(jj)
+                wb(it)%ci(nc) = jj
+             end if
+          end do
+       else
+          if (ns + 2 > stackmax) stop 'gravtree: the stack of the walk of the tree is too small'
+          ns = ns + 1
+          wb(it)%stack(ns) = gtw%rc(s)
+          ns = ns + 1
+          wb(it)%stack(ns) = gtw%lc(s)
+       end if
+    end do
+    ! the Taylor coefficients of the far field
+    nmp = 8*((nm + 7)/8)
+    if (nm > 0) then
+       if (nmp > wb(it)%capm) call grow_m(it, nmp)
+       do jj = nm + 1, nmp
+          wb(it)%mb(jj,1) = 1.d0
+          wb(it)%mb(jj,2) = 0.d0
+          wb(it)%mb(jj,3) = 0.d0
+          wb(it)%mb(jj,4:10) = 0.d0
+       end do
+    end if
+    call m2l_loop(nmp, size(wb(it)%mb,1), wb(it)%mb, fnode)
+    ! sources without mass, far away, to fill the last group of 8 of each list
+    nnp = 8*((nn + 7)/8)
+    ncp = 8*((nc + 7)/8)
+    if (nnp > wb(it)%capn) call grow_n(it, nnp)
+    if (ncp > wb(it)%capc) call grow_c(it, ncp)
+    do jj = nn + 1, nnp
+       wb(it)%nb(jj,1) = 1.d100
+       wb(it)%nb(jj,2) = 0.d0
+       wb(it)%nb(jj,3) = 0.d0
+       wb(it)%nb(jj,4) = 0.d0
+    end do
+    do jj = nc + 1, ncp
+       wb(it)%cb(jj,1) = 1.d100
+       wb(it)%cb(jj,2) = 0.d0
+       wb(it)%cb(jj,3) = 0.d0
+       wb(it)%cb(jj,4) = 0.d0
+       wb(it)%cb(jj,5) = 1.d0
+       wb(it)%cb(jj,6) = 0.d0
+       wb(it)%cb(jj,7) = 0.d0
+       wb(it)%ci(jj) = 0
+    end do
+    do i = l, u
+       ig = gind(i)
+       if (ig < ilow .or. ig > ihigh) cycle
+       if (blk) then
+          if (.not. act(ig)) cycle
+       end if
+       xi = xt(i)
+       yi = yt(i)
+       zi = zt(i)
+       hi = ht(i)
+       h2i = h2t(i)
+       call expand_taylor(fnode, xi - xl, yi - yl, zi - zl, ax, ay, az, pt)
+       call near_sum(it, nn, nc, nnp, ncp, i, xi, yi, zi, h2i, hi, nk, ax, ay, az, pt)
+       gx(ig) = ax
+       gy(ig) = ay
+       gz(ig) = az
+       gpot(ig) = pt
+    end do
+  end subroutine walk_leaf
+
+!     The direct sum for the particle i over the lists n (all the pairs are Newtonian) and c of the thread it.
+  subroutine near_sum(it, nn, nc, nnp, ncp, i, xi, yi, zi, h2i, hi, nk, ax, ay, az, pt)
+    integer, intent(in) :: it, nn, nc, nnp, ncp, i, nk
+    real(dp), intent(in) :: xi, yi, zi, h2i, hi
+    real(dp), intent(inout) :: ax, ay, az, pt
+    integer :: jj, ns, nsp
+    real(dp) :: sx, sy, sz, sp, r2, hm, gacc, gpt, selff
+    sx = 0.d0
+    sy = 0.d0
+    sz = 0.d0
+    sp = 0.d0
+    call newton_all(nnp, size(wb(it)%nb,1), xi, yi, zi, wb(it)%nb, sx, sy, sz, sp)
+    call newton_masked(ncp, size(wb(it)%cb,1), xi, yi, zi, h2i, wb(it)%cb, sx, sy, sz, sp)
+    ! the pairs inside a softening: collected, then done together
+    ns = 0
+    do jj = 1, nc
+       r2 = wb(it)%cb(jj,8)
+       hm = max(h2i, wb(it)%cb(jj,6))
+       if (r2 < hm) then
+          if (r2 <= 0.d0 .or. nk /= 2) then
+             ! at zero distance (the particle itself), and the kernels other than the Wendland C4, one by one
+             selff = 0.5d0
+             if (wb(it)%ci(jj) == i) selff = 1.d0
+             call grav_soft(nk, r2, hi, wb(it)%cb(jj,5), wb(it)%cb(jj,4), wb(it)%cb(jj,7), selff, gacc, gpt)
+             sx = sx + gacc*(wb(it)%cb(jj,1) - xi)
+             sy = sy + gacc*(wb(it)%cb(jj,2) - yi)
+             sz = sz + gacc*(wb(it)%cb(jj,3) - zi)
+             sp = sp + gpt
+          else
+             ns = ns + 1
+             wb(it)%sb(ns,1) = r2
+             wb(it)%sb(ns,2) = wb(it)%cb(jj,1) - xi
+             wb(it)%sb(ns,3) = wb(it)%cb(jj,2) - yi
+             wb(it)%sb(ns,4) = wb(it)%cb(jj,3) - zi
+             wb(it)%sb(ns,5) = wb(it)%cb(jj,5)
+             wb(it)%sb(ns,6) = wb(it)%cb(jj,4)
+          end if
+       end if
+    end do
+    if (ns > 0) then
+       nsp = 8*((ns + 7)/8)
+       do jj = ns + 1, nsp
+          wb(it)%sb(jj,1) = 1.d0
+          wb(it)%sb(jj,2) = 1.d0
+          wb(it)%sb(jj,3) = 0.d0
+          wb(it)%sb(jj,4) = 0.d0
+          wb(it)%sb(jj,5) = 1.d0
+          wb(it)%sb(jj,6) = 0.d0
+       end do
+       call soft_loop(nsp, size(wb(it)%sb,1), h2i, hi, wb(it)%sb, sx, sy, sz, sp)
+    end if
+    ax = ax + sx
+    ay = ay + sy
+    az = az + sz
+    pt = pt + sp
+  end subroutine near_sum
+
+!     the Newtonian sums over sources b(:,1:4) = x y z m (the number a multiple of 8), in 8 lanes added in a fixed order,
+!     so that they do not depend on how the compiler peels or splits the loop, or on where the arrays are in memory
+  subroutine newton_all(nlp, ld, xi, yi, zi, b, sx, sy, sz, sp)
+    integer, intent(in) :: nlp, ld
+    real(dp), intent(in) :: xi, yi, zi
+    real(dp), intent(in) :: b(ld,4)
+    real(dp), intent(inout) :: sx, sy, sz, sp
+    integer :: jb, l, jj
+    real(dp) :: dx, dy, dz, r2, rinv, mr1, mr3
+    real(dp) :: accx(8), accy(8), accz(8), accp(8)
+    accx = 0.d0
+    accy = 0.d0
+    accz = 0.d0
+    accp = 0.d0
+    do jb = 1, nlp, 8
+!$omp simd private(jj,dx,dy,dz,r2,rinv,mr1,mr3)
+       do l = 1, 8
+          jj = jb + l - 1
+          dx = b(jj,1) - xi
+          dy = b(jj,2) - yi
+          dz = b(jj,3) - zi
+          r2 = dx*dx + dy*dy + dz*dz
+          rinv = 1.d0/sqrt(r2)
+          mr1 = rinv*b(jj,4)
+          mr3 = rinv*rinv*mr1
+          accx(l) = accx(l) + mr3*dx
+          accy(l) = accy(l) + mr3*dy
+          accz(l) = accz(l) + mr3*dz
+          accp(l) = accp(l) - mr1
+       end do
+    end do
+    sx = sx + (((accx(1) + accx(2)) + (accx(3) + accx(4))) + ((accx(5) + accx(6)) + (accx(7) + accx(8))))
+    sy = sy + (((accy(1) + accy(2)) + (accy(3) + accy(4))) + ((accy(5) + accy(6)) + (accy(7) + accy(8))))
+    sz = sz + (((accz(1) + accz(2)) + (accz(3) + accz(4))) + ((accz(5) + accz(6)) + (accz(7) + accz(8))))
+    sp = sp + (((accp(1) + accp(2)) + (accp(3) + accp(4))) + ((accp(5) + accp(6)) + (accp(7) + accp(8))))
+  end subroutine newton_all
+
+!     r^2 of the pairs with the sources c(:,1:7) = x y z m 2h (2h)^2 flag, kept in c(:,8), and the Newtonian sums over the pairs
+!     that are not inside a softening
+  subroutine newton_masked(nlp, ld, xi, yi, zi, h2i, c, sx, sy, sz, sp)
+    integer, intent(in) :: nlp, ld
+    real(dp), intent(in) :: xi, yi, zi, h2i
+    real(dp), intent(inout) :: c(ld,8)
+    real(dp), intent(inout) :: sx, sy, sz, sp
+    integer :: jb, l, jj
+    real(dp) :: dx, dy, dz, r2, rinv, mr1, mr3, hm
+    real(dp) :: accx(8), accy(8), accz(8), accp(8)
+    logical :: nwt
+    accx = 0.d0
+    accy = 0.d0
+    accz = 0.d0
+    accp = 0.d0
+    do jb = 1, nlp, 8
+!$omp simd private(jj,dx,dy,dz)
+       do l = 1, 8
+          jj = jb + l - 1
+          dx = c(jj,1) - xi
+          dy = c(jj,2) - yi
+          dz = c(jj,3) - zi
+          c(jj,8) = dx*dx + dy*dy + dz*dz
+       end do
+!$omp simd private(jj,dx,dy,dz,r2,rinv,mr1,mr3,nwt,hm)
+       do l = 1, 8
+          jj = jb + l - 1
+          dx = c(jj,1) - xi
+          dy = c(jj,2) - yi
+          dz = c(jj,3) - zi
+          r2 = c(jj,8)
+          rinv = 1.d0/sqrt(r2)
+          mr1 = rinv*c(jj,4)
+          mr3 = rinv*rinv*mr1
+          hm = merge(h2i, c(jj,6), h2i > c(jj,6))
+          nwt = (r2 >= hm)
+          if (nwt) then
+             accx(l) = accx(l) + mr3*dx
+             accy(l) = accy(l) + mr3*dy
+             accz(l) = accz(l) + mr3*dz
+             accp(l) = accp(l) - mr1
+          end if
+       end do
+    end do
+    sx = sx + (((accx(1) + accx(2)) + (accx(3) + accx(4))) + ((accx(5) + accx(6)) + (accx(7) + accx(8))))
+    sy = sy + (((accy(1) + accy(2)) + (accy(3) + accy(4))) + ((accy(5) + accy(6)) + (accy(7) + accy(8))))
+    sz = sz + (((accz(1) + accz(2)) + (accz(3) + accz(4))) + ((accz(5) + accz(6)) + (accz(7) + accz(8))))
+    sp = sp + (((accp(1) + accp(2)) + (accp(3) + accp(4))) + ((accp(5) + accp(6)) + (accp(7) + accp(8))))
+  end subroutine newton_masked
+
+!     The pairs inside a softening, Wendland C4 kernel (nkernel=2), for the particle with 2h = hi, 8 at a time:
+!     s(:,1:6) = r^2, dx, dy, dz, 2h_j, m_j.  The same expressions as grav_soft (gravpair.f90), without the branches.
+  subroutine soft_loop(nsp, ld, h2i, hi, s, sx, sy, sz, sp)
+    integer, intent(in) :: nsp, ld
+    real(dp), intent(in) :: h2i, hi
+    real(dp), intent(in) :: s(ld,6)
+    real(dp), intent(inout) :: sx, sy, sz, sp
+    integer :: jb, l, jj
+    real(dp) :: r2, rinv, mrinv1, mrinv3, qq1, qq2, q21, q22, acc1, acc2, pot1, pot2, hj, h2j, mj
+    real(dp) :: mj11, mj12, mj21, mj22, gacc, gpot, dx, dy, dz
+    logical :: in1, in2
+    real(dp) :: accx(8), accy(8), accz(8), accp(8)
+    accx = 0.d0
+    accy = 0.d0
+    accz = 0.d0
+    accp = 0.d0
+    do jb = 1, nsp, 8
+!$omp simd private(jj,r2,rinv,mrinv1,mrinv3,qq1,qq2,q21,q22,acc1,acc2,pot1,pot2,hj,h2j,mj,mj11,mj12,mj21,mj22,gacc,gpot, &
+!$omp dx,dy,dz,in1,in2)
+       do l = 1, 8
+          jj = jb + l - 1
+          r2 = s(jj,1)
+          dx = s(jj,2)
+          dy = s(jj,3)
+          dz = s(jj,4)
+          hj = s(jj,5)
+          mj = s(jj,6)
+          h2j = hj*hj
+          rinv = 1.d0/sqrt(r2)
+          mrinv1 = rinv*mj
+          mrinv3 = rinv*rinv*mrinv1
+          qq1 = 1.d0/(rinv*hi)
+          qq2 = 1.d0/(rinv*hj)
+          q21 = qq1*qq1
+          q22 = qq2*qq2
+          mj11 = mj/hi
+          mj12 = mj/hj
+          mj21 = mj11/h2i
+          mj22 = mj12/h2j
+          in1 = (r2 <= h2i)
+          in2 = (r2 <= h2j)
+          acc1 = 20.625d0 + q21*((-115.5d0) + q21*(618.75d0 + qq1*((-1155.d0) + qq1*(962.5d0 + qq1*((-396.d0) + 65.625d0*qq1)))))
+          acc2 = 20.625d0 + q22*((-115.5d0) + q22*(618.75d0 + qq2*((-1155.d0) + qq2*(962.5d0 + qq2*((-396.d0) + 65.625d0*qq2)))))
+          pot1 = (-3.4375d0) + q21*(10.3125d0 + q21*((-28.875d0) + q21*(103.125d0 + qq1*((-165.d0) &
+               + qq1*(120.3125d0 + qq1*((-44.d0) + 6.5625d0*qq1))))))
+          pot2 = (-3.4375d0) + q22*(10.3125d0 + q22*((-28.875d0) + q22*(103.125d0 + qq2*((-165.d0) &
+               + qq2*(120.3125d0 + qq2*((-44.d0) + 6.5625d0*qq2))))))
+          gacc = 0.5d0*(merge(mj21*acc1, mrinv3, in1) + merge(mj22*acc2, mrinv3, in2))
+          gpot = 0.5d0*(merge(mj11*pot1, -mrinv1, in1) + merge(mj12*pot2, -mrinv1, in2))
+          accx(l) = accx(l) + gacc*dx
+          accy(l) = accy(l) + gacc*dy
+          accz(l) = accz(l) + gacc*dz
+          accp(l) = accp(l) + gpot
+       end do
+    end do
+    sx = sx + (((accx(1) + accx(2)) + (accx(3) + accx(4))) + ((accx(5) + accx(6)) + (accx(7) + accx(8))))
+    sy = sy + (((accy(1) + accy(2)) + (accy(3) + accy(4))) + ((accy(5) + accy(6)) + (accy(7) + accy(8))))
+    sz = sz + (((accz(1) + accz(2)) + (accz(3) + accz(4))) + ((accz(5) + accz(6)) + (accz(7) + accz(8))))
+    sp = sp + (((accp(1) + accp(2)) + (accp(3) + accp(4))) + ((accp(5) + accp(6)) + (accp(7) + accp(8))))
+  end subroutine soft_loop
+
+!     The Taylor coefficients of the force at the centre of the leaf from the nodes of the list m(:,1:10) = dx dy dz q0 qxx qxy qxz
+!     qyy qyz qzz (the number a multiple of 8), 8 nodes at a time with the sums kept in 8 lanes.
+!     (Adapted from Phantom (Price et al. 2018, PASA 35, e031), src/main/kdtree.F90, routine compute_M2L, after Dehnen 2002; GPLv3.)
+!     fnode(1:3) the acceleration, (4:9) its derivatives xx xy xz yy yz zz, (10:19) its second derivatives
+!     xxx xxy xxz xyy xyz xzz yyy yyz yzz zzz, (20) the potential.
+  subroutine m2l_loop(nmp, ld, m, fnode)
+    integer, intent(in) :: nmp, ld
+    real(dp), intent(in) :: m(ld,10)
+    real(dp), intent(inout) :: fnode(lenf)
+    integer :: jb, l, jj, k
+    real(dp) :: dx, dy, dz, q0, qxx, qxy, qxz, qyy, qyz, qzz, dx2, dx3, dy2, dy3, dz2, dz3, r2, dr1
+    real(dp) :: dr12, g0, g1, g2, g3, g2dx, g2dy, g2dz
+    real(dp) :: d31, d32, d33, d34, d35, d36, d37, d38, d39, d310, d21, d22, d23, d24, d25, d26, d11, d12, d13
+    real(dp) :: f(8,lenf)
+    f = 0.d0
+    do jb = 1, nmp, 8
+!$omp simd private(jj,dx,dy,dz,q0,qxx,qxy,qxz,qyy,qyz,qzz,dx2,dx3,dy2,dy3,dz2,dz3,r2,dr1,dr12,g0,g1,g2,g3,g2dx,g2dy,g2dz, &
+!$omp d31,d32,d33,d34,d35,d36,d37,d38,d39,d310,d21,d22,d23,d24,d25,d26,d11,d12,d13)
+       do l = 1, 8
+          jj = jb + l - 1
+          dx = m(jj,1)
+          dy = m(jj,2)
+          dz = m(jj,3)
+          q0 = m(jj,4)
+          qxx = m(jj,5)
+          qxy = m(jj,6)
+          qxz = m(jj,7)
+          qyy = m(jj,8)
+          qyz = m(jj,9)
+          qzz = m(jj,10)
+          r2 = dx*dx + dy*dy + dz*dz
+          dr1 = 1.d0/sqrt(r2)
+          dr12 = dr1*dr1
+          dx2 = dx*dx
+          dx3 = dx*dx2
+          dy2 = dy*dy
+          dy3 = dy*dy2
+          dz2 = dz*dz
+          dz3 = dz*dz2
+          g0 = -dr1
+          g1 = dr12*g0
+          g2 = -3.d0*dr12*g1
+          g3 = -5.d0*dr12*g2
+          g2dx = g2*dx
+          g2dy = g2*dy
+          g2dz = g2*dz
+          d31 = 3.d0*g2dx + g3*dx3
+          d32 = g2dy + g3*dx2*dy
+          d33 = g2dz + g3*dx2*dz
+          d34 = g2dx + g3*dy2*dx
+          d35 = g3*dx*dy*dz
+          d36 = g2dx + g3*dz2*dx
+          d37 = 3.d0*g2dy + g3*dy3
+          d38 = g2dz + g3*dy2*dz
+          d39 = g2dy + g3*dz2*dy
+          d310 = 3.d0*g2dz + g3*dz3
+          d21 = g1 + g2*dx2
+          d22 = g2dx*dy
+          d23 = g2dx*dz
+          d24 = g1 + g2*dy2
+          d25 = g2dy*dz
+          d26 = g1 + g2*dz2
+          d11 = g1*dx
+          d12 = g1*dy
+          d13 = g1*dz
+          f(l,1) = f(l,1) + (d11*q0 + 0.5d0*(d31*qxx + 2.d0*(d32*qxy + d33*qxz + d35*qyz) + d34*qyy + d36*qzz))
+          f(l,2) = f(l,2) + (d12*q0 + 0.5d0*(d32*qxx + 2.d0*(d34*qxy + d35*qxz + d38*qyz) + d37*qyy + d39*qzz))
+          f(l,3) = f(l,3) + (d13*q0 + 0.5d0*(d33*qxx + 2.d0*(d35*qxy + d36*qxz + d39*qyz) + d38*qyy + d310*qzz))
+          f(l,4) = f(l,4) + d21*q0
+          f(l,5) = f(l,5) + d22*q0
+          f(l,6) = f(l,6) + d23*q0
+          f(l,7) = f(l,7) + d24*q0
+          f(l,8) = f(l,8) + d25*q0
+          f(l,9) = f(l,9) + d26*q0
+          f(l,10) = f(l,10) + d31*q0
+          f(l,11) = f(l,11) + d32*q0
+          f(l,12) = f(l,12) + d33*q0
+          f(l,13) = f(l,13) + d34*q0
+          f(l,14) = f(l,14) + d35*q0
+          f(l,15) = f(l,15) + d36*q0
+          f(l,16) = f(l,16) + d37*q0
+          f(l,17) = f(l,17) + d38*q0
+          f(l,18) = f(l,18) + d39*q0
+          f(l,19) = f(l,19) + d310*q0
+          f(l,20) = f(l,20) + g0*q0 - 0.5d0*(d21*qxx + d24*qyy + d26*qzz + 2*(d22*qxy + d23*qxz + d25*qyz))
+       end do
+    end do
+    do k = 1, lenf
+       fnode(k) = (((f(1,k) + f(2,k)) + (f(3,k) + f(4,k))) + ((f(5,k) + f(6,k)) + (f(7,k) + f(8,k))))
+    end do
+  end subroutine m2l_loop
+
+!     more room in the lists of thread it
+  subroutine grow_m(it, need)
+    integer, intent(in) :: it, need
+    integer :: nc
+    real(dp), allocatable :: t(:,:)
+    nc = max(need, 2*wb(it)%capm)
+    allocate (t(nc+8,10))
+    t(1:wb(it)%capm,:) = wb(it)%mb(1:wb(it)%capm,:)
+    call move_alloc(t, wb(it)%mb)
+    wb(it)%capm = nc
+  end subroutine grow_m
+
+  subroutine grow_n(it, need)
+    integer, intent(in) :: it, need
+    integer :: nc
+    real(dp), allocatable :: t(:,:)
+    nc = max(need, 2*wb(it)%capn)
+    allocate (t(nc+8,4))
+    t(1:wb(it)%capn,:) = wb(it)%nb(1:wb(it)%capn,:)
+    call move_alloc(t, wb(it)%nb)
+    wb(it)%capn = nc
+  end subroutine grow_n
+
+!     the list c, and the list of the pairs inside a softening, which is never longer than c
+  subroutine grow_c(it, need)
+    integer, intent(in) :: it, need
+    integer :: nc
+    real(dp), allocatable :: t(:,:)
+    integer, allocatable :: ti(:)
+    nc = max(need, 2*wb(it)%capc)
+    allocate (t(nc+8,8))
+    t(1:wb(it)%capc,:) = wb(it)%cb(1:wb(it)%capc,:)
+    call move_alloc(t, wb(it)%cb)
+    allocate (ti(nc+8))
+    ti(1:wb(it)%capc) = wb(it)%ci(1:wb(it)%capc)
+    call move_alloc(ti, wb(it)%ci)
+    deallocate (wb(it)%sb)
+    allocate (wb(it)%sb(nc+8,6))
+    wb(it)%capc = nc
+  end subroutine grow_c
+
+!     The force and the potential at (dx,dy,dz) from the centre of the leaf from the Taylor series of the force
+!     (adapted from Phantom, src/main/kdtree.F90, routine expand_fgrav_in_taylor_series; GPLv3).  The potential is the integral
+!     of the series: Phantom's expression for it has a coefficient 1/2 where the cubic term has 1/6.
+  pure subroutine expand_taylor(f, dx, dy, dz, fxi, fyi, fzi, poti)
+    real(dp), intent(in) :: f(lenf), dx, dy, dz
+    real(dp), intent(out) :: fxi, fyi, fzi, poti
+    real(dp) :: fx0, fy0, fz0, dfxx, dfxy, dfxz, dfyy, dfyz, dfzz
+    real(dp) :: d2fxxx, d2fxxy, d2fxxz, d2fxyy, d2fxyz, d2fxzz, d2fyyy, d2fyyz, d2fyzz, d2fzzz
+    real(dp) :: ux, uy, uz, t3
+    fx0 = f(1)
+    fy0 = f(2)
+    fz0 = f(3)
+    dfxx = f(4)
+    dfxy = f(5)
+    dfxz = f(6)
+    dfyy = f(7)
+    dfyz = f(8)
+    dfzz = f(9)
+    d2fxxx = f(10)
+    d2fxxy = f(11)
+    d2fxxz = f(12)
+    d2fxyy = f(13)
+    d2fxyz = f(14)
+    d2fxzz = f(15)
+    d2fyyy = f(16)
+    d2fyyz = f(17)
+    d2fyzz = f(18)
+    d2fzzz = f(19)
+    ! u_i = (dx . H_i)(dx) / 2, the second order term of component i
+    ux = 0.5d0*(dx*(dx*d2fxxx + dy*d2fxxy + dz*d2fxxz) + dy*(dx*d2fxxy + dy*d2fxyy + dz*d2fxyz) &
+         + dz*(dx*d2fxxz + dy*d2fxyz + dz*d2fxzz))
+    uy = 0.5d0*(dx*(dx*d2fxxy + dy*d2fxyy + dz*d2fxyz) + dy*(dx*d2fxyy + dy*d2fyyy + dz*d2fyyz) &
+         + dz*(dx*d2fxyz + dy*d2fyyz + dz*d2fyzz))
+    uz = 0.5d0*(dx*(dx*d2fxxz + dy*d2fxyz + dz*d2fxzz) + dy*(dx*d2fxyz + dy*d2fyyz + dz*d2fyzz) &
+         + dz*(dx*d2fxzz + dy*d2fyzz + dz*d2fzzz))
+    fxi = fx0 + dx*dfxx + dy*dfxy + dz*dfxz + ux
+    fyi = fy0 + dx*dfxy + dy*dfyy + dz*dfyz + uy
+    fzi = fz0 + dx*dfxz + dy*dfyz + dz*dfzz + uz
+    ! phi = phi0 - f0.d - (1/2) d.J.d - (1/6) H d d d
+    t3 = dx*ux + dy*uy + dz*uz
+    poti = f(20) - (fx0*dx + fy0*dy + fz0*dz) &
+         - 0.5d0*(dx*(dx*dfxx + dy*dfxy + dz*dfxz) + dy*(dx*dfxy + dy*dfyy + dz*dfyz) + dz*(dx*dfxz + dy*dfyz + dz*dfzz)) &
+         - t3/3.d0
+  end subroutine expand_taylor
+
+end module gravtree
+
+!***********************************************************************
+!     The call from the fixed-form code: the gravity of the particles ngrav_lower..ngrav_upper of this rank in gx, gy, gz, grpot,
+!     as lasthalf_grav_forces gives them for the gpu.  Used when ngravtree=1.
+!***********************************************************************
+subroutine tree_grav_forces(ntot_in, gxo, gyo, gzo, grpoto)
+  use gravtree
+  include 'starsmasher.h'
+  integer ntot_in
+  real*8 gxo(ntot_in), gyo(ntot_in), gzo(ntot_in), grpoto(ntot_in)
+  logical blk
+  blk = (nblock.eq.1)
+  if (blk) blk = (count(actblk(1:ntot_in)).lt.ntot_in)
+  call gt_forces(ntot_in, x, y, z, am, hp, u, actblk, blk, ngrav_lower, ngrav_upper, nkernel, treeacc, nleafgrav, &
+       gxo, gyo, gzo, grpoto)
+  return
+end subroutine tree_grav_forces
+
+!***********************************************************************
+!     The gravity of the particles ngrav_lower..ngrav_upper of this rank, to be called where the gpu's is collected
+!     (lasthalf_grav_forces): from the tree when ngravtree=1, from the library of the gpu otherwise.
+!***********************************************************************
+subroutine grav_collect(ntot_in, gxo, gyo, gzo, grpoto)
+  include 'starsmasher.h'
+  integer ntot_in
+  real*8 gxo(ntot_in), gyo(ntot_in), gzo(ntot_in), grpoto(ntot_in)
+  if (ngravtree.ne.0) then
+     call tree_grav_forces(ntot_in, gxo, gyo, gzo, grpoto)
+  else
+     call lasthalf_grav_forces(ntot_in, gxo, gyo, gzo, grpoto)
+  end if
+  return
+end subroutine grav_collect
