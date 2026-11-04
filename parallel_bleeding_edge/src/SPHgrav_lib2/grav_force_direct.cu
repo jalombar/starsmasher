@@ -1009,14 +1009,16 @@ struct SPHgrav_direct
   size_t ctempcap;
   int scap, slocap, tcap, gcap, icap, kcap, pcap, ocap, dcap;
   
+  // the events that time one call; created by the first call and kept
   cudaEvent_t start, stop;
+  bool events_made;
 
   int nibeg, ni;
   int ndevice;
   std::vector<bool> can_use_device;
   SPHgrav_direct(const int rank = 0) : hilo(false), part(NULL), partcap(0), nreal(0),
     sptcl(NULL), splo(NULL), keys_a(NULL), keys_b(NULL), perm_a(NULL), perm_b(NULL), isort(NULL), omap(NULL), dnum(NULL), tbox(NULL), gbox(NULL),
-    ctemp(NULL), ctempcap(0), scap(0), slocap(0), tcap(0), gcap(0), icap(0), kcap(0), pcap(0), ocap(0), dcap(0)
+    ctemp(NULL), ctempcap(0), scap(0), slocap(0), tcap(0), gcap(0), icap(0), kcap(0), pcap(0), ocap(0), dcap(0), events_made(false)
   {
     assert(cudaGetDeviceCount(&ndevice) == 0);
     if (rank == 0)
@@ -1105,6 +1107,7 @@ struct SPHgrav_direct
                                          std::max(fabsf(bbmin[2]), fabsf(bbmax[2])));
     dev_compute_forces_s<NTHREAD, NI, HI, NK><<<grid, dim3(NTHREAD, 1, 1)>>>(nj, ni, sptcl, HI ? splo : (const devParticleLo*)NULL,
         isort, tbox, gbox, 1, pad, out, jchunk);
+    CUDA_SAFE_CALL(cudaGetLastError());
   }
 
   template<int NI, bool HI>
@@ -1151,6 +1154,7 @@ struct SPHgrav_direct
     else if (nkernel == 1) launch_s_one<NI, HI, 1>(ni, nsplit, jchunk, part, grid);
     else                   launch_s_one<NI, HI, 2>(ni, nsplit, jchunk, part, grid);
     dev_sum_forces<<<(ni - 1) / 256 + 1, 256>>>(ni, nsplit, part, force, omap);
+    CUDA_SAFE_CALL(cudaGetLastError());
   }
   template<typename T>
   void ensure(T **p, int &cap, const int need)
@@ -1218,6 +1222,7 @@ struct SPHgrav_direct
     dev_tile_boxes<32><<<n / 32, 32>>>(nreal, sptcl, gbox);
     cub::DeviceSelect::If(ctemp, bytes, counting, isort, dnum, nreal, InOriginalRange{perm_b, nibeg, nibeg + ni});
     dev_make_omap<<<(ni - 1) / 256 + 1, 256>>>(ni, nibeg, isort, perm_b, omap);
+    CUDA_SAFE_CALL(cudaGetLastError());
   }
 
   void launch_sorted(const int ni, const int nkernel)
@@ -1266,14 +1271,24 @@ struct SPHgrav_direct
       dev_compute_forces<NTHREAD, true ><<<grid, block>>>(nj, nibeg, ni, ptcl, plo, out, nkernel, ilist_dev, jchunk);
     else
       dev_compute_forces<NTHREAD, false><<<grid, block>>>(nj, nibeg, ni, ptcl, (const devParticleLo*)NULL, out, nkernel, ilist_dev, jchunk);
+    CUDA_SAFE_CALL(cudaGetLastError());
     if (nsplit > 1)
       dev_sum_forces<<<(ni - 1) / 256 + 1, 256>>>(ni, nsplit, part, force);
+    CUDA_SAFE_CALL(cudaGetLastError());
+  }
+
+  void make_events()
+  {
+    if (events_made)
+      return;
+    CUDA_SAFE_CALL(cudaEventCreate(&start));
+    CUDA_SAFE_CALL(cudaEventCreate(&stop));
+    events_made = true;
   }
 
   void first_half(const int nibeg, const int ni, const int nkernel)
   {
-    cudaEventCreate( &start );
-    cudaEventCreate( &stop  );
+    make_events();
     cudaEventRecord( start, 0 );
 
     this->nibeg = nibeg;
@@ -1291,8 +1306,7 @@ struct SPHgrav_direct
   // forces on the ni particles listed (0-based) in ilist.host_pointer only
   void first_half_list(const int nibeg, const int nrange, const int ni, const int nkernel)
   {
-    cudaEventCreate( &start );
-    cudaEventCreate( &stop  );
+    make_events();
     cudaEventRecord( start, 0 );
 
     this->nibeg   = nibeg;
@@ -1313,7 +1327,7 @@ struct SPHgrav_direct
   {
     if (ni > 0) force.d2h();
     cudaEventRecord( stop, 0 );
-    cudaDeviceSynchronize();
+    CUDA_SAFE_CALL(cudaDeviceSynchronize());
     float elapsed_time_ms;
     cudaEventElapsedTime( &elapsed_time_ms, start, stop );
 
