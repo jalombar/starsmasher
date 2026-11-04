@@ -1292,7 +1292,7 @@ contains
     return
   end subroutine kdtree2_n_nearest_around_point
 
-  subroutine kdtree2_r_nearest(tp,qv,r2,nfound,nalloc,results) 
+  subroutine kdtree2_r_nearest(tp,qv,r2,nfound,nalloc,results,overflow) 
     ! find the nearest neighbors to point 'idxin', within squared
     ! euclidean distance 'r2'.   upon entry, nalloc must be the
     ! size of memory allocated for results(1:nalloc).  upon
@@ -1309,6 +1309,9 @@ contains
     integer, intent(out)         :: nfound
     integer, intent (in)         :: nalloc
     type(kdtree2_result), target :: results(:)
+    ! if present, the search reports in overflow that results(:) was too small (nfound is then the number of points
+    ! found) instead of printing a warning, so that the caller can search again
+    logical, intent(out), optional :: overflow
 
     !
     sr%qv => qv
@@ -1344,7 +1347,9 @@ contains
        call kdtree2_sort_results(nfound, results)
     endif
 
-    if (sr%overflow) then
+    if (present(overflow)) then
+       overflow = sr%overflow
+    else if (sr%overflow) then
        write (*,*) 'kd_tree_trans: warning! return from kdtree2_r_nearest found more neighbors'
        write (*,*) 'kd_tree_trans: than storage was provided for.  answer is not smallest ball'
        write (*,*) 'kd_tree_trans: with that number of neighbors!  i.e. it is wrong.'

@@ -26,4 +26,5 @@
 ! the final timestep dt is the minimum of dt_sph and dt_co for all particles i
  ppn=16, ! set this to the number of cpu cores per node
  profilefile='m_8_t_5.7.last1.muse_s2mm'
+ hgroup=32, ! groups of 32 particles share one neighbour search in the smoothing-length solve (faster); 0: one search for each particle
  &end

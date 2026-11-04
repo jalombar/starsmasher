@@ -34,4 +34,5 @@
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like forge
  ppn=4, ! set this to the number of cpu cores per node
  profilefile='start1'
+ hgroup=32, ! groups of 32 particles share one neighbour search in the smoothing-length solve (faster); 0: one search for each particle
  &end

@@ -10,4 +10,5 @@
  nselfgravity=0,! 0=no self-gravity in gas, 1=self-gravity
  nintvar=2,     ! 1=a=p/rho^gam=entropic variable, 2=u=p/((gam-1)*rho)=specific energy
  cn6=0.08,
+ hgroup=32, ! groups of 32 particles share one neighbour search in the smoothing-length solve (faster); 0: one search for each particle
  &end 
