@@ -42,7 +42,7 @@ endif
 # LDFLAGS   +=  -fopenmp
 LDGPUGLAGS := $(LDFLAGS) $(CUDA_LIBS)
 
-OBJS = grav_force_direct.cu_o
+OBJS = grav_force_direct.cu_o grav_tree_gpu.cu_o
 GRAVLIB = libSPHgrav.a
 
 all: $(GRAVLIB)
