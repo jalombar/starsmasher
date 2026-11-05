@@ -429,7 +429,7 @@ Parallelism and GPUs
    * - ``ngpuperrank``
      - ``1``
      - every run
-     - direct gravity on the gpus: how many gpus each gravity process uses.  1: one each.  N>1: the process with local number r uses gpus r\*N .. r\*N+N-1, which each take a share of the particles; the result has the same bits for any N.  0: all the gpus of the node divided among the gravity processes.  Works with ngravoverlap=1; the tree gravity on the cpus does not use gpus
+     - direct gravity on the gpus: how many gpus each gravity process uses.  1: one each.  N>1: the process with local number r uses gpus r\*N .. r\*N+N-1, which each take a share of the particles; the result has the same bits for any N.  0: all the gpus of the node divided among the gravity processes.  Works with ngravoverlap=1 and with ngravtree=2 (the leaves of the tree are divided among the gpus); the tree on the cpus (ngravtree=1) does not use gpus
    * - ``ngravhilo``
      - ``1``
      - every run
@@ -437,19 +437,19 @@ Parallelism and GPUs
    * - ``ngravoverlap``
      - ``0``
      - every run
-     - 1 lets the gpus work while the cpus solve the smoothing lengths, for the direct sum on the gpus (ngravtree=0): the tiles of the far field that are far whatever the smoothing lengths turn out to be start first, the others when they are solved.  Not used with block steps (nblock=1) or with ngravtree=1.  The result differs from 0 in the last bits of the sums of the force
+     - 1 lets the gpus work while the cpus do something else.  ngravtree=0: the tiles of the far field that are far whatever the smoothing lengths turn out to be start on the gpus first, the others when they are solved; the result differs from 0 in the last bits of the sums of the force.  ngravtree=2: the visit of the tree is queued as soon as the tree is made and collected after the pair loop; the same bits as 0.  Not used with block steps (nblock=1) for ngravtree=0, or with ngravtree=1
    * - ``ngravtree``
      - ``0``
      - every run
-     - gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), which uses the threads of every rank and no gpu.  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads, but it does not conserve momentum and angular momentum to machine precision
+     - gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), using the threads of every rank and no gpu.  2: the same tree walked on the gpus (CUDA build, nleafgrav<=32).  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads or gpus, but it does not conserve momentum and angular momentum to machine precision
    * - ``treeacc``
      - ``0.45d0``
      - every run
-     - opening angle theta of the tree (ngravtree=1): a node is used as a whole if theta^2 r^2 > (size\_A + size\_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
+     - opening angle theta of the tree (ngravtree=1 or 2): a node is used as a whole if theta^2 r^2 > (size\_A + size\_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
    * - ``nleafgrav``
      - ``24``
      - every run
-     - most particles in a leaf of the gravity tree (ngravtree=1); the particles of a leaf share one Taylor series of the far field
+     - most particles in a leaf of the gravity tree (ngravtree=1 or 2; at most 32 for 2, a leaf being one warp of the gpu); the particles of a leaf share one Taylor series of the far field
    * - ``qthreads``
      - ``0``
      - every run
