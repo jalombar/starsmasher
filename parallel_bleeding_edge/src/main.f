@@ -277,7 +277,7 @@ c     hydro), while myrank=2,3,4,5,6,7 do hydro (and no gravity):
       end if
       
       if(myrank.lt.ngravprocs .and. .not. alreadyinitialized .and. computeexclusivemode.ne.1 .and. nusegpus.eq.1
-     $     .and. ngravtree.eq.0) then
+     $     .and. ngravtree.ne.1) then
 !          gpus must always be initialized, even if we use just 1 mpi process
 !                                                                 
 !     the following line assumes 8 cpu threads per node

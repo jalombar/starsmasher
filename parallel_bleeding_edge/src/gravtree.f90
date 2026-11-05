@@ -31,14 +31,23 @@
 !     order, and a leaf is done by one thread, in an order of the nodes and of the
 !     sums that is fixed by the tree.  With theta=0 no node is well separated
 !     and the result is the direct sum.
+!
+!     ngravtree=2 (gt_gpu = .true.): the tree, its moments and the list of the
+!     leaves are made here, on the cpus, as above, but the visit is done by the
+!     gpus (SPHgrav_lib2/grav_tree_gpu.cu, which has the same physics: the same
+!     criterion, the same Taylor series, the same pair formula).  gpu_visit puts
+!     the particles and the nodes in the host buffers of the library (the nodes
+!     are numbered again without the holes between the subtrees), lists the
+!     leaves that have a particle to do, and calls the library.
 !***********************************************************************
 module gravtree
 !$ use omp_lib
+  use iso_c_binding
   use treebuild
   use gravpair
   implicit none
   private
-  public :: gt_forces
+  public :: gt_forces, gt_gpu, gt_start, gt_finish, gt_pend
   integer, parameter :: dp = kind(1.d0)
   integer, parameter :: lenf = 20
   ! node data: 1:3 centre of mass, 4 size, 5 hmax, 6 mass, 7:12 second moments (xx,xy,xz,yy,yz,zz)
@@ -46,6 +55,14 @@ module gravtree
   integer, parameter :: stackmax = 1024
   ! leaves handed to a thread at a time
   integer, parameter :: leafchunk = 4
+  ! ngravtree=2: the visit of the tree on the gpus (set by the caller before gt_forces)
+  logical, save :: gt_gpu = .false.
+  ! ngravoverlap=1 with ngravtree=2: gt_start has made the tree and queued the visit on the gpus, and gt_finish has not
+  ! collected it yet
+  logical, save :: gt_pend = .false.
+  integer, save :: ps_n = 0, ps_ilow = 0, ps_ihigh = 0, ps_nwork = 0, ps_nnode = 0
+  integer(c_signed_char), pointer, contiguous, save :: ps_needf(:) => null()
+  real(c_double), pointer, contiguous, save :: ps_out(:,:) => null()
 
   type(tbwork), save :: gtw
   integer :: nsave = 0
@@ -66,40 +83,49 @@ module gravtree
   end type walkbuf
   type(walkbuf), allocatable, save :: wb(:)
 
+  ! the library of the gpus (SPHgrav_lib2/grav_tree_gpu.cu; stubs in cpu_grav.f)
+  interface
+     subroutine gpu_tree_reserve(n, nnode, pa, pb, pneed, pnf, pni, pwork, pout) bind(C, name='gpu_tree_reserve_')
+       import :: c_int, c_ptr
+       integer(c_int), intent(in) :: n, nnode
+       type(c_ptr), intent(out) :: pa, pb, pneed, pnf, pni, pwork, pout
+     end subroutine gpu_tree_reserve
+     subroutine gpu_tree_launch(n, nnode, nwork, nkernel, theta2) bind(C, name='gpu_tree_launch_')
+       import :: c_int, c_double
+       integer(c_int), intent(in) :: n, nnode, nwork, nkernel
+       real(c_double), intent(in) :: theta2
+     end subroutine gpu_tree_launch
+     subroutine gpu_tree_wait(ierr) bind(C, name='gpu_tree_wait_')
+       import :: c_int
+       integer(c_int), intent(out) :: ierr
+     end subroutine gpu_tree_wait
+  end interface
+  ! work arrays of gpu_visit: the first particle of the leaf that starts at a place (the number of the node plus 1), the
+  ! subtrees' offsets
+  ! in the numbering without holes, the leaves of each block of places
+  integer, allocatable, save :: lmark(:), soff(:), bcnt(:), boff(:)
+
 contains
 
-!     Gravity on the particles ilow..ihigh (and, with block steps, only the active ones: the others get zero).
-  subroutine gt_forces(n, x, y, z, am, hp, u, act, blk, ilow, ihigh, nk, theta, nleaf, gx, gy, gz, gpot)
-    integer, intent(in) :: n, ilow, ihigh, nk, nleaf
-    real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n), theta
-    logical, intent(in) :: act(n), blk
-    real(dp), intent(inout) :: gx(n), gy(n), gz(n), gpot(n)
-    integer :: i, j, id, nlf
-    real(dp) :: theta2
+!     The tree of the n particles, its moments, and the particles in tree order (xt.. ft).
+  subroutine make_tree(n, x, y, z, am, hp, u, nleaf)
+    integer, intent(in) :: n, nleaf
+    real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n)
+    integer :: i, j
     call reserve(n, nleaf)
-    theta2 = theta*theta
-!$omp parallel default(shared) private(i)
-!$omp do simd schedule(static)
+!$omp parallel do simd schedule(static) private(i)
     do i = 1, n
        gxyz(1,i) = x(i)
        gxyz(2,i) = y(i)
        gxyz(3,i) = z(i)
     end do
-!$omp do simd schedule(static)
-    do i = ilow, ihigh
-       gx(i) = 0.d0
-       gy(i) = 0.d0
-       gz(i) = 0.d0
-       gpot(i) = 0.d0
-    end do
-!$omp end parallel
     call tb_build(gtw, n, gxyz, gind, gpos, nleaf, 2)
     ! the builder may have needed more node numbers than the estimate of reserve
     if (size(nd,2) < gtw%nidmax) then
        deallocate (nd)
        allocate (nd(nfd,gtw%nidmax))
     end if
-!$omp parallel do simd schedule(static)
+!$omp parallel do simd schedule(static) private(i, j)
     do i = 1, n
        j = gind(i)
        xt(i) = gpos(1,i)
@@ -115,6 +141,30 @@ contains
        end if
     end do
     call moments()
+  end subroutine make_tree
+
+!     Gravity on the particles ilow..ihigh (and, with block steps, only the active ones: the others get zero).
+  subroutine gt_forces(n, x, y, z, am, hp, u, act, blk, ilow, ihigh, nk, theta, nleaf, gx, gy, gz, gpot)
+    integer, intent(in) :: n, ilow, ihigh, nk, nleaf
+    real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n), theta
+    logical, intent(in) :: act(n), blk
+    real(dp), intent(inout) :: gx(n), gy(n), gz(n), gpot(n)
+    integer :: i, id, nlf
+    real(dp) :: theta2
+    theta2 = theta*theta
+!$omp parallel do simd schedule(static) private(i)
+    do i = ilow, ihigh
+       gx(i) = 0.d0
+       gy(i) = 0.d0
+       gz(i) = 0.d0
+       gpot(i) = 0.d0
+    end do
+    call make_tree(n, x, y, z, am, hp, u, nleaf)
+    if (gt_gpu) then
+       ! the visit on the gpus
+       call gpu_visit(n, ilow, ihigh, act, blk, nk, theta2, gx, gy, gz, gpot)
+       return
+    end if
     call leaflist(nlf)
 !$omp parallel default(shared) private(i,id)
     call walk_setup()
@@ -126,6 +176,27 @@ contains
 !$omp end do
 !$omp end parallel
   end subroutine gt_forces
+
+!     ngravtree=2 with ngravoverlap=1: the tree is made and the visit is queued on the gpus (gt_start), the cpus do something
+!     else, and
+!     the results are collected later (gt_finish).  The same calculation as gt_forces with gt_gpu = .true., in two halves: the
+!     bits are
+!     the same.  Between the two the positions, the masses, the smoothing lengths and u must not change.
+  subroutine gt_start(n, x, y, z, am, hp, u, act, blk, ilow, ihigh, nk, theta, nleaf)
+    integer, intent(in) :: n, ilow, ihigh, nk, nleaf
+    real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n), theta
+    logical, intent(in) :: act(n), blk
+    call make_tree(n, x, y, z, am, hp, u, nleaf)
+    call gpu_visit_start(n, ilow, ihigh, act, blk, nk, theta*theta)
+  end subroutine gt_start
+
+!     the second half: wait for the visit queued by gt_start and put the forces of the particles ilow..ihigh of gt_start in gx,
+!     gy, gz, gpot
+  subroutine gt_finish(n, gx, gy, gz, gpot)
+    integer, intent(in) :: n
+    real(dp), intent(inout) :: gx(n), gy(n), gz(n), gpot(n)
+    call gpu_visit_finish(gx, gy, gz, gpot)
+  end subroutine gt_finish
 
 !     arrays for n particles, and the buffers of the threads
   subroutine reserve(n, nleaf)
@@ -313,6 +384,272 @@ contains
 !$omp end do
 !$omp end parallel
   end subroutine leaflist
+
+!     ngravtree=2.  The visit of the tree on the gpus, for the particles ilow..ihigh (and, with block steps, the active ones).
+!
+!     What the library needs (see grav_tree_gpu.cu), in host buffers that it gives: the particles in the order of the tree as
+!     pairs of
+!     floats (hi, lo) of their position relative to the centre of mass of the system, their mass and 2h (negative for a point
+!     particle); a flag for the ones whose force is wanted; the nodes, without the holes between the subtrees (the numbers of the
+!     nodes of the subtrees have bases of their own, two for each particle): the top nodes first, then the nodes of the subtrees in
+!     the order of the subtrees, the root being node 0; and the leaves to do, in the order of their first particle.  The result
+!     comes
+!     back for the particles in the order of the tree.
+  subroutine gpu_visit(n, ilow, ihigh, act, blk, nk, theta2, gx, gy, gz, gpot)
+    integer, intent(in) :: n, ilow, ihigh, nk
+    real(dp), intent(in) :: theta2
+    logical, intent(in) :: act(n), blk
+    real(dp), intent(inout) :: gx(n), gy(n), gz(n), gpot(n)
+    call gpu_visit_start(n, ilow, ihigh, act, blk, nk, theta2)
+    call gpu_visit_finish(gx, gy, gz, gpot)
+  end subroutine gpu_visit
+
+!     The first half: the buffers of the library are filled and the visit is queued on the gpus (the call returns before it is
+!     done).
+  subroutine gpu_visit_start(n, ilow, ihigh, act, blk, nk, theta2)
+    integer, intent(in) :: n, ilow, ihigh, nk
+    real(dp), intent(in) :: theta2
+    logical, intent(in) :: act(n), blk
+    integer :: ntop, nsub, nnode, nwork, nblk, i, j, k, b, c, p, id, ig, hi, base, newb
+    real(dp) :: xr, yr, zr, d
+    type(c_ptr) :: cpa, cpb, cpneed, cpnf, cpni, cpwork, cpout
+    real(c_float), pointer, contiguous :: pa(:,:), pb(:,:), nf(:,:)
+    integer(c_signed_char), pointer, contiguous :: needf(:)
+    integer(c_int), pointer, contiguous :: ni(:,:), work(:)
+    real(c_double), pointer, contiguous :: out(:,:)
+    real(c_float) :: fh
+
+    if (gt_pend) call gpu_visit_discard()
+    ntop = gtw%ntop
+    nsub = gtw%nsub
+    if (.not. allocated(soff)) then
+       allocate (soff(nsub+64))
+    else if (size(soff) < nsub + 1) then
+       deallocate (soff)
+       allocate (soff(nsub+64))
+    end if
+    ! the nodes of subtree j (they follow its root, which is one of the top nodes) are the numbers soff(j) .. soff(j+1)-1 (from 0)
+    soff(1) = ntop
+    do j = 1, nsub
+       soff(j+1) = soff(j) + gtw%sub_used(j)
+    end do
+    nnode = soff(nsub+1)
+
+    call gpu_tree_reserve(int(n, c_int), int(nnode, c_int), cpa, cpb, cpneed, cpnf, cpni, cpwork, cpout)
+    call c_f_pointer(cpa, pa, [4, n])
+    call c_f_pointer(cpb, pb, [4, n])
+    call c_f_pointer(cpneed, needf, [n])
+    call c_f_pointer(cpnf, nf, [16, nnode])
+    call c_f_pointer(cpni, ni, [4, nnode])
+    call c_f_pointer(cpwork, work, [n])
+    call c_f_pointer(cpout, out, [4, n])
+    if (.not. allocated(lmark)) then
+       allocate (lmark(n))
+    else if (size(lmark) < n) then
+       deallocate (lmark)
+       allocate (lmark(n))
+    end if
+    xr = nd(1,1)
+    yr = nd(2,1)
+    zr = nd(3,1)
+
+!$omp parallel default(shared) private(i, j, k, ig, fh, d, id, base, newb)
+    ! the particles: position (hi, lo), mass, 2h, and whether the force is wanted
+!$omp do schedule(static)
+    do i = 1, n
+       lmark(i) = 0
+       d = xt(i) - xr
+       fh = real(d, c_float)
+       pa(1,i) = fh
+       pb(1,i) = real(d - real(fh, dp), c_float)
+       d = yt(i) - yr
+       fh = real(d, c_float)
+       pa(2,i) = fh
+       pb(2,i) = real(d - real(fh, dp), c_float)
+       d = zt(i) - zr
+       fh = real(d, c_float)
+       pa(3,i) = fh
+       pb(3,i) = real(d - real(fh, dp), c_float)
+       pa(4,i) = real(mt(i), c_float)
+       if (ft(i) /= 0.d0) then
+          pb(4,i) = real(ht(i), c_float)
+       else
+          pb(4,i) = -real(ht(i), c_float)
+       end if
+       ig = gind(i)
+       needf(i) = 0
+       if (ig >= ilow .and. ig <= ihigh) then
+          if (.not. blk) then
+             needf(i) = 1
+          else if (act(ig)) then
+             needf(i) = 1
+          end if
+       end if
+    end do
+!$omp end do
+
+    ! the top nodes whose children are top nodes too (or that are leaves)
+!$omp do schedule(static)
+    do id = 1, ntop
+       if (gtw%lc(id) == 0) then
+          call put_node(id, id - 1, -1, -1, xr, yr, zr, nf, ni)
+       else if (gtw%lc(id) <= ntop) then
+          call put_node(id, id - 1, gtw%lc(id) - 1, gtw%rc(id) - 1, xr, yr, zr, nf, ni)
+       end if
+    end do
+!$omp end do
+
+    ! the subtrees: the root if it was divided, and the nodes that follow it
+!$omp do schedule(dynamic,1)
+    do j = 1, nsub
+       base = gtw%sub_base(j)
+       newb = soff(j) - base - 1
+       id = gtw%sub_id(j)
+       if (gtw%lc(id) /= 0) call put_node(id, id - 1, gtw%lc(id) + newb, gtw%rc(id) + newb, xr, yr, zr, nf, ni)
+       do k = base + 1, base + gtw%sub_used(j)
+          if (gtw%lc(k) == 0) then
+             call put_node(k, k + newb, -1, -1, xr, yr, zr, nf, ni)
+          else
+             call put_node(k, k + newb, gtw%lc(k) + newb, gtw%rc(k) + newb, xr, yr, zr, nf, ni)
+          end if
+       end do
+    end do
+!$omp end do
+!$omp end parallel
+
+    ! the leaves to do, in the order of their first particle: blocks of 4096 places, counted, then written
+    nblk = (n + 4095)/4096
+    if (.not. allocated(bcnt)) then
+       allocate (bcnt(nblk+64), boff(nblk+64))
+    else if (size(bcnt) < nblk + 1) then
+       deallocate (bcnt, boff)
+       allocate (bcnt(nblk+64), boff(nblk+64))
+    end if
+!$omp parallel do schedule(static) private(b, c, p, hi)
+    do b = 1, nblk
+       c = 0
+       do p = (b - 1)*4096 + 1, min(n, b*4096)
+          if (lmark(p) > 0) then
+             hi = ni(4, lmark(p)) + 1
+             if (any(needf(p:hi) /= 0)) then
+                c = c + 1
+             else
+                lmark(p) = -lmark(p)
+             end if
+          end if
+       end do
+       bcnt(b) = c
+    end do
+    nwork = 0
+    do b = 1, nblk
+       boff(b) = nwork
+       nwork = nwork + bcnt(b)
+    end do
+!$omp parallel do schedule(static) private(b, c, p)
+    do b = 1, nblk
+       c = boff(b)
+       do p = (b - 1)*4096 + 1, min(n, b*4096)
+          if (lmark(p) > 0) then
+             c = c + 1
+             work(c) = lmark(p) - 1
+          end if
+       end do
+    end do
+
+    ! the visit, queued
+    if (nwork > 0) &
+         call gpu_tree_launch(int(n, c_int), int(nnode, c_int), int(nwork, c_int), int(nk, c_int), real(theta2, c_double))
+    ps_n = n
+    ps_ilow = ilow
+    ps_ihigh = ihigh
+    ps_nwork = nwork
+    ps_nnode = nnode
+    ps_needf => needf
+    ps_out => out
+    gt_pend = .true.
+  end subroutine gpu_visit_start
+
+!     The second half: wait for the gpus and put the results in gx, gy, gz, gpot (those of ilow..ihigh are zero but for the
+!     particles
+!     that were done).
+  subroutine gpu_visit_finish(gx, gy, gz, gpot)
+    real(dp), intent(inout) :: gx(*), gy(*), gz(*), gpot(*)
+    integer :: i, ig, ierr
+    if (.not. gt_pend) stop 'gravtree: gpu_visit_finish without a visit'
+    if (ps_nwork > 0) then
+       call gpu_tree_wait(ierr)
+       if (ierr == 1) then
+          write (6, '(a)') 'gravtree: the stack of the tree visit on the gpu had no room (see TREE_STK in grav_tree_gpu.cu)'
+          stop 'gravtree: no room in the lists of the visit on the gpu'
+       else if (ierr /= 0) then
+          write (6, '(a)') 'gravtree: the pool of the chunks of the leaves with a long list had no room on the gpu'
+          stop 'gravtree: no room in the pool of the visit on the gpu'
+       end if
+    end if
+    gt_pend = .false.
+
+    ! the results back to the order of the particles
+!$omp parallel do schedule(static) private(i)
+    do i = ps_ilow, ps_ihigh
+       gx(i) = 0.d0
+       gy(i) = 0.d0
+       gz(i) = 0.d0
+       gpot(i) = 0.d0
+    end do
+!$omp parallel do schedule(static) private(i, ig)
+    do i = 1, ps_n
+       if (ps_needf(i) /= 0) then
+          ig = gind(i)
+          gx(ig) = ps_out(1,i)
+          gy(ig) = ps_out(2,i)
+          gz(ig) = ps_out(3,i)
+          gpot(ig) = ps_out(4,i)
+       end if
+    end do
+  end subroutine gpu_visit_finish
+
+!     A visit that was queued is not wanted (a new one starts): wait for it.
+  subroutine gpu_visit_discard()
+    integer :: ierr
+    if (ps_nwork > 0) call gpu_tree_wait(ierr)
+    gt_pend = .false.
+  end subroutine gpu_visit_discard
+
+!     the record of node old (its number from 0 in the numbering without holes: nw; its children, from 0, or -1 for a leaf), in
+!     the buffers of the library: 16 reals (centre of mass relative to (xr,yr,zr) as hi and lo, size, hmax, mass, second moments), 4
+!     integers (children, first and last particle from 0)
+  subroutine put_node(old, nw, lcn, rcn, xr, yr, zr, nf, ni)
+    integer, intent(in) :: old, nw, lcn, rcn
+    real(dp), intent(in) :: xr, yr, zr
+    real(c_float), intent(inout) :: nf(16,*)
+    integer(c_int), intent(inout) :: ni(4,*)
+    real(dp) :: ex, ey, ez
+    real(c_float) :: hx, hy, hz
+    integer :: q
+    ex = nd(1,old) - xr
+    ey = nd(2,old) - yr
+    ez = nd(3,old) - zr
+    hx = real(ex, c_float)
+    hy = real(ey, c_float)
+    hz = real(ez, c_float)
+    nf(1,nw+1) = hx
+    nf(2,nw+1) = hy
+    nf(3,nw+1) = hz
+    nf(4,nw+1) = real(nd(4,old), c_float)
+    nf(5,nw+1) = real(ex - real(hx, dp), c_float)
+    nf(6,nw+1) = real(ey - real(hy, dp), c_float)
+    nf(7,nw+1) = real(ez - real(hz, dp), c_float)
+    nf(8,nw+1) = real(nd(5,old), c_float)
+    do q = 6, 12
+       nf(q+3,nw+1) = real(nd(q,old), c_float)
+    end do
+    nf(16,nw+1) = 0.0
+    ni(1,nw+1) = lcn
+    ni(2,nw+1) = rcn
+    ni(3,nw+1) = gtw%nl(old) - 1
+    ni(4,nw+1) = gtw%nu(old) - 1
+    if (lcn < 0) lmark(gtw%nl(old)) = nw + 1
+  end subroutine put_node
 
 !     The force on the particles of leaf lf that are in ilow..ihigh (and active).
 !
@@ -858,7 +1195,7 @@ end module gravtree
 
 !***********************************************************************
 !     The call from the fixed-form code: the gravity of the particles ngrav_lower..ngrav_upper of this rank in gx, gy, gz, grpot,
-!     as lasthalf_grav_forces gives them for the gpu.  Used when ngravtree=1.
+!     as lasthalf_grav_forces gives them for the gpu.  Used when ngravtree=1 (the visit on the cpus) and 2 (the visit on the gpus).
 !***********************************************************************
 subroutine tree_grav_forces(ntot_in, gxo, gyo, gzo, grpoto)
   use gravtree
@@ -866,16 +1203,39 @@ subroutine tree_grav_forces(ntot_in, gxo, gyo, gzo, grpoto)
   integer ntot_in
   real*8 gxo(ntot_in), gyo(ntot_in), gzo(ntot_in), grpoto(ntot_in)
   logical blk
+  if (gt_pend) then
+     ! the visit was queued by tree_gpu_start
+     call gt_finish(ntot_in, gxo, gyo, gzo, grpoto)
+     return
+  end if
   blk = (nblock.eq.1)
   if (blk) blk = (count(actblk(1:ntot_in)).lt.ntot_in)
+  gt_gpu = (ngravtree.eq.2)
   call gt_forces(ntot_in, x, y, z, am, hp, u, actblk, blk, ngrav_lower, ngrav_upper, nkernel, treeacc, nleafgrav, &
        gxo, gyo, gzo, grpoto)
   return
 end subroutine tree_grav_forces
 
 !***********************************************************************
+!     ngravtree=2 with ngravoverlap=1, to be called where the direct sum on the gpus is started (gravforce): the tree is made
+!     and the
+!     visit queued on the gpus; grav_collect finishes it.
+!***********************************************************************
+subroutine tree_gpu_start
+  use gravtree
+  include 'starsmasher.h'
+  logical blk
+  if (ngravtree.ne.2 .or. ngravoverlap.eq.0) return
+  if (myrank.ge.ngravprocs) return
+  blk = (nblock.eq.1)
+  if (blk) blk = (count(actblk(1:ntot)).lt.ntot)
+  call gt_start(ntot, x, y, z, am, hp, u, actblk, blk, ngrav_lower, ngrav_upper, nkernel, treeacc, nleafgrav)
+  return
+end subroutine tree_gpu_start
+
+!***********************************************************************
 !     The gravity of the particles ngrav_lower..ngrav_upper of this rank, to be called where the gpu's is collected
-!     (lasthalf_grav_forces): from the tree when ngravtree=1, from the library of the gpu otherwise.
+!     (lasthalf_grav_forces): from the tree when ngravtree=1 or 2, from the library of the gpu otherwise.
 !***********************************************************************
 subroutine grav_collect(ntot_in, gxo, gyo, gzo, grpoto)
   include 'starsmasher.h'

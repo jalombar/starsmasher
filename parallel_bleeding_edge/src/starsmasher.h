@@ -58,9 +58,10 @@
 !     ngpuperrank (input): the gpus each gravity process uses (see init.f)
       integer ngpuperrank
       common/gpuperrankcom/ngpuperrank
-!     ngravtree=1: gravity with a tree on the cpus (gravtree.f90) instead of the direct sum.  treeacc is the opening angle
-!     theta, nleafgrav the most particles in a leaf.  ngravoverlap=1 starts the far field of the direct sum on the gpus before the
-!     smoothing lengths are solved
+!     ngravtree=1: gravity with a tree on the cpus (gravtree.f90) instead of the direct sum; ngravtree=2: the same tree with
+!     the visit of it on the gpus (SPHgrav_lib2/grav_tree_gpu.cu).  treeacc is the opening angle theta, nleafgrav the most
+!     particles in a leaf.  ngravoverlap=1 starts the work of the gpus before the smoothing lengths are solved (the far
+!     field of the direct sum, or the visit of the tree)
       integer ngravtree,nleafgrav,ngravoverlap
       real*8 treeacc
       common/gravtreepars/treeacc,ngravtree,nleafgrav,ngravoverlap
