@@ -230,7 +230,7 @@ GROUPS = [
                       'nblock','nbinmax','dtmaxblk','nblimit','nblockfull',
                       'dtforce','nstartramp']),
  ('Parallelism and GPUs',
-                     ['ngravprocs','ngpuperrank','ngravhilo','ngravoverlap','ngravtree','treeacc','nleafgrav','qthreads','ppn',
+                     ['ngravprocs','ngpuperrank','ngravhilo','ngravoverlap','ngravtree','ngravtreeauto','treeacc','nleafgrav','qthreads','ppn',
                       'computeexclusivemode','gflag']),
  ('Units',           ['runit','munit','gravconst']),
  ('Periodic box',    ['boxx','boxy','boxz']),
@@ -292,9 +292,12 @@ def main():
         w('')
     w('')
 
+    # settings read only by init.f, which applies_to leaves out, and that matter to every run
+    always = {'ngravtreeauto'}
+
     def scope(name):
         codes, evo = applies = usage.get(name.lower(), ([], False))
-        if evo:
+        if evo or name.lower() in always:
             return 'every run'
         if not codes:
             return '*nothing, see below*'

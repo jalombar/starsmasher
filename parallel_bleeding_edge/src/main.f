@@ -194,6 +194,8 @@ c     called by init,lfstart,setup1em,setup1es,setup2cm,setup2cs
       real*8 theta_angle
       real*8 numinteractions,totnuminteractions ! declare as real*8 so don't run into max integer problems
 
+c     ngravtree=-1: the first call knows the number of particles, so this is where the choice is made (init.f)
+      if(ngravtree.eq.-1) call gravtree_auto
       if(myrank.eq.0)write(69,*)'called gravquant'
       if(nprocs.gt.nprocsmax)then
          write(69,*)'increase nprocsmax in starsmasher.h'

@@ -3,6 +3,7 @@
  dtout=1, ! how often an out*.sph files should be dumped
  n=100000, ! desired number of particles.  if n<0 then |n|=number of particles *per solar mass*.  used only if making a new star.
  starmass=0.2, ! The desired mass of your preMS star!
+ ngravtree=0, ! gravity: 0 direct sum, 1 tree on the CPUs, 2 tree on the GPUs, -1 chosen from the number of particles (see ngravtreeauto)
  starradius=0.2, ! The desired radius of your preMS star!
  nrelax=1, ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star, 2=relaxation of binary in corotating frame with centrifugal force, 3=calculation in corotating frame with centrifugal and coriolis forces
  trelax=0, ! 0 asks for the drag schedule to be derived from the model, which also sets treloff
