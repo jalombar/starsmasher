@@ -3,6 +3,7 @@
  dtout=  1.,    ! how often an out*.sph files should be dumped
  n= 10000,     ! desired number of particles
  alpha=  1.,    ! av coefficient for term linear in mu
+ ngravtree=0, ! gravity: 0 direct sum, 1 tree on the CPUs, 2 tree on the GPUs, -1 chosen from the number of particles (see ngravtreeauto)
  beta=  1.,     ! av coefficient for mu^2 term
  nrelax= 0,     ! relaxation flag.  0=dynamical calculation, 1=relaxation of single star
  neos = 0,      ! 0=polytropic equation of state (eos), 1=ideal gas + radiation pressure, 2=tabulated eos (to be implemented)

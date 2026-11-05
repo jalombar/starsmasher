@@ -3,6 +3,7 @@
  dtout=1, ! how often an out*.sph files should be dumped
  n=100000, ! desired number of particles.  if n<0 then |n|=number of particles *per solar mass*.  used only if making a new star.
  nnopt=23, ! controls neighbor number.  leave it at 22 to get almost 40 neighbors.
+ ngravtree=0, ! gravity: 0 direct sum, 1 tree on the CPUs, 2 tree on the GPUs, -1 chosen from the number of particles (see ngravtreeauto)
  nav=3, ! artificial viscosity (av) flag.  leave it at 3 to get a hybrid balsara-monaghan av.
  alpha=1, ! av coefficient for term linear in mu
  beta=2, ! av coefficient for mu^2 term
