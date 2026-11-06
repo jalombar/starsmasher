@@ -1074,8 +1074,9 @@ contains
     integer, intent (in)           :: idxin, correltime, nn
     type(kdtree2_result), target   :: results(:)
 
-    allocate (sr%qv(tp%dimen))
-    sr%qv = tp%the_data(:,idxin) ! copy the vector
+    ! the query is a column of the tree's data: point at it instead of
+    ! allocating and copying a vector for every search
+    sr%qv => tp%the_data(:,idxin)
     sr%ballsize = huge(1.0)       ! the largest real(kdkind) number
     sr%centeridx = idxin
     sr%correltime = correltime
@@ -1105,7 +1106,6 @@ contains
     if (tp%sort) then
        call kdtree2_sort_results(nn, results)
     endif
-    deallocate (sr%qv)
     return
   end subroutine kdtree2_n_nearest_around_point
 
@@ -1187,8 +1187,9 @@ contains
     ! .. intrinsic functions ..
     intrinsic huge
     ! ..
-    allocate (sr%qv(tp%dimen))
-    sr%qv = tp%the_data(:,idxin) ! copy the vector
+    ! the query is a column of the tree's data: point at it instead of
+    ! allocating and copying a vector for every search
+    sr%qv => tp%the_data(:,idxin)
     sr%ballsize = r2
     sr%nn = 0    ! flag for fixed r search
     sr%nfound = 0
@@ -1233,7 +1234,6 @@ contains
        write (*,*) 'kd_tree_trans: with that number of neighbors!  i.e. it is wrong.'
     endif
 
-    deallocate (sr%qv)
     return
   end subroutine kdtree2_r_nearest_around_point
 
@@ -1295,8 +1295,9 @@ contains
     ! .. intrinsic functions ..
     intrinsic huge
     ! ..
-    allocate (sr%qv(tp%dimen))
-    sr%qv = tp%the_data(:,idxin)
+    ! the query is a column of the tree's data: point at it instead of
+    ! allocating and copying a vector for every search
+    sr%qv => tp%the_data(:,idxin)
     sr%ballsize = r2
 
     sr%nn = 0       ! flag for fixed r search
