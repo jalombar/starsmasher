@@ -57,6 +57,15 @@ c     Wendland C4 kernel
             stop
          endif
       enddo
+c     guard entry for the linear interpolation at u^2=4, where it would read
+c     one past the last sample: repeating the last value keeps the table flat
+      dgdhtab(ntab+1)=dgdhtab(ntab)
+      dgtab(ntab+1)=dgtab(ntab)
+      gtab(ntab+1)=gtab(ntab)
+      wtab(ntab+1)=wtab(ntab)
+      dwtab(ntab+1)=dwtab(ntab)
+      dwdhtab(ntab+1)=dwdhtab(ntab)
+      dphidhtab(ntab+1)=dphidhtab(ntab)
 
       return
       end

@@ -128,12 +128,14 @@ LIMITS_FILE = starsmasher_limits.generated.h
 ifneq ($(APPLE_SILICON),)
   DEFAULT_NMAX = 105000
   DEFAULT_NNMAX = 96
-  DEFAULT_NTAB = 200000
 else
   DEFAULT_NMAX = 900000
   DEFAULT_NNMAX = 170
-  DEFAULT_NTAB = 10000000
 endif
+# The kernel tables are read with linear interpolation, which at this size is
+# more accurate than 10^7 entries read without it, and small enough to stay in
+# the cache.
+DEFAULT_NTAB = 200001
 
 NMAX ?= $(DEFAULT_NMAX)
 NNMAX ?= $(DEFAULT_NNMAX)

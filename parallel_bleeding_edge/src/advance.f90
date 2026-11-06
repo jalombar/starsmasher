@@ -403,6 +403,9 @@
       logical usebrute
       integer nsolve,nloop,iprev,iw
       real*8 hsmall
+!     table position in units of the table spacing, and its fraction
+      integer itab
+      real*8 xq,fq
 !     periodic box: the tree also holds the images within pad of a face,
 !     image k being a copy of particle imgmap(k)
       integer ntree,nimg
@@ -776,7 +779,10 @@
                dist2=(x(i)-x(jn))**2+(y(i)-y(jn))**2+(z(i)-z(jn))**2
                if(periodic) dist2=pbcdist2(i,jn)
                if(u(jn).ne.0.d0 .and. dist2.lt.4.d0*hp(i)**2) then
-                  chico=chico-dgdhtab(int(ctab*dist2/hp(i)**2)+1)
+                  xq=ctab*dist2/hp(i)**2
+                  itab=int(xq)+1
+                  fq=xq-dble(itab-1)
+                  chico=chico-(dgdhtab(itab)+fq*(dgdhtab(itab+1)-dgdhtab(itab)))
                endif
             enddo
             chico=chico/hp(i)
@@ -932,7 +938,7 @@
       real*8 r2,h3,h2,hpi, h4
       real*8 bonet1_wn, bonet1_0mega
       integer itab,j,in,i
-      real*8 ctaboverh2
+      real*8 ctaboverh2,xq,fq
       real*8 dx, dy, dz
       real*8 fac
       integer offset, nni
@@ -966,9 +972,13 @@
         dz = z(i) - z(j)
         if(periodic) call pbcwrap(dx,dy,dz)
         r2 = dx*dx + dy*dy + dz*dz;
-        itab=int(min(ctaboverh2*r2,4.d0*ctab)) + 1
-        bonet1_wn     = bonet1_wn    + fac*gtab(itab)
-        bonet1_0mega  = bonet1_0mega - fac*dgdhtab(itab)
+        xq=min(ctaboverh2*r2,4.d0*ctab)
+        itab=int(xq) + 1
+        fq=xq-dble(itab-1)
+        bonet1_wn     = bonet1_wn    + fac*(gtab(itab)&
+             +fq*(gtab(itab+1)-gtab(itab)))
+        bonet1_0mega  = bonet1_0mega - fac*(dgdhtab(itab)&
+             +fq*(dgdhtab(itab+1)-dgdhtab(itab)))
       enddo
       bonet1_0mega = bonet1_0mega/hpi
 
@@ -985,9 +995,9 @@
       real*8 bonet1_rho, bonet1_omega, bonet1_0mega
       real*8 bonet1_psi, bonet1_wn
       integer itab,j,in,i
-      real*8 ctaboverh2
+      real*8 ctaboverh2,xq,fq
       real*8 bonetdphidh
-      real*8 hpitilde,h2tilde,ctaboverh2tilde
+      real*8 hpitilde,h2tilde,ctaboverh2tilde,xqtilde,fqtilde
       integer itabtilde
       real*8 pbcdist2
 
@@ -1013,7 +1023,9 @@
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
             if(periodic) r2=pbcdist2(i,j)
-            itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
+            xq=min(ctaboverh2*r2,4.d0*ctab)
+            itab=int(xq)+1
+            fq=xq-dble(itab-1)
 
             ! the u(j).eq.0 is necessary in the next line because we always do gravity
             ! with point particles.  A point particle i likewise always does gravity
@@ -1023,17 +1035,24 @@
             if(r2.lt.4.d0*h2) then
             if((nselfgravity.eq.1 .or. u(j).eq.0.d0 .or. u(i).eq.0.d0)&
                  .and. .not.(u(i).eq.0.d0 .and. j.eq.i))&
-                 bonet1_psi   = bonet1_psi   + am(j)*dphidhtab(itab)
+                 bonet1_psi   = bonet1_psi   + am(j)*(dphidhtab(itab)&
+                 +fq*(dphidhtab(itab+1)-dphidhtab(itab)))
             endif
             if(u(j).ne.0.d0) then
                if(r2.lt.4d0*h2tilde) then
-                  itabtilde=int(ctaboverh2tilde*r2)+1
-                  bonet1_wn    = bonet1_wn    + gtab(itabtilde)
-                  bonet1_0mega = bonet1_0mega - dgdhtab(itabtilde)
+                  xqtilde=ctaboverh2tilde*r2
+                  itabtilde=int(xqtilde)+1
+                  fqtilde=xqtilde-dble(itabtilde-1)
+                  bonet1_wn    = bonet1_wn    + (gtab(itabtilde)&
+                       +fqtilde*(gtab(itabtilde+1)-gtab(itabtilde)))
+                  bonet1_0mega = bonet1_0mega - (dgdhtab(itabtilde)&
+                       +fqtilde*(dgdhtab(itabtilde+1)-dgdhtab(itabtilde)))
                endif
                if(r2.lt.4.d0*h2) then
-               bonet1_rho   = bonet1_rho   + am(j)*wtab(itab)
-               bonet1_omega = bonet1_omega + am(j)*dwdhtab(itab)
+               bonet1_rho   = bonet1_rho   + am(j)*(wtab(itab)&
+                    +fq*(wtab(itab+1)-wtab(itab)))
+               bonet1_omega = bonet1_omega + am(j)*(dwdhtab(itab)&
+                    +fq*(dwdhtab(itab+1)-dwdhtab(itab)))
                endif
             endif
          enddo
@@ -1047,9 +1066,12 @@
             j=list(first(i)+in)
             r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
             if(periodic) r2=pbcdist2(i,j)
-            itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
+            xq=min(ctaboverh2*r2,4.d0*ctab)
+            itab=int(xq)+1
+            fq=xq-dble(itab-1)
             if(u(j).ne.0.d0) then
-               bonet1_rho   = bonet1_rho   + am(j)*wtab(itab)
+               bonet1_rho   = bonet1_rho   + am(j)*(wtab(itab)&
+                    +fq*(wtab(itab+1)-wtab(itab)))
             endif
          enddo
          bonet1_rho   = bonet1_rho/hpi**3
@@ -1084,7 +1106,7 @@
       include 'starsmasher.h'                                         
       real*8 r2,h3,h2,hpi
       integer itab,j,in,i,iw,nloop
-      real*8 invh2
+      real*8 invh2,xq,fq,wij
       real*8 pbcdist2
 
 !     block steps (blkdist): computed for this rank's share, which holds the
@@ -1120,13 +1142,16 @@
             if(u(j).ne.0.d0)then
                r2=(x(i)-x(j))**2.d0+(y(i)-y(j))**2.d0+(z(i)-z(j))**2.d0
                if(periodic) r2=pbcdist2(i,j)
-               itab=int(ctab*min(r2*invh2,4.d0))+1
+               xq=ctab*min(r2*invh2,4.d0)
+               itab=int(xq)+1
+               fq=xq-dble(itab-1)
+               wij=wtab(itab)+fq*(wtab(itab+1)-wtab(itab))
                vxdotsm(i)=vxdotsm(i)+am(j)*&
-                    wtab(itab)*vxdot(j)
+                    wij*vxdot(j)
                vydotsm(i)=vydotsm(i)+am(j)*&
-                    wtab(itab)*vydot(j)
+                    wij*vydot(j)
                vzdotsm(i)=vzdotsm(i)+am(j)*&
-                    wtab(itab)*vzdot(j)
+                    wij*vzdot(j)
             endif
          enddo
 !     (a point mass has rho=0, and only gas particles use vdotsm)
