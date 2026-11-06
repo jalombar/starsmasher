@@ -9,6 +9,10 @@ import argparse, math, os, random, re, shutil, struct, subprocess, sys, tempfile
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC  = os.path.join(ROOT, 'parallel_bleeding_edge', 'src')
 
+# The default build is the hybrid MPI x OpenMP one.  The runs of the suite are small and mostly use several ranks, so unless the caller
+# sets OMP_NUM_THREADS every rank has one thread (a run of one rank would otherwise take every logical CPU of the machine).
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+
 class Fail(Exception):
     pass
 

@@ -180,6 +180,7 @@ If StarSmasher compiles properly, in your terminal will appear this phrase:
 ```
 ***MADE VERSION THAT USES GPUS***
 ```
+The default build is hybrid MPI x OpenMP, which needs a compiler with OpenMP (gfortran has it); ``make OPENMP=0`` builds the plain MPI code. The number of threads of each MPI process is ``OMP_NUM_THREADS``; the section on the hybrid build in the documentation (installation page) says how the threads are chosen when it is not set.
 When you complete the compilation, it will be create an executable file ending with "\_gpu\_sph." This executable is automatically moved to the directory *above* src. To run StarSmasher, you will have to move to that folder. Then just open your terminal where the .exe file is present or, after the compilation, type
 ```
 cd ..
