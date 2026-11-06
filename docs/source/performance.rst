@@ -61,6 +61,12 @@ Time per step, ``master`` against the final code
 
 The final code is between 1.6 and 328.1 times faster than ``master`` on the cases that ``master`` was measured on (the ratio is the time of ``master`` divided by the time of the fastest configuration of the final code that was measured for that hardware). Times are milliseconds per step. The very large ratios without a GPU are the tree on the CPUs against the direct sum on the CPUs that ``master`` has; with the same direct sum the gains come from the kernel tables, the neighbour search, the GPU kernel and the threads.
 
+.. figure:: _static/performance/fig1_master_vs_final.png
+   :width: 100%
+   :alt: Time per step of master and of the fastest configuration of the final code
+
+   Time per step of ``master`` and of the fastest configuration of the final code for each model and hardware (log scale), with the ratio.
+
 **relaxed Sun (99954 particles)**
 
 .. list-table::
@@ -227,6 +233,12 @@ Collisions
 
 Total time of the run in seconds (wall time, ``nblock = 0``, t = 0 to 30). Where it says *estimate* the time is not a measurement: it is the number of steps of a complete run times the time per step of the 100-step restarts from the dumps t = 0, 5, ... 30 of that run (nearest in t); the ``master`` time for the two Suns on the CPUs is likewise an estimate. There is no ``master`` measurement for the two stars of 500k.
 
+.. figure:: _static/performance/fig3_collision.png
+   :width: 100%
+   :alt: Total time of the collision of two Suns, master against the final code
+
+   Total time of the collision of two Suns (t = 0 to 30, ``nblock = 0``), ``master`` against the final code.
+
 .. list-table::
    :header-rows: 1
    :widths: 28 14 10 12 7 40
@@ -278,6 +290,12 @@ OpenMP and MPI only
 --------------------
 
 The final code was also run MPI only (``make OPENMP=0``, ranks x threads = 63x1, 32x1, 16x1, 8x1; the best layout of each case is the one shown) to separate what comes from the algorithms and the kernels from what comes from the threads. Wall time per step in ms; ``master`` is its best MPI layout from the earlier measurements; the hybrid column is the fastest configuration of the tables above. The direct sum on the CPUs does not start with 63 ranks (``ngravprocsmax`` is 32), so its layouts are 32x1 and fewer; the hybrid code was not run with the direct sum on the CPUs.
+
+.. figure:: _static/performance/fig2_algorithms_vs_threads.png
+   :width: 100%
+   :alt: master, the final code built MPI only and the hybrid build
+
+   ``master``, the final code built MPI only (``make OPENMP=0``) and the hybrid MPI x OpenMP build: the first factor is the algorithms, the second the threads.
 
 .. list-table::
    :header-rows: 1
@@ -383,6 +401,12 @@ The rules below follow from the tables above and from the measurements behind :d
 The overlap of the GPUs with the CPU work
 -------------------------------------------
 
+.. figure:: _static/performance/fig5_overlap.png
+   :width: 100%
+   :alt: Change of the time per step with ngravoverlap=1 against 0
+
+   Change of the time per step with ``ngravoverlap = 1`` against ``0`` for each configuration and model, and what the default ``-1`` chooses.
+
 Change of the time per step with ``ngravoverlap = 1`` against ``0`` (negative: shorter), median of 3 interleaved repetitions (2 at 2M):
 
 .. list-table::
@@ -445,6 +469,12 @@ The cells that get worse are H8 and B1 for 100k to 500k particles; at 2M they ge
 
 The threshold of ``ngravtree = -1``
 -----------------------------------
+
+.. figure:: _static/performance/fig4_gravity_threshold.png
+   :width: 100%
+   :alt: Direct sum and tree on the GPU against the number of particles
+
+   The direct sum and the tree on the GPU (both with ``ngravoverlap = 1``) and the tree on the CPUs against the number of particles, with the threshold ``ngravtreeauto``.
 
 Time of the direct sum (H1) and of the tree on the GPU (H1T), both with the overlap, as a function of the number of particles N of the whole simulation (a collision counts both stars); the gain is ``1 - t_tree / t_direct``:
 
@@ -600,6 +630,12 @@ Where the time of a step goes
 -----------------------------
 
 Median time per step of the fastest configurations (ms): the smoothing-length solve, the loop over the pairs, the tree of the neighbours, the communication, the gravity on the critical path of the CPUs (tree, moments, copies and the wait for the GPUs; for H0 also the walk of the tree), and the rest. The parts do not add up exactly to the step because some overlap. The parts come from builds with timers in the code, which only an earlier round of measurements had (the final builds have none); the code of those parts gives the same results, and the total step of the runs of this page agrees (n500 B1T 38.6 against 38.4 ms; n500 H1T 37.3 against 37.1 ms; n500 H0 75.5 against 75.8 ms; s500 B1T 43.9 against 44.2 ms; s500 H1T 42.7 against 42.6 ms; s500 H0 85.6 against 86.4 ms; n2000 B1T 166.0 against 164.5 ms; n2000 H1T 164.2 against 162.3 ms; n2000 H0 342.4 against 338.6 ms).
+
+.. figure:: _static/performance/fig6_step_breakdown.png
+   :width: 100%
+   :alt: Share of the step taken by each part, in the fastest configurations
+
+   Share of the step taken by each part in the fastest configurations.
 
 .. list-table::
    :header-rows: 1
