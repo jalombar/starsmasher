@@ -91,7 +91,10 @@ struct Params {
   uint uselist;
 };
 
+// The shader is built with fast math, which may reassociate (vx - hi) - x
+// to zero and drop the correction; math_mode(safe) keeps it, here only.
 inline void ds64_add(thread FloatPair &accum, const float x) {
+#pragma METAL fp math_mode(safe)
   const float vx = accum.hi + x;
   const float vy = accum.lo - ((vx - accum.hi) - x);
   accum.hi = vx;
@@ -117,8 +120,12 @@ inline float3 position(const Particle p) {
 // lets the compiler reorder (pj - pi) + (jlo - ilo); for i == j the reordered
 // sum can come out as -ilo instead of 0, and the point particle then picks up
 // a spurious self-potential of order -3 m/h.
+// math_mode(safe): under fast math the hilo sum (pj - pi) + (jlo - ilo) may be
+// reordered as (pj + jlo) - (pi + ilo), which loses the remainders, and with them
+// the separation of a close pair far from the reference point.
 inline float3 separation(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
                          const bool isself) {
+#pragma METAL fp math_mode(safe)
   if (isself) {
     return float3(0.0f);
   }
