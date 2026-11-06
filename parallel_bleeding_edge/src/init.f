@@ -746,7 +746,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       ngravtreeauto=299000 ! ngravtree=-1 only: with a gpu, the direct sum (0) is used below this number of particles and the tree walked on the gpu (2) from it up; with no gpu, the tree on the cpus (1).  0 is used for ngr=0, no self-gravity or an invalid tree setting.  The choice is written in log0.sph.  Measured on one kind of node (63 cores, Blackwell gpus): other hardware may need another value
       treeacc=0.45d0 ! opening angle theta of the tree (ngravtree=1 or 2): a node is used as a whole if theta^2 r^2 > (size_A + size_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
       nleafgrav=24 ! most particles in a leaf of the gravity tree (ngravtree=1 or 2; at most 32 for 2, a leaf being one warp of the gpu); the particles of a leaf share one Taylor series of the far field
-      ngravoverlap=0 ! 1 lets the gpus work while the cpus do something else.  ngravtree=0: the tiles of the far field that are far whatever the smoothing lengths turn out to be start on the gpus first, the others when they are solved; the result differs from 0 in the last bits of the sums of the force.  ngravtree=2: the visit of the tree is queued as soon as the tree is made and collected after the pair loop; the same bits as 0.  Not used with block steps (nblock=1) for ngravtree=0, or with ngravtree=1
+      ngravoverlap=-1 ! 1 lets the gpus work while the cpus do something else, 0 does not; -1: 1, except for the direct sum on more than one gpu (ngravprocs>1 or ngpuperrank not 1), where it costs a little.  ngravtree=0: the far tiles start on the gpus before the smoothing lengths are solved; the result differs from 0 in the last bits of the force.  ngravtree=2: the visit of the tree is queued when the tree is made and collected after the pair loop; the same bits as 0.  Not used with nblock=1 for ngravtree=0, or with ngravtree=1
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
       ndtoutafter=100 ! once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
@@ -839,7 +839,7 @@ c     own range of particles
       if(ngravtreeauto.lt.0) stop 'init: ngravtreeauto must not be negative'
       if(ngpuperrank.lt.0) stop 'init: ngpuperrank must not be negative'
       if(ngravhilo.ne.0 .and. ngravhilo.ne.1) stop 'init: ngravhilo must be 0 or 1'
-      if(ngravoverlap.lt.0 .or. ngravoverlap.gt.1) stop 'init: ngravoverlap must be 0 or 1'
+      if(ngravoverlap.lt.-1 .or. ngravoverlap.gt.1) stop 'init: ngravoverlap must be -1, 0 or 1'
 c     ngravtree=-1 (automatic): which of 0, 1 and 2 is used is decided in gravtree_auto, called by the first gravquant, when the number of
 c     particles is known; here only whether there is a gpu that can walk the tree is found (ngravgpuok, in the block below)
       ngravgpuok=0
