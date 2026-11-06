@@ -187,7 +187,7 @@ c     called by init,lfstart,setup1em,setup1es,setup2cm,setup2cs
       real*8 mintime
       common/gravworkers/comm_worker
       integer ranks(nprocsmax)
-      integer imax
+      integer imax,itreeok
       logical alreadyinitialized
       data alreadyinitialized /.false./
       save alreadyinitialized
@@ -222,6 +222,21 @@ c     ngravtree=-1: the first call knows the number of particles, so this is whe
       if(ngravprocs.gt.ngravprocsmax)then
          write(69,*)'increase ngravprocsmax in starsmasher.h'
          stop
+      endif
+
+c     ngravoverlap=-1 (automatic): the overlap of the gpus with the smoothing-length solve is on, except for the direct sum on more
+c     than one gpu, where it costs a little, and it is off where there is no CUDA library for it (the cpu build, the Metal build)
+      if(ngravoverlap.lt.0) then
+         call gpu_tree_available(itreeok)
+         ngravoverlap=0
+         if(itreeok.eq.1 .and. nusegpus.eq.1 .and. ngravtree.ne.1) then
+            ngravoverlap=1
+            if(ngravtree.eq.0 .and. (ngravprocs.gt.1 .or. ngpuperrank.ne.1)) ngravoverlap=0
+         endif
+         if(myrank.eq.0) then
+            write(69,'(a,i0)') 'gravity: ngravoverlap=-1 (auto) -> ngravoverlap=',ngravoverlap
+            write(6,'(a,i0)') 'gravity: ngravoverlap=-1 (auto) -> ngravoverlap=',ngravoverlap
+         endif
       endif
      
       if(.true.)then
