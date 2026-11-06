@@ -42,6 +42,11 @@ struct cuVector
   void allocate(int _size)
   {
     assert(_size > 0);
+    // the vectors are allocated again every step, usually with the same
+    // size: keep the buffers then, since a cudaFree waits for the device
+    // and a cudaMalloc takes a while
+    if (size == _size && dev_pointer != NULL)
+      return;
     cufree();
     size = _size;
     void *p;
