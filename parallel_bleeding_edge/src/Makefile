@@ -102,12 +102,38 @@ endif
 
 # ------------------------------------------------------------------ flags ----
 OLEVEL   ?= -O4
-# Hybrid MPI x OpenMP: make OPENMP=1.  The default is the plain MPI build.
+# Hybrid MPI x OpenMP is the default build (OPENMP=1).  With a few MPI processes and many threads each the step is much shorter than
+# with one process per core, for a lattice of 499860 particles on a node with 63 cores and 8 GPUs, with one GPU: 87 ms per step with
+# one process of 63 threads against 107 ms with the best pure MPI layout (32 processes); eight GPUs: 42 ms (8 processes of 7
+# threads) against 92 ms (32 processes); no GPU, tree on the CPUs: 76 ms against 255 ms.  The results are the same bits as OPENMP=0
+# with the same number of processes, for any number of threads.  OMP_NUM_THREADS sets the threads of each process (with 1 the code
+# behaves like the plain MPI build; if it is not set, a run of several processes uses one thread each and a run of one process the
+# OpenMP default, one per logical CPU).  make OPENMP=0 gives the plain MPI build back.  The default needs a compiler with OpenMP
+# (gfortran has it): if mpif90 does not take -fopenmp the default falls back to OPENMP=0 with a warning, and OPENMP=1 given by hand
+# stops with an error.  On macOS the default stays the plain MPI build (Apple's clang has no OpenMP); make OPENMP=1 asks for the
+# hybrid one there.
 # gfortran's -fopenmp implies -frecursive, which would put every local array on
 # the stack, including the (nmax)-sized ones of the setup routines; with
 # -fmax-stack-var-size the arrays above 64 kB are static again, as in the MPI
 # build.  The routines that run inside parallel regions have no such arrays.
-OPENMP   ?= 0
+ifeq ($(UNAME_S),Darwin)
+  OPENMP ?= 0
+else
+  OPENMP ?= 1
+endif
+ifeq ($(OPENMP),1)
+  ifeq ($(MPI_VENDOR),GNU)
+    OMP_PROBE := $(shell echo "PROGRAM T; END PROGRAM T" | $(MPIF90) -fopenmp -x f95 -c -o /dev/null - 2>/dev/null && echo yes)
+    ifneq ($(OMP_PROBE),yes)
+      ifeq ($(origin OPENMP),file)
+$(warning $(MPIF90) does not take -fopenmp: building without OpenMP (the plain MPI code). Install a compiler with OpenMP for the hybrid build)
+        OPENMP := 0
+      else
+$(error OPENMP=1 needs a compiler with OpenMP, and $(MPIF90) does not take -fopenmp. Use make OPENMP=0)
+      endif
+    endif
+  endif
+endif
 ifeq ($(OPENMP),1)
   ifeq ($(MPI_VENDOR),GNU)
     OMPFLAGS = -fopenmp -fmax-stack-var-size=65536
@@ -264,7 +290,7 @@ config:
 	@echo "  runtime libdir  $(CUDA_LIBDIR)"
 	@echo "Compilation"
 	@echo "  FFLAGS          $(FFLAGS)"
-	@echo "  OpenMP          $(if $(filter 1,$(OPENMP)),ON  (OPENMP=1: $(OMPFLAGS)),off (OPENMP=0; make OPENMP=1 for the hybrid MPI x OpenMP build))"
+	@echo "  OpenMP          $(if $(filter 1,$(OPENMP)),ON  (OPENMP=1, the default build; $(OMPFLAGS)),off (OPENMP=0, the plain MPI build; make OPENMP=1 for the hybrid MPI x OpenMP build))"
 	@echo "  code model      $(if $(MCMODEL),$(MCMODEL),default (small))"
 	@echo "  nmax            $(NMAX)"
 	@echo "  nnmax           $(NNMAX)"
