@@ -45,6 +45,7 @@ skipped analytically instead of being integrated.
 
    using/index
    tutorials/index
+   performance
 
 .. toctree::
    :maxdepth: 2
