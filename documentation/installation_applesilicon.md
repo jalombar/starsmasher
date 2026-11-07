@@ -110,7 +110,7 @@ The Apple Silicon build uses smaller default array sizes than the Linux/NVIDIA b
 ```text
 NMAX=105000
 NNMAX=96
-NTAB=200000
+NTAB=200001
 ```
 
 You can override these values at compile time if your Mac has enough memory:

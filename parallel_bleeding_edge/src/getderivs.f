@@ -6,7 +6,7 @@ c calculate curl and divergence of velocity
       double precision hpi,h2,h5,rhoi,r2
       double precision curlvxi,curlvyi,curlvzi,divvi
       integer i,in,itab,j
-      double precision divin,tijin,ctaboverh2
+      double precision divin,tijin,ctaboverh2,xq,fq
       double precision dx,dy,dz
 
       hpi=hp(i)
@@ -32,8 +32,10 @@ c     divisions below would give 0/0.  Its div v and curl v are zero.
             dz=z(i)-z(j)
             if(periodic) call pbcwrap(dx,dy,dz)
             r2=dx**2+dy**2+dz**2
-            itab=int(min(ctaboverh2*r2,4.d0*ctab))+1
-            dwijin=dwtab(itab)
+            xq=min(ctaboverh2*r2,4.d0*ctab)
+            itab=int(xq)+1
+            fq=xq-dble(itab-1)
+            dwijin=dwtab(itab)+fq*(dwtab(itab+1)-dwtab(itab))
             curlxin=dz*(vy(i)-vy(j))
      $           -dy*(vz(i)-vz(j))
             curlyin=dx*(vz(i)-vz(j))

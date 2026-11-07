@@ -49,6 +49,8 @@ c     variables used for radiative cooling portion of the code:
       real*8 grpottot(nmax),uraddoti
       real*8 hpitilde,h2tilde,invh2tilde,htil
       integer itabtilde
+c     table position in units of the table spacing, and its fraction
+      real*8 xq,fq,xqtilde,fqtilde
 c     nav=4: the pair's Riemann problem along r_ij (see riemann.f)
       real*8 rij,vir,vjr,pstar,pstat,vsig,cj
       real*8 rhl,rhr,vl,vr,pl,pr
@@ -175,16 +177,22 @@ c     calculate gradwij's to all neighbors:
             dvz = vzi - vz(j)
             r2 = dx*dx + dy*dy + dz*dz 
 c     a capped point particle's list reaches beyond 2h (to 2*htilde)
-            itab=int(ctab*min(r2*invh2,4.d0))+1
+            xq=ctab*min(r2*invh2,4.d0)
+            itab=int(xq)+1
+            fq=xq-dble(itab-1)
 
             if(r2.lt.4d0*h2tilde) then
-               itabtilde=int(ctab*r2*invh2tilde)+1
-               diwkin = dgtab(itabtilde) * invh2tilde
+               xqtilde=ctab*r2*invh2tilde
+               itabtilde=int(xqtilde)+1
+               fqtilde=xqtilde-dble(itabtilde-1)
+               diwkin = (dgtab(itabtilde)
+     $              +fqtilde*(dgtab(itabtilde+1)-dgtab(itabtilde)))
+     $              * invh2tilde
             else
                diwkin = 0d0
             endif
 
-            dwijin = dwtab(itab) * invh5
+            dwijin = (dwtab(itab)+fq*(dwtab(itab+1)-dwtab(itab))) * invh5
 
             if(u(j).ne.0.d0 .and. u(i).ne.0) then
               divin = dx*dvx + dy*dvy + dz*dvz
@@ -333,7 +341,11 @@ c     its h_i obeys eq. (a1) summed over its sph neighbours j
                if(hcolim) then
 c     grad G at the unlimited solution h_dyn (see rho_and_h)
                   if(r2.lt.4.d0*hdynco(i)**2) then
-                     diwkin=dgtab(int(ctab*r2/hdynco(i)**2)+1)
+                     xqtilde=ctab*r2/hdynco(i)**2
+                     itabtilde=int(xqtilde)+1
+                     fqtilde=xqtilde-dble(itabtilde-1)
+                     diwkin=(dgtab(itabtilde)
+     $                    +fqtilde*(dgtab(itabtilde+1)-dgtab(itabtilde)))
      $                    /hdynco(i)**2
                   else
                      diwkin=0.d0
@@ -425,10 +437,19 @@ c     grad G at htilde, the length that solves eq. (a1)
                   dz=z(i)-z(j)
                   r2=dx*dx+dy*dy+dz*dz
                   if(r2.ge.4.d0*htil**2) cycle
-                  diwkin=dgtab(int(ctab*r2*invh2)+1)*invh2
+                  xqtilde=ctab*r2*invh2
+                  itabtilde=int(xqtilde)+1
+                  fqtilde=xqtilde-dble(itabtilde-1)
+                  diwkin=(dgtab(itabtilde)
+     $                 +fqtilde*(dgtab(itabtilde+1)-dgtab(itabtilde)))
+     $                 *invh2
                   if(hcolim) then
                      if(r2.lt.4.d0*hdynco(i)**2) then
-                        diwkin=dgtab(int(ctab*r2/hdynco(i)**2)+1)
+                        xqtilde=ctab*r2/hdynco(i)**2
+                        itabtilde=int(xqtilde)+1
+                        fqtilde=xqtilde-dble(itabtilde-1)
+                        diwkin=(dgtab(itabtilde)
+     $                       +fqtilde*(dgtab(itabtilde+1)-dgtab(itabtilde)))
      $                       /hdynco(i)**2
                      else
                         diwkin=0.d0
