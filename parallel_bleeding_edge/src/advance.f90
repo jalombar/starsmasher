@@ -809,7 +809,7 @@
 ! hp values (only nodes doing gravity need the hp values):
       mylength=n_upper-n_lower+1
       ! one collective gives every rank the whole array (formerly one gather per rank)
-      if(.not.blkdist) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,hp,&
+      if(.not.blkdist .and. nprocs.gt.1) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,hp,&
            recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
 
       call pressure

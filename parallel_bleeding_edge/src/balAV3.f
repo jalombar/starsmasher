@@ -476,7 +476,7 @@ c     rho of inactive particles are predicted from it)
 c     one collective gives every rank the whole array (formerly one gather per rank)
       if(blkdist) then
          call sync_w(udot)
-      else
+      else if(nprocs.gt.1) then
          call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,udot,
      $        recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
       endif
@@ -486,12 +486,7 @@ c     to get the pressure scale height, we will need the v{x,y,z}dot arrays *wit
 c     gravitational acceleration included.  note: the myv{x,y,z}dot arrays are not
 c     affected by the following mpi calls.  instead, they are just being summed up to give
 c     the v{x,y,z}dot arrays.
-         call mpi_allreduce(myvxdot,vxdot,n,mpi_double_precision,mpi_sum,
-     $        mpi_comm_world,ierr)
-         call mpi_allreduce(myvydot,vydot,n,mpi_double_precision,mpi_sum,
-     $        mpi_comm_world,ierr)
-         call mpi_allreduce(myvzdot,vzdot,n,mpi_double_precision,mpi_sum,
-     $        mpi_comm_world,ierr)
+         call sumvdot(myvxdot,myvydot,myvzdot)
          
          punit=gravconst*(munit/runit**2)**2
          uunit=gravconst*munit/runit
@@ -664,12 +659,7 @@ c     relevant terms in the calculation of the acceleration:
          myvzdot(i)=myvzdot(i)+myvzdotgc(i)
       enddo
 
-      call mpi_allreduce(myvxdot,vxdot,n,mpi_double_precision,mpi_sum,
-     $     mpi_comm_world,ierr)
-      call mpi_allreduce(myvydot,vydot,n,mpi_double_precision,mpi_sum,
-     $     mpi_comm_world,ierr)
-      call mpi_allreduce(myvzdot,vzdot,n,mpi_double_precision,mpi_sum,
-     $     mpi_comm_world,ierr)
+      call sumvdot(myvxdot,myvydot,myvzdot)
 
 cc     if this is a relaxation calculation, add centrifugal and drag forces:
 c      if (nrelax.ne.0 .and. .not. gonedynamic ) then
@@ -682,6 +672,44 @@ c     endif
       endif
 
 c      write(69,*)'balav3: finished' 
+
+      return
+      end
+c***********************************************************************
+      subroutine sumvdot(ax,ay,az)
+c     add the accelerations of all the ranks into vxdot, vydot and vzdot,
+c     with one collective instead of one for each component
+      include 'starsmasher.h'
+      include 'mpif.h'
+      real*8 ax(n),ay(n),az(n)
+      real*8, allocatable, save :: buf(:)
+      integer i,ierr
+
+c     with one rank there is nothing to add: the accelerations are the ones given
+      if(nprocs.eq.1) then
+         do i=1,n
+            vxdot(i)=ax(i)
+            vydot(i)=ay(i)
+            vzdot(i)=az(i)
+         enddo
+         return
+      endif
+      if(allocated(buf)) then
+         if(size(buf).lt.3*n) deallocate(buf)
+      endif
+      if(.not.allocated(buf)) allocate(buf(3*n))
+      do i=1,n
+         buf(i)=ax(i)
+         buf(n+i)=ay(i)
+         buf(2*n+i)=az(i)
+      enddo
+      call mpi_allreduce(mpi_in_place,buf,3*n,mpi_double_precision,
+     $     mpi_sum,mpi_comm_world,ierr)
+      do i=1,n
+         vxdot(i)=buf(i)
+         vydot(i)=buf(n+i)
+         vzdot(i)=buf(2*n+i)
+      enddo
 
       return
       end
