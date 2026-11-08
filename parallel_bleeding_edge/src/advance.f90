@@ -403,6 +403,20 @@
 !     search and with its squared distance (see cache_search)
       integer ncand
       logical usecache
+!     A rank that does not need all the particles for its searches builds its
+!     tree over its own particles and the ones around them only (build_own_tree).
+!     treeown holds them, sub2glob gives the particle index of each tree
+!     point, and rb2(i-n_lower+1) is the largest squared search radius around
+!     own particle i that the tree is complete for.  The tree over all the
+!     particles, tree2, is then built only if a search goes beyond that.
+      logical useown,ownall
+      integer nsub,nfb,nfbsum
+      integer, allocatable :: sub2glob(:)
+      real*8, allocatable :: rb2(:)
+      real(kdkind), dimension(:,:), allocatable :: sub_array
+      type(kdtree2), pointer :: treeown
+!     the first search of a particle reaches this fraction past 2h
+      real*8, parameter :: fpad=0.02d0
       integer mylength,irank,ierr
       real*8 dxfrac
       logical usebrute
@@ -466,10 +480,22 @@
          if(blkdist) nsolve=nwmine
          usebrute=(20*nsolve.lt.(n_upper-n_lower+1))
       endif
-      if(.not.usebrute) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.) ! this is how you create a tree.
+      nullify(tree2)
+      nullify(treeown)
 !     a periodic box and the direct search of block steps keep their own
 !     searches and lists
       usecache=.not.usebrute .and. .not.periodic
+!     each rank solves its own range of particles, which is what the tree
+!     over a part of them relies on
+      useown=usecache .and. nprocs.gt.1 .and. .not.blkdist .and.&
+           (nblock.eq.0 .or. nblockfull.ne.0)
+!     the same on every rank (build_own_tree can turn useown off on one rank)
+      ownall=useown
+      nsub=0
+      nfb=0
+      if(useown) call build_own_tree
+! this is how you create a tree.
+      if(.not.usebrute .and. .not.useown) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.)
       if(usebrute) then
          hsmall=1.d30
          if(blkdist) then
@@ -800,7 +826,16 @@
 !      myhp(i)=hp(i)
 
       enddo
-      if(.not.usebrute) call kdtree2_destroy(tree2)
+!     searches that went beyond the tree over own particles: in the log only
+!     when there were some
+      if(ownall) then
+         call mpi_reduce(nfb,nfbsum,1,mpi_integer,mpi_sum,0,mpi_comm_world,ierr)
+         if(myrank.eq.0 .and. nfbsum.gt.0) write(69,*)'rho_and_h: ',nfbsum,&
+              ' searches went beyond the trees over own particles at t=',t
+      endif
+      if(associated(tree2)) call kdtree2_destroy(tree2)
+      if(associated(treeown)) call kdtree2_destroy(treeown)
+      if(allocated(sub2glob)) deallocate(sub2glob,rb2,sub_array)
       deallocate(results)
       deallocate(my_array)
       if(periodic) deallocate(ximg,imgmap)
@@ -917,14 +952,155 @@
 !     little larger needs no new search, and a smaller one is a filter on the
 !     squared distances found here.  A wider margin only adds candidates:
 !     0.02 was the fastest of 0, 0.01, 0.02, 0.03, 0.05, 0.1 and 0.2.
+!     With the tree over own particles the candidates are put in index order,
+!     so that every sum over them adds the terms in the same order whatever
+!     tree was searched, and so whatever the number of ranks.  Without the
+!     tree over own particles, every search is of tree2, whose order does not
+!     change from run to run, so the candidates are left in tree order.
       subroutine cache_search(i,r2)
-      integer i
+      integer i,k
       real*8 r2
-      real*8, parameter :: fpad=0.02d0
       r2last=r2*(1.d0+fpad)**2
+      if(useown) then
+         if(r2last.le.rb2(i-n_lower+1)) then
+            call kdtree2_r_nearest_around_point(tp=treeown,idxin=i-n_lower+1,&
+                 correltime=-1,r2=r2last,nfound=ncand,nalloc=nsub,&
+                 results=results)
+            do k=1,ncand
+               results(k)%idx=sub2glob(results(k)%idx)
+            enddo
+            call sort_candidates
+            return
+         endif
+!     the search goes beyond what the tree over a part of the particles has
+         nfb=nfb+1
+         if(.not.associated(tree2)) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.)
+      endif
       call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
            r2=r2last,nfound=ncand,nalloc=ntree,results=results)
+      if(useown) call sort_candidates
       end subroutine cache_search
+
+!     insertion sort of the candidates by particle index: they number a few
+!     tens, and come from the tree in an order that is already local
+      subroutine sort_candidates
+      integer k,m
+      type(kdtree2_result) :: cand
+      do k=2,ncand
+         cand=results(k)
+         m=k-1
+         do while(m.ge.1)
+            if(results(m)%idx.le.cand%idx) exit
+            results(m+1)=results(m)
+            m=m-1
+         enddo
+         results(m+1)=cand
+      enddo
+      end subroutine sort_candidates
+
+!     Tree over this rank's own particles, which come first and in index
+!     order, and the particles around them, also in index order.  A search
+!     around own particle i is complete if its radius is at most
+!     sqrt(rb2(i-n_lower+1)), which is 1.5 times the radius of the first
+!     search of the particle: all the particles within that of it lie in the
+!     cells that its sphere touches, and the others in those cells are what
+!     is added.  Cells are half the largest radius across, so that the
+!     added particles are not many more than the ones that are needed, but
+!     no more than ncellmax of them.
+      subroutine build_own_tree
+      integer, parameter :: ncellmax=4000000
+      integer k,j,i,nown,nx,ny,nz,ix,iy,iz,ix0,ix1,iy0,iy1,iz0,iz1
+      real*8 hg,rb,rbmax,xmin,xmax,ymin,ymax,zmin,zmax,c
+      integer(1), allocatable :: cellmark(:)
+      nown=n_upper-n_lower+1
+      allocate(rb2(nown))
+      rbmax=0.d0
+      do k=1,nown
+         i=n_lower+k-1
+         hg=max(hp(i)*(1.d0+divv(i)*dt/3.d0),2.d-6*hp(i))
+         rb=3.d0*(1.d0+fpad)*hg
+         rb2(k)=rb*rb
+         rbmax=max(rbmax,rb)
+      enddo
+      xmin=minval(x(1:n))
+      xmax=maxval(x(1:n))
+      ymin=minval(y(1:n))
+      ymax=maxval(y(1:n))
+      zmin=minval(z(1:n))
+      zmax=maxval(z(1:n))
+      c=0.5d0*rbmax
+      if(.not.(c.gt.0.d0) .or. c.gt.1.d300) then
+         deallocate(rb2)
+         useown=.false.
+         return
+      endif
+      do
+         if(((xmax-xmin)/c+1.d0)*((ymax-ymin)/c+1.d0)*((zmax-zmin)/c+1.d0)&
+              .le.dble(ncellmax)) exit
+         c=1.5d0*c
+      enddo
+      nx=int((xmax-xmin)/c)+1
+      ny=int((ymax-ymin)/c)+1
+      nz=int((zmax-zmin)/c)+1
+      allocate(cellmark(0:nx*ny*nz-1))
+      cellmark=0
+      do k=1,nown
+         if(.not.(rb2(k).ge.0.d0)) cycle
+         i=n_lower+k-1
+         rb=sqrt(rb2(k))
+         ix0=max(int((x(i)-rb-xmin)/c),0)
+         ix1=min(int((x(i)+rb-xmin)/c),nx-1)
+         iy0=max(int((y(i)-rb-ymin)/c),0)
+         iy1=min(int((y(i)+rb-ymin)/c),ny-1)
+         iz0=max(int((z(i)-rb-zmin)/c),0)
+         iz1=min(int((z(i)+rb-zmin)/c),nz-1)
+         do iz=iz0,iz1
+            do iy=iy0,iy1
+               do ix=ix0,ix1
+                  cellmark(ix+nx*(iy+ny*iz))=1
+               enddo
+            enddo
+         enddo
+      enddo
+      nsub=nown
+      do j=1,n
+         if(j.ge.n_lower .and. j.le.n_upper) cycle
+         ix=min(int((x(j)-xmin)/c),nx-1)
+         iy=min(int((y(j)-ymin)/c),ny-1)
+         iz=min(int((z(j)-zmin)/c),nz-1)
+         if(cellmark(ix+nx*(iy+ny*iz)).ne.0) nsub=nsub+1
+      enddo
+!     with most of the particles in it the tree is no saving
+      if(nsub.gt.(9*n)/10 .or. nsub.lt.4) then
+         deallocate(rb2,cellmark)
+         nsub=0
+         useown=.false.
+         return
+      endif
+      allocate(sub2glob(nsub),sub_array(3,nsub))
+      do k=1,nown
+         sub2glob(k)=n_lower+k-1
+      enddo
+      k=nown
+      do j=1,n
+         if(j.ge.n_lower .and. j.le.n_upper) cycle
+         ix=min(int((x(j)-xmin)/c),nx-1)
+         iy=min(int((y(j)-ymin)/c),ny-1)
+         iz=min(int((z(j)-zmin)/c),nz-1)
+         if(cellmark(ix+nx*(iy+ny*iz)).ne.0) then
+            k=k+1
+            sub2glob(k)=j
+         endif
+      enddo
+      do k=1,nsub
+         j=sub2glob(k)
+         sub_array(1,k)=x(j)
+         sub_array(2,k)=y(j)
+         sub_array(3,k)=z(j)
+      enddo
+      deallocate(cellmark)
+      treeown => kdtree2_create(sub_array,sort=.false.,rearrange=.true.)
+      end subroutine build_own_tree
 
       end
 !***********************************************************************
