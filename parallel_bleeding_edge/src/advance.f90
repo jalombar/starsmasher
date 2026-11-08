@@ -952,9 +952,11 @@
 !     little larger needs no new search, and a smaller one is a filter on the
 !     squared distances found here.  A wider margin only adds candidates:
 !     0.02 was the fastest of 0, 0.01, 0.02, 0.03, 0.05, 0.1 and 0.2.
-!     The candidates are put in index order, so that every sum over them
-!     adds the terms in the same order whatever tree was searched, and so
-!     whatever the number of ranks.
+!     With the tree over own particles the candidates are put in index order,
+!     so that every sum over them adds the terms in the same order whatever
+!     tree was searched, and so whatever the number of ranks.  Without the
+!     tree over own particles, every search is of tree2, whose order does not
+!     change from run to run, so the candidates are left in tree order.
       subroutine cache_search(i,r2)
       integer i,k
       real*8 r2
@@ -976,7 +978,7 @@
       endif
       call kdtree2_r_nearest_around_point(tp=tree2,idxin=i,correltime=-1,&
            r2=r2last,nfound=ncand,nalloc=ntree,results=results)
-      call sort_candidates
+      if(useown) call sort_candidates
       end subroutine cache_search
 
 !     insertion sort of the candidates by particle index: they number a few
