@@ -426,8 +426,8 @@
 !     point, and rb2(i-n_lower+1) is the largest squared search radius around
 !     own particle i that the tree is complete for.  The tree over all the
 !     particles, tree2, is then built only if a search goes beyond that.
-      logical useown
-      integer nsub,nfb
+      logical useown,ownall
+      integer nsub,nfb,nfbsum
       integer, allocatable :: sub2glob(:)
       real*8, allocatable :: rb2(:)
       real(kdkind), dimension(:,:), allocatable :: sub_array
@@ -516,6 +516,8 @@
 !     over a part of them relies on
       useown=usecache .and. nprocs.gt.1 .and. .not.blkdist .and.&
            (nblock.eq.0 .or. nblockfull.ne.0)
+!     the same on every rank (build_own_tree can turn useown off on one rank)
+      ownall=useown
       nsub=0
       nfb=0
       if(useown) call build_own_tree
@@ -617,6 +619,13 @@
          first(listfail)=failfirst
          nn(listfail)=failneed
          call check_neighbor_capacity(listfail)
+      endif
+!     searches that went beyond the tree over own particles: in the log only
+!     when there were some
+      if(ownall) then
+         call mpi_reduce(nfb,nfbsum,1,mpi_integer,mpi_sum,0,mpi_comm_world,ierr)
+         if(myrank.eq.0 .and. nfbsum.gt.0) write(69,*)'rho_and_h: ',nfbsum,&
+              ' searches went beyond the trees over own particles at t=',t
       endif
       if(associated(tree2)) call kdtree2_destroy(tree2)
       if(associated(treeown)) call kdtree2_destroy(treeown)
