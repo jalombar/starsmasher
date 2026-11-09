@@ -108,6 +108,44 @@ CXXFLAGS  = $(OLEVEL)
 
 LIBS = -lm
 
+# ------------------------------------------------------------------ HDF5 ----
+# make HDF5=1 builds the writer of out*.h5 snapshots (nhdf5 in sph.input).
+# Without it nothing changes: no new library, no C compiler, and a stand-in
+# (hdf5_stub.f) makes a run that asks for nhdf5>0 stop with a message.
+#
+# The writer is in C (hdf5_dump.c) and uses the C API of HDF5 only, serial, so
+# any HDF5 1.10 or later will do, serial or parallel flavour.  Where HDF5 lives:
+#   make HDF5=1 HDF5ROOT=/path/to/hdf5     (the include and lib directories)
+#   make HDF5=1 HDF5_CFLAGS='-I...' HDF5_LIBS='-L... -lhdf5'
+# or leave both out and pkg-config is asked (hdf5-serial, hdf5, hdf5-openmpi).
+# The C file is compiled with MPICC because the headers of a parallel HDF5
+# include mpi.h.
+HDF5 ?= 0
+ifeq ($(HDF5),1)
+  MPICC ?= mpicc
+  MPICC_PATH := $(shell command -v $(MPICC) 2>/dev/null)
+  ifeq ($(MPICC_PATH),)
+    $(error HDF5=1 needs a C compiler for MPI, but '$(MPICC)' is not in PATH. Set MPICC=/full/path/to/mpicc)
+  endif
+  ifneq ($(HDF5ROOT),)
+    HDF5_CFLAGS ?= -I$(HDF5ROOT)/include
+    HDF5_LIBS   ?= -L$(HDF5ROOT)/lib -Wl,-rpath,$(HDF5ROOT)/lib -lhdf5
+  else
+    HDF5_PC := $(firstword $(foreach p,hdf5-serial hdf5 hdf5-openmpi,$(shell pkg-config --exists $(p) 2>/dev/null && echo $(p))))
+    ifneq ($(HDF5_PC),)
+      HDF5_CFLAGS ?= $(shell pkg-config --cflags $(HDF5_PC))
+      HDF5_LIBS   ?= $(shell pkg-config --libs $(HDF5_PC))
+    else
+      HDF5_LIBS   ?= -lhdf5
+    endif
+  endif
+  HDF5_OBJ = hdf5_dump.o
+  LIBS += $(HDF5_LIBS)
+else
+  HDF5_OBJ = hdf5_stub.o
+endif
+
+
 ifeq ($(GPU_BACKEND),metal)
   GRAVLIB = SPHgrav_lib_metal
   GPU_GRAV_OBJ = gpu_grav_metal.o
@@ -158,7 +196,7 @@ FOBJS = eos_table_data.o riemann_data.o kdtree2.o advance.o balAV3.o            
         compbest3.o changetf.o tstep.o initialize_grsph.o        \
         eatem.o useeostable.o hunt.o usekappatable.o             \
         initialize_asciiimage.o initialize_periodicbox.o \
-        riemann.o
+        riemann.o $(HDF5_OBJ)
 
 CPUOBJS = $(FOBJS) cpu_grav.o
 GPUOBJS = $(FOBJS) $(GPU_GRAV_OBJ)
@@ -188,6 +226,9 @@ $(LIMITS_FILE): Makefile FORCE
 
 initialize_parent.o initialize_polyes.o useeostable.o: eos_table_data.o
 advance.o balAV3.o pressure.o riemann.o: riemann_data.o
+
+hdf5_dump.o: hdf5_dump.c
+	$(MPICC) $(CFLAGS) $(HDF5_CFLAGS) -c $<
 
 # ----------------------------------------------------------------- targets ---
 gpu: check-gpu-backend $(GPUOBJS)
@@ -246,6 +287,13 @@ config:
 	@echo "  nmax            $(NMAX)"
 	@echo "  nnmax           $(NNMAX)"
 	@echo "  ntab            $(NTAB)"
+	@echo "HDF5 snapshots (make HDF5=1)"
+	@echo "  HDF5            $(HDF5)"
+	@if test "$(HDF5)" = 1; then \
+	  echo "  mpicc           $(MPICC_PATH)"; \
+	  echo "  HDF5_CFLAGS     $(HDF5_CFLAGS)"; \
+	  echo "  HDF5_LIBS       $(HDF5_LIBS)"; \
+	fi
 	@echo "Output"
 	@echo "  GPU executable  ../$(GPUEXEC)"
 	@echo "  CPU executable  ../$(CPUEXEC)"
