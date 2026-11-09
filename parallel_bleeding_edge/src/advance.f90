@@ -1237,9 +1237,12 @@
 !     0.02 was the fastest of 0, 0.01, 0.02, 0.03, 0.05, 0.1 and 0.2.
 !     With the tree over own particles the candidates are put in index order,
 !     so that every sum over them adds the terms in the same order whatever
-!     tree was searched, and so whatever the number of ranks.  Without the
-!     tree over own particles, every search is of tree2, whose order does not
-!     change from run to run, so the candidates are left in tree order.  If
+!     tree was searched, and so whatever the number of ranks.  They are also
+!     put in index order when the groups are on (hgroup>0), because the list of
+!     a group is in index order: a particle then gets the same candidates in
+!     the same order from its group or from a search of its own, whatever the
+!     size of the groups.  Otherwise every search is of tree2, whose order does
+!     not change from run to run, so the candidates are left in tree order.  If
 !     there are more candidates than s%res holds, the search is made again
 !     with room for all of them.
       subroutine cache_search(i,r2,s)
@@ -1287,7 +1290,7 @@
          deallocate(s%res)
          allocate(s%res(2*s%ncand))
       enddo
-      if(useown) call sort_candidates(s)
+      if(useown .or. hgroup.gt.0) call sort_candidates(s)
       end subroutine cache_search
 
 !     The candidates of particle i within sqrt(s%r2last), out of the list of its group: squared distances (once for the particle),
