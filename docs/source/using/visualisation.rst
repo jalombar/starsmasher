@@ -20,6 +20,11 @@ Two guides in the repository cover this, and there is no point repeating them:
 Reading StarSmasher snapshots
 -----------------------------
 
+To read and plot them from Python, with no SPLASH, the code can write them in
+HDF5 as well; see :doc:`hdf5`.  The reader that goes with it,
+``parallel_bleeding_edge/bin/StSm_snapshot.py``, also reads the ``out*.sph``
+files.
+
 SPLASH has a StarSmasher reader built in::
 
    splash -f starsmasher out*.sph
