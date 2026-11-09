@@ -626,7 +626,7 @@ c      end
       common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
      $     reentryfactor
       logical fileexists
-      integer ierr
+      integer ierr,hdf5avail
       namelist/input/ tf,dtout,n,nnopt,nav,navsw,nriemann,alpha,beta,ngr,hco,
      $     mco,hfloor,
      $     nrelax,trelax,sep0,impactparameter,e0,semimajoraxis,vinf2,
@@ -648,7 +648,7 @@ c      end
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
      $     bbh_longitude,rp,rjump,rjumpfactor,rjumppercent,ndtoutafter,
      $     reentryfactor,
-     $     boxx,boxy,boxz
+     $     boxx,boxy,boxz,nhdf5
       
       character*9 slurm_gpu_count_str
       integer slurm_gpu_count,actual_gpu_count
@@ -764,6 +764,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       boxx=0d0 ! period in x of a periodic box running from -boxx/2 to boxx/2.  0 leaves x open
       boxy=0d0 ! period in y, as for boxx
       boxz=0d0 ! period in z, as for boxx
+      nhdf5=0 ! snapshot format: 0 writes out*.sph only, 1 writes out*.h5 (HDF5) as well, 2 writes out*.h5 only.  1 and 2 need a build made with make HDF5=1.  2 leaves no out*.sph, which startfile1 and splash read, so use it only to analyse a run.  restartrad.sph is always written in the native format
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
@@ -773,6 +774,12 @@ c     set some default values, so that they don't necessarily have to be set in 
      $     stop 'init: rjumppercent must be above 0 and at most 100'
       if(reentryfactor.le.0.d0 .or. reentryfactor.gt.1.d0)
      $     stop 'init: reentryfactor must be above 0 and at most 1'
+c     snapshots in HDF5 need the writer, which only make HDF5=1 builds in;
+c     ignoring the request in silence would leave a run with no snapshots
+      if(nhdf5.lt.0 .or. nhdf5.gt.2)
+     $     stop 'init: nhdf5 must be 0, 1 or 2'
+      if(nhdf5.gt.0 .and. hdf5avail().eq.0)
+     $     stop 'init: nhdf5>0 needs a build with make HDF5=1'
 c     dynamic softening: the limits apply only with dynhco=2 and at least one
 c     of them set.  Otherwise dynhco=2 runs exactly as dynhco=1.
       hcolim=dynhco.eq.2 .and. (hcomin.gt.0.d0 .or. hcomax.gt.0.d0)
