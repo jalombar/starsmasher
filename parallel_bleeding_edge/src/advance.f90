@@ -445,6 +445,7 @@
       integer, allocatable :: imgmap(:)
       real*8, allocatable :: ximg(:,:)
       real*8 pad(3),padmin,pbcdist2,xdum(3,1)
+      external pbcdist2
       integer idum(1)
 !     The smoothing lengths are solved by the threads of the rank, each
 !     particle by one thread with its own scratch (hsc).  The neighbour lists
