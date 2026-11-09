@@ -214,7 +214,7 @@ def parse(path):
 
 GROUPS = [
  ('Time and output', ['tf','dtout','nitpot','tjumpahead','rjump','rjumpfactor','reentryfactor','tscanon','sepfinal','throwaway',
-                      'internal_energy_fraction']),
+                      'internal_energy_fraction','nhdf5']),
  ('The particles',   ['n','nnopt','equalmass','starmass','starradius','hco','mco','hfloor']),
  ('Equation of state and physics',
                      ['neos','gam','nav','navsw','nriemann','alpha','beta','ngr','nselfgravity','nkernel',

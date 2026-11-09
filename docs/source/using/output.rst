@@ -308,6 +308,10 @@ They are Fortran ``unformatted`` files, which is to say binary records rather
 than text, so they are read with the tools in :doc:`visualisation` rather than a
 text editor.
 
+With ``nhdf5=1`` in ``sph.input`` (and a code built with ``make HDF5=1``) each
+snapshot is also written as ``out*.h5``, in HDF5, which Python reads directly;
+see :doc:`hdf5`.
+
 ``restartrad.sph``
 ~~~~~~~~~~~~~~~~~~
 

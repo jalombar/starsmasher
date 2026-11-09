@@ -14,6 +14,7 @@ python3 tests/run_tests.py                 # everything
 python3 tests/run_tests.py --list          # what exists
 python3 tests/run_tests.py virial energy   # named tests only
 python3 tests/run_tests.py --np 2          # fewer MPI ranks
+python3 tests/run_tests.py --hdf5          # build with make HDF5=1, so that hdf5_dump runs
 ```
 
 By default the suite builds the code once into a scratch directory and reuses
@@ -35,6 +36,7 @@ it. Pass `--exe /path/to/..._sph` to test an executable you have already built.
 | `periodic` | A fully periodic box conserves momentum and energy and has no density seam at its faces. |
 | `periodic_block` | Block timesteps in a periodic box agree with shared ones and keep every particle in the box. |
 | `guard_periodic` | A periodic box too small for the kernel stops the run with a message. |
+| `hdf5_dump` | `nhdf5=1` writes an `out*.h5` that equals `out*.sph` bit for bit, and `nhdf5=2` the same files without `out*.sph`. Skipped unless the build has HDF5 (`make HDF5=1`, or `--hdf5`) and `h5py` is installed. |
 
 The last four exist because each corresponds to a real defect: results that
 depended on rank count, a CPU/GPU disagreement, an unbounded write past the end

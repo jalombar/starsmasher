@@ -112,6 +112,158 @@ c     particles the black hole swallowed (reat>0), which energy*.sph adds up.
       return
       end
 ********************************************************************
+      subroutine dumph5(h5name)
+c     writes the snapshot that dump writes to out*.sph, as the HDF5 file
+c     h5name instead (nhdf5>0 in sph.input; needs make HDF5=1).  duout calls
+c     it on rank 0 at the same point as dump, so it sees the same arrays,
+c     after the same gathers, and the numbers are the same by construction.
+c     The writer is in hdf5_dump.c, reached through iso_c_binding.  It is
+c     described in docs/source/using/hdf5.rst.
+      use iso_c_binding, only: c_int,c_double,c_char,c_null_char
+      include 'starsmasher.h'
+      include 'mpif.h'
+      character*(*) h5name
+      real*8 divv(nmax)
+      common/commdivv/divv
+      common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
+     $     reentryfactor
+      real*8 erad
+      common/lostenergy/ erad
+      real*8 epoteat,ekineat,einteat
+      common /eatenenergy/ epoteat,ekineat,einteat
+      integer lastnumstars
+      common /starcount/ lastnumstars
+      real*8 hdr(25),ext(17),tunit
+      integer ierr,ierr2
+      interface
+         function ss_h5_create(fname,ntot,hdr,nhdr,ext,next)
+     $        bind(c,name='ss_h5_create')
+            use iso_c_binding, only: c_int,c_double,c_char
+            integer(c_int) :: ss_h5_create
+            character(kind=c_char), intent(in) :: fname(*)
+            integer(c_int), value :: ntot,nhdr,next
+            real(c_double), intent(in) :: hdr(*),ext(*)
+         end function
+         function ss_h5_put_double(name,a)
+     $        bind(c,name='ss_h5_put_double')
+            use iso_c_binding, only: c_int,c_double,c_char
+            integer(c_int) :: ss_h5_put_double
+            character(kind=c_char), intent(in) :: name(*)
+            real(c_double), intent(in) :: a(*)
+         end function
+         function ss_h5_put_int(name,a)
+     $        bind(c,name='ss_h5_put_int')
+            use iso_c_binding, only: c_int,c_double,c_char
+            integer(c_int) :: ss_h5_put_int
+            character(kind=c_char), intent(in) :: name(*)
+            integer(c_int), intent(in) :: a(*)
+         end function
+         function ss_h5_close() bind(c,name='ss_h5_close')
+            use iso_c_binding, only: c_int
+            integer(c_int) :: ss_h5_close
+         end function
+      end interface
+
+c     the header of out*.sph, in the order dump writes it; integers travel
+c     as doubles, which holds them exactly
+      hdr(1)=dble(ntot)
+      hdr(2)=dble(nnopt)
+      hdr(3)=hco
+      hdr(4)=hfloor
+      hdr(5)=sep0
+      hdr(6)=tf
+      hdr(7)=dtout
+      hdr(8)=dble(nout)
+      hdr(9)=dble(nit)
+      hdr(10)=t
+      hdr(11)=dble(nav)
+      hdr(12)=alpha
+      hdr(13)=beta
+      hdr(14)=tjumpahead
+      hdr(15)=dble(ngr)
+      hdr(16)=dble(nrelax)
+      hdr(17)=trelax
+      hdr(18)=dt
+      hdr(19)=omega2
+      hdr(20)=dble(ncooling)
+      hdr(21)=erad
+      hdr(22)=dble(lastnumstars)
+      hdr(23)=epoteat
+      hdr(24)=ekineat
+      hdr(25)=einteat
+c     what else is needed to read the file; same order as EXT in hdf5_dump.c
+      tunit=sqrt(runit**3/(gravconst*munit))
+      ext(1)=munit
+      ext(2)=runit
+      ext(3)=gravconst
+      ext(4)=tunit
+      ext(5)=dble(nintvar)
+      ext(6)=dble(neos)
+      ext(7)=dble(nkernel)
+      ext(8)=dble(gflag)
+      ext(9)=dble(nusegpus)
+      ext(10)=dble(nselfgravity)
+      ext(11)=dble(nblock)
+      ext(12)=dble(dynhco)
+      ext(13)=gam
+      ext(14)=reat
+      ext(15)=boxx
+      ext(16)=boxy
+      ext(17)=boxz
+
+      ierr=ss_h5_create(trim(h5name)//c_null_char,ntot,hdr,25,ext,17)
+      if(ierr.eq.0) then
+c     one dataset per column of dump, named like the variable
+         ierr=ierr+ss_h5_put_double('x'//c_null_char,x)
+         ierr=ierr+ss_h5_put_double('y'//c_null_char,y)
+         ierr=ierr+ss_h5_put_double('z'//c_null_char,z)
+         ierr=ierr+ss_h5_put_double('am'//c_null_char,am)
+         ierr=ierr+ss_h5_put_double('hp'//c_null_char,hp)
+         ierr=ierr+ss_h5_put_double('rho'//c_null_char,rho)
+         ierr=ierr+ss_h5_put_double('vx'//c_null_char,vx)
+         ierr=ierr+ss_h5_put_double('vy'//c_null_char,vy)
+         ierr=ierr+ss_h5_put_double('vz'//c_null_char,vz)
+         ierr=ierr+ss_h5_put_double('vxdot'//c_null_char,vxdot)
+         ierr=ierr+ss_h5_put_double('vydot'//c_null_char,vydot)
+         ierr=ierr+ss_h5_put_double('vzdot'//c_null_char,vzdot)
+         ierr=ierr+ss_h5_put_double('u'//c_null_char,u)
+         ierr=ierr+ss_h5_put_double('udot'//c_null_char,udot)
+         ierr=ierr+ss_h5_put_double('grpot'//c_null_char,grpot)
+         ierr=ierr+ss_h5_put_double('meanmolecular'//c_null_char,
+     $        meanmolecular)
+         ierr=ierr+ss_h5_put_int('cc'//c_null_char,cc)
+         ierr=ierr+ss_h5_put_double('divv'//c_null_char,divv)
+         if(ncooling.ne.0) then
+            ierr=ierr+ss_h5_put_double('ueq'//c_null_char,ueq)
+            ierr=ierr+ss_h5_put_double('tthermal'//c_null_char,tthermal)
+         endif
+c     the file gets its final name only here, if everything went well
+         if(ierr.eq.0) ierr=ss_h5_close()
+      endif
+      if(ierr.ne.0) then
+         write(69,*) 'dumph5: could not write ',trim(h5name)
+         call flush(69)
+         write(6,*) 'dumph5: could not write ',trim(h5name)
+         call mpi_abort(mpi_comm_world,1,ierr2)
+         stop 'dumph5: error writing the HDF5 snapshot'
+      endif
+
+      return
+      end
+********************************************************************
+      integer function hdf5avail()
+c     1 if this build has the HDF5 writer (make HDF5=1), 0 if not
+      use iso_c_binding, only: c_int
+      interface
+         function ss_h5_available() bind(c,name='ss_h5_available')
+            use iso_c_binding, only: c_int
+            integer(c_int) :: ss_h5_available
+         end function
+      end interface
+      hdf5avail=ss_h5_available()
+      return
+      end
+********************************************************************
       subroutine output
 c     output at every iteration
       include 'starsmasher.h'
@@ -569,7 +721,8 @@ c     $              (etot-einit)/abs(einit), stot,ajtot
 c     write binary dump file containing complete current results
       include 'starsmasher.h'
       include 'mpif.h' 
-      character*16 outfn
+      character*16 outfn,h5fn
+      double precision twall
       real*8 rhocgs,ucgs,temperature,rtemp
       integer i
       character*3 iname
@@ -634,11 +787,28 @@ c     this is here for the generation of col*.sph files
  4101       format('out',i7.7,'.sph')
          endif
          
-         write (69,*) 'duout: writing file ',outfn,'at t=',t
-         
-         open(12,file=outfn,form='unformatted')
-         call dump(12)
-         close (12)
+c     nhdf5=0: out*.sph only.  nhdf5=1: out*.sph and out*.h5, which holds the
+c     same numbers.  nhdf5=2: out*.h5 only.  Each write is timed, since the
+c     cost of the two formats is what one wants to compare.
+         if(nhdf5.ne.2) then
+            write (69,*) 'duout: writing file ',outfn,'at t=',t
+            twall=mpi_wtime()
+            open(12,file=outfn,form='unformatted')
+            call dump(12)
+            close (12)
+            twall=mpi_wtime()-twall
+            write (69,'(a,a,a,f10.6,a)') ' duout: wall time writing ',
+     $           trim(outfn),' (native): ',twall,' s'
+         endif
+         if(nhdf5.gt.0) then
+            h5fn=outfn(1:index(outfn,'.sph')-1)//'.h5'
+            write (69,*) 'duout: writing file ',h5fn,'at t=',t
+            twall=mpi_wtime()
+            call dumph5(h5fn)
+            twall=mpi_wtime()-twall
+            write (69,'(a,a,a,f10.6,a)') ' duout: wall time writing ',
+     $           trim(h5fn),' (hdf5): ',twall,' s'
+         endif
       endif
    
       if(nrelax.eq.1 .and. mod(nout,10).eq.0) then
