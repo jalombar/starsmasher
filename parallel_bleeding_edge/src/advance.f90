@@ -173,6 +173,8 @@
       ! Note: we call rho_and_h before gravforce because the gravity calculation can
       ! need the most up-to-date smoothing lengths for the integrator to achieve
       ! second order accuracy
+      ! ngravoverlap=1: the gpu starts on the far tiles while the smoothing lengths are solved
+      if(ngr.ne.0) call gravfar_start
       call rho_and_h            ! evaluate rho and h at half-timestep
 
 !     get potential energy at half-timestep:
