@@ -99,7 +99,7 @@ contains
        deallocate (nd)
        allocate (nd(nfd,gtw%nidmax))
     end if
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
     do i = 1, n
        j = gind(i)
        xt(i) = gpos(1,i)
