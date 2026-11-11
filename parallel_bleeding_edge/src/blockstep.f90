@@ -151,7 +151,7 @@
       dtt=dble(tnext-tick)*dtick
 
 !     drift all positions with their half-step velocities
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,ntot
          x(i)=x(i)+dtt*vhx(i)
          y(i)=y(i)+dtt*vhy(i)
@@ -203,7 +203,7 @@
          z(i)=z(i)+dzp(i)
       enddo
 
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,ntot
          actblk(i)=active(i)
       enddo
@@ -239,7 +239,7 @@
 !     accelerations and kicks are unchanged.  nav=4 also uses the state and
 !     gradients of every j inside an active particle's own kernel (the
 !     pair's Riemann problem), so there the test is r < 2 max(h_i,h_j)
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
          do i=1,ntot
             refblk(i)=.false.
          enddo
@@ -280,7 +280,7 @@
       endif
 
 !     back to the chord positions that the leapfrog carries
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,ntot
          x(i)=x(i)-dxp(i)
          y(i)=y(i)-dyp(i)
@@ -376,7 +376,7 @@
       integer(kind=8) tick,nticks
       integer i,j,in,k,knat,ierr,iw,nloop
       integer, allocatable :: kbuf(:)
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,ntot
          knew(i)=-1
       enddo
@@ -430,7 +430,7 @@
          enddo
          deallocate(kbuf)
       endif
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,ntot
          if(.not.active(i)) knew(i)=kbin(i)
       enddo
