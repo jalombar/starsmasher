@@ -61,7 +61,7 @@
 !     ngravtree=1: gravity with a tree on the cpus (gravtree.f90) instead of the direct sum; ngravtree=2: the same tree with
 !     the visit of it on the gpus (SPHgrav_lib2/grav_tree_gpu.cu).  treeacc is the opening angle theta, nleafgrav the most
 !     particles in a leaf.  ngravoverlap=1 starts the work of the gpus before the smoothing lengths are solved (the far
-!     field of the direct sum, or the visit of the tree)
+!     field of the direct sum, or the visit of the tree); -1, the default, is replaced by 0 or 1 in gravquant (main.f)
       integer ngravtree,nleafgrav,ngravoverlap
       real*8 treeacc
       common/gravtreepars/treeacc,ngravtree,nleafgrav,ngravoverlap
