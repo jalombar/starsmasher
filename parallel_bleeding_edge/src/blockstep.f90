@@ -670,6 +670,7 @@
       type(kdtree2_result), allocatable :: res(:)
       integer j,k
       real*8 hamax,reach,sep2
+      external reach,sep2
       allocate(ad(3,nalist))
       hamax=0.d0
       if(nav.eq.4) then
