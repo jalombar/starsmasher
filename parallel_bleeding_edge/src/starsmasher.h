@@ -119,6 +119,9 @@
 !     all of it.  See Nandez, Ivanova & Lombardi (2014, ApJ 786, 39), Sec. 3.2.
       real*8 internal_energy_fraction
       common/boundcriterion/ internal_energy_fraction
+!     hgroup (input): particles per group of the neighbour search of the smoothing-length solve (hgroup.f90); 0: one search for each particle
+      integer hgroup
+      common/hgrouppars/ hgroup
       integer stellarevolutioncodetype	
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
       common/inputfilenames2/startfile3,binaryfile,triplefile,bpbhfile,imagefile,advectedfile

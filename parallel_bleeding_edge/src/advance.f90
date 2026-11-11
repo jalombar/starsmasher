@@ -28,6 +28,7 @@
 !     internal procedures of rho_and_h, so they are passed as an argument.
       module hscratch_mod
       use kdtree2_module
+      use hgroup_mod
       implicit none
       type hscratch
 !        (padding: the records of the threads lie one after the other in an array, and a thread writes
@@ -41,6 +42,8 @@
 !        list of the particle being solved starts (pstart); positions are
 !        offsets, the entries being list(offset+1:offset+nn)
          integer :: lpos=0, lend=0, pstart=0
+!        the list of candidates of the group of particles the thread is solving (hgroup.f90)
+         type(hgscratch) :: g
          integer :: pad2(32)=0
       end type hscratch
       end module hscratch_mod
@@ -407,6 +410,7 @@
       use riemann_data
       use omp_utils
       use hscratch_mod
+      use hgroup_mod
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 divv(nmax)
@@ -420,6 +424,7 @@
       real(kdkind), dimension(:,:), allocatable :: my_array
       type(kdtree2), pointer :: tree2
       logical usecache
+      logical, external :: hg_cpu_ok
 !     A rank that does not need all the particles for its searches builds its
 !     tree over its own particles and the ones around them only (build_own_tree).
 !     treeown holds them, sub2glob gives the particle index of each tree
@@ -459,6 +464,20 @@
       integer, parameter :: hchunk=64
       type(hscratch), allocatable, save :: hsc(:)
       integer listtop,listfail,failfirst,failneed,nthr,it
+!     the groups a thread takes at a time (hgroup.f90): the groups of the rank over 16 times the threads, at most hg_chunk
+      integer hgch
+!     The lists in the order of the particles (hg_listord): particle k of the own range has room for lcap(k) entries at
+!     lbase(k), found from the length of its list in the previous call; a list that does not fit goes in a block of the thread.
+      logical listord
+      integer, allocatable :: lbase(:), lcap(:)
+      logical, save :: nnvalid=.false.
+!     Groups of particles (hgroup.f90): the particles that are solved with an SPH smoothing length, in the order of the leaves of
+!     the tree, are taken hg_ngs at a time (gord(1:ngl)), and the candidates of a group are found by one search of the tree.
+!     The particles that are not in a group (point particles, those that block steps leave alone) are solved one by one.
+      logical usegroup
+      integer ngl,ngrp,ig
+      integer, allocatable, save :: gord(:)
+      integer(1), allocatable :: gsel(:)
 
       if(myrank.eq.nprocs-1) call wall_time(time1)
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -537,6 +556,33 @@
          endif
          call stale_tree_prepare(hsmall)
       endif
+      usegroup=.false.
+      ngl=0
+      ngrp=0
+!     (dt is zero at the first call of a run, when the guess of h can be far off)
+      if(usecache .and. .not.blkdist .and. dynhco.eq.0 .and. .not.hcolim .and. dt.gt.0.d0) then
+         if(hgroup.gt.0 .and. hg_cpu_ok(myrank)) then
+            call hg_tune(hgroup)
+            usegroup=hg_on
+         endif
+      endif
+      if(usegroup) then
+         allocate(gsel(n))
+!$omp parallel do simd schedule(static)
+         do k=1,n
+            gsel(k)=0
+         enddo
+!$omp parallel do schedule(static) private(k)
+         do k=n_lower,n_upper
+            if(u(k).ne.0.d0 .and. (nblock.ne.1 .or. nblockfull.ne.0 .or. actblk(k) .or. refblk(k))) gsel(k)=1
+         enddo
+         if(useown) then
+            call hg_order(treeown%ind,nsub,1,n_upper-n_lower+1,n_lower-1,gsel,gord,ngl)
+         else
+            call hg_order(tree2%ind,n,n_lower,n_upper,0,gsel,gord,ngl)
+         endif
+         ngrp=(ngl+hg_ngs-1)/hg_ngs
+      endif
 !     the above have replaced the call to linkedlists
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
@@ -569,6 +615,10 @@
          enddo
       endif
       nthr=max_threads()
+!     (a chunk is a sixteenth of the share of a thread, at most hg_chunk groups: with bigger chunks a rank that has few
+!     particles has few chunks, and the threads finish at very different times)
+      hgch=1
+      if(usegroup) hgch=max(1,min(hg_chunk,ngrp/(16*nthr)))
       if(allocated(hsc)) then
          if(size(hsc).lt.nthr) deallocate(hsc)
       endif
@@ -598,19 +648,38 @@
       listfail=0
       failfirst=0
       failneed=0
+      listord=.false.
+      if(usegroup .and. hg_listord .and. nnvalid .and. nloop.gt.0) call set_list_order
 !     The particles are independent: each one is solved by one thread, which
 !     writes only the elements of the arrays with the index of the particle
 !     and the list in its own block.  usebrute keeps one thread (brute_r2
 !     works in the arrays of stale_tree_mod).
 !$omp parallel default(shared) private(iw,it) num_threads(nthr) if(.not.usebrute)
       it=thread_id()+1
-!$omp do schedule(dynamic,hchunk)
-      do iw=1,nloop
-         if(listfailed()) cycle
-         call solve_particle(iw,hsc(it))
-      enddo
+      if(usegroup) then
+!$omp do schedule(dynamic,hgch)
+         do ig=1,ngrp
+            if(listfailed()) cycle
+            call solve_group(ig,hsc(it))
+         enddo
 !$omp end do
+!$omp do schedule(dynamic,hchunk)
+         do iw=1,nloop
+            if(listfailed() .or. gsel(n_lower+iw-1).ne.0) cycle
+            call solve_particle(iw,hsc(it))
+         enddo
+!$omp end do
+      else
+!$omp do schedule(dynamic,hchunk)
+         do iw=1,nloop
+            if(listfailed()) cycle
+            call solve_particle(iw,hsc(it))
+         enddo
+!$omp end do
+      endif
 !$omp end parallel
+      if(usegroup) deallocate(gsel)
+      if(listord) deallocate(lbase,lcap)
       nfb=0
       do it=1,nthr
          nfb=nfb+hsc(it)%nfb
@@ -641,6 +710,7 @@
       if(.not.blkdist .and. nprocs.gt.1) call mpi_allgatherv(mpi_in_place,0,mpi_datatype_null,hp,&
            recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
 
+      nnvalid=.true.
       call pressure
       if(blkdist) then
 !     each listed particle's values from the rank that solved it
@@ -696,7 +766,10 @@
       integer, parameter :: maxit=50
       real*8 xq,fq,r2,dist2,hpguess,xacc,dxmax,xl,xh,xtmp,dx,fl,fh,ff,df,ezrtsafe
       real*8 hlowco,hbhco,facco,chico,facfl
-         if(blkdist) then
+         if(iw.lt.0) then
+!     the particle itself, not its number in the work of the rank (the particles of a group)
+            i=-iw
+         else if(blkdist) then
             i=wmine(iw)
          else
             i=n_lower+iw-1
@@ -916,9 +989,16 @@
          call nlist(i,r2,s)
          if(listfailed()) return
          
+         if(s%g%gactive .and. s%g%fromgrp) then
+!     (a gas particle of a group: the sums over its neighbours read the arrays of the group)
+            call bonetsumwithphi_g(i,s%g%nl,s%g%ldis,s%g%lam,s%g%lu,rho(i), bonet_omega(i),&
+                 bonet_0mega(i),&
+                 bonet_psi(i), bonet_wn(i))
+         else
          call bonetsumwithphi(i,rho(i), bonet_omega(i),&
               bonet_0mega(i),&
               bonet_psi(i), bonet_wn(i))
+         endif
          if(dynhco.eq.3) then
             if(facfl.gt.1.d-12) then
                bonet_0mega(i)=bonet_0mega(i)/facfl
@@ -977,7 +1057,7 @@
 !      myhp(i)=hp(i)
 
 !     the next particle of this thread starts its list here
-         s%lpos=first(i)+nn(i)
+         if(.not.listord) s%lpos=first(i)+nn(i)
       end subroutine solve_particle
 
 !     Put the list of particle i, whose length is nn(i), in list().  It goes where the
@@ -985,14 +1065,29 @@
 !     in what is left of the block.  A list of the same particle that is written again (the
 !     second search of a point particle) starts where the first one did.
       subroutine reserve_list(i,s)
-      integer i,need,ibase,sz
+      integer i,need,ibase,sz,kk
       type(hscratch) :: s
       need=nn(i)
-      if(s%pstart+need.le.s%lend) then
-         first(i)=s%pstart
-         return
+      if(listord) then
+         kk=i-n_lower+1
+         if(need.le.lcap(kk)) then
+            first(i)=lbase(kk)
+            return
+         endif
+!        (lpos and lend are, in this case, the cursor and the end of the block of lists that did not fit in their places)
+         if(s%lpos+need.le.s%lend) then
+            first(i)=s%lpos
+            s%lpos=s%lpos+need
+            return
+         endif
+         sz=max(1024,need)
+      else
+         if(s%pstart+need.le.s%lend) then
+            first(i)=s%pstart
+            return
+         endif
+         sz=max(listblock,need)
       endif
-      sz=max(listblock,need)
 !$omp atomic capture
       ibase=listtop
       listtop=listtop+sz
@@ -1014,7 +1109,51 @@
       s%pstart=ibase
       s%lend=ibase+min(sz,nnmax*nmax-ibase)
       first(i)=ibase
+      if(listord) s%lpos=ibase+need
       end subroutine reserve_list
+
+!     The places of the lists in the order of the particles: room for the length of the last list of each particle plus a
+!     quarter and 8 entries.  The sum over the particles is found in blocks, so the places do not depend on the number of
+!     threads.  Where the room would not fit in list() the lists are put in the blocks of the threads.  Only the places
+!     change: the entries of every list and their order are those of the search for each particle.
+      subroutine set_list_order
+      integer, parameter :: lblk=4096
+      integer k,ib,nb
+      integer*8 c,tot
+      integer*8, allocatable :: bs(:)
+      nb=(nloop+lblk-1)/lblk
+      allocate(lbase(nloop),lcap(nloop),bs(nb+1))
+!$omp parallel do schedule(static) private(ib,k,c)
+      do ib=1,nb
+         c=0
+         do k=(ib-1)*lblk+1,min(ib*lblk,nloop)
+            lcap(k)=nn(n_lower+k-1)+nn(n_lower+k-1)/4+8
+            c=c+lcap(k)
+         enddo
+         bs(ib)=c
+      enddo
+      tot=0
+      do ib=1,nb
+         c=bs(ib)
+         bs(ib)=tot
+         tot=tot+c
+      enddo
+      if(tot.gt.int(nnmax,8)*int(nmax,8)/2) then
+         deallocate(lbase,lcap,bs)
+         return
+      endif
+!$omp parallel do schedule(static) private(ib,k,c)
+      do ib=1,nb
+         c=bs(ib)
+         do k=(ib-1)*lblk+1,min(ib*lblk,nloop)
+            lbase(k)=int(c)
+            c=c+lcap(k)
+         enddo
+      enddo
+      listtop=int(tot)
+      listord=.true.
+      deallocate(bs)
+      end subroutine set_list_order
 
 !     Neighbour list of particle i out to 2h=sqrt(r2), in
 !     list(first(i)+1:first(i)+nn(i)).  s%r2last is the radius out to which
@@ -1037,6 +1176,7 @@
                list(first(i)+cnt)=s%res(k)%idx
             endif
          enddo
+         if(s%g%gactive .and. s%g%fromgrp) call hg_listsub(s%g,s%res,s%ncand,r2)
       elseif(r2.le.s%r2last) then
          ! there's no need to search the entire tree, because the
          ! h we are trying is smaller than the last h we tried!
@@ -1077,7 +1217,11 @@
       type(hscratch) :: s
       if(usecache) then
          if(r2.gt.s%r2last) call cache_search(i,r2,s)
-         call bonetsum_d2(i,r2,s%ncand,s%res,bonetrhos,bonetdrhodh)
+         if(s%g%gactive .and. s%g%fromgrp) then
+            call bonetsum_d2g(i,r2,s%ncand,s%res,s%g%kloc,s%g%cu,bonetrhos,bonetdrhodh)
+         else
+            call bonetsum_d2(i,r2,s%ncand,s%res,bonetrhos,bonetdrhodh)
+         endif
          bonetfunc    = bonetrhos - nnopt
          dbonetfuncdh = bonetdrhodh
       else
@@ -1093,9 +1237,12 @@
 !     0.02 was the fastest of 0, 0.01, 0.02, 0.03, 0.05, 0.1 and 0.2.
 !     With the tree over own particles the candidates are put in index order,
 !     so that every sum over them adds the terms in the same order whatever
-!     tree was searched, and so whatever the number of ranks.  Without the
-!     tree over own particles, every search is of tree2, whose order does not
-!     change from run to run, so the candidates are left in tree order.  If
+!     tree was searched, and so whatever the number of ranks.  They are also
+!     put in index order when the groups are on (hgroup>0), because the list of
+!     a group is in index order: a particle then gets the same candidates in
+!     the same order from its group or from a search of its own, whatever the
+!     size of the groups.  Otherwise every search is of tree2, whose order does
+!     not change from run to run, so the candidates are left in tree order.  If
 !     there are more candidates than s%res holds, the search is made again
 !     with room for all of them.
       subroutine cache_search(i,r2,s)
@@ -1104,6 +1251,15 @@
       type(hscratch) :: s
       logical ovf
       s%r2last=r2*(1.d0+fpad)**2
+      if(s%g%gactive) then
+!     the candidates of the group reach this far for this particle: take them from there
+         if(s%r2last.le.s%g%gcov2) then
+            call group_fill(i,s)
+            s%g%fromgrp=.true.
+            return
+         endif
+         s%g%fromgrp=.false.
+      endif
       if(useown) then
          if(s%r2last.le.rb2(i-n_lower+1)) then
             do
@@ -1134,8 +1290,95 @@
          deallocate(s%res)
          allocate(s%res(2*s%ncand))
       enddo
-      if(useown) call sort_candidates(s)
+      if(useown .or. hgroup.gt.0) call sort_candidates(s)
       end subroutine cache_search
+
+!     The candidates of particle i within sqrt(s%r2last), out of the list of its group: squared distances (once for the particle),
+!     then those not beyond the radius, in index order, in s%res(1:s%ncand), as the tree search and sort_candidates give them
+      subroutine group_fill(i,s)
+      integer i
+      type(hscratch) :: s
+      if(.not.s%g%cd2ok) then
+         call hg_dist2(s%g,x(i),y(i),z(i))
+         s%g%cd2ok=.true.
+      endif
+      if(size(s%res).lt.s%g%ncg+1) then
+         deallocate(s%res)
+         allocate(s%res(2*s%g%ncg+16))
+      endif
+      call hg_compact(s%g,s%r2last,s%res,s%ncand)
+      end subroutine group_fill
+
+!     Group number ig: hg_ngs consecutive particles of gord.  One search of the tree around the centre of their box, out to the
+!     largest first search of a member (2h of its guess, times 1+fpad, and hg_gpad more) from the farthest member, gives the
+!     candidates of all of them.  For member i the list reaches rg-|x_i-centre| from x_i, and if the tree is the one over a part of
+!     the particles, no further than it is complete for i (rb2).
+      subroutine solve_group(ig,s)
+      integer ig
+      type(hscratch) :: s
+      call solve_range((ig-1)*hg_ngs+1,min(ig*hg_ngs,ngl),s)
+      end subroutine solve_group
+
+!     The members k0..k1 of gord: if they do not lie together (consecutive leaves of the tree can be far apart, where the tree
+!     splits) the range is halved until they do, since a group whose box is large would have many thousands of candidates
+      recursive subroutine solve_range(k0,k1,s)
+      integer k0,k1
+      type(hscratch) :: s
+      integer k,i,km
+      real*8 cmin(3),cmax(3),c(3),rg,rhoi(hg_ngsmax),hg,rad,cov,radmax,rhomax,hmn,hmx
+      cmin=1.d300
+      cmax=-1.d300
+      do k=k0,k1
+         i=gord(k)
+         cmin(1)=min(cmin(1),x(i))
+         cmin(2)=min(cmin(2),y(i))
+         cmin(3)=min(cmin(3),z(i))
+         cmax(1)=max(cmax(1),x(i))
+         cmax(2)=max(cmax(2),y(i))
+         cmax(3)=max(cmax(3),z(i))
+      enddo
+      c=0.5d0*(cmin+cmax)
+      rg=0.d0
+      radmax=0.d0
+      rhomax=0.d0
+      hmn=1.d300
+      hmx=0.d0
+      do k=k0,k1
+         i=gord(k)
+         rhoi(k-k0+1)=sqrt((x(i)-c(1))**2+(y(i)-c(2))**2+(z(i)-c(3))**2)
+         hg=max((hp(i)-hfloor)*(1.d0+divv(i)*dt/3.d0),2.d-6*(hp(i)-hfloor))
+         rad=2.d0*hg*(1.d0+fpad)*(1.d0+hg_gpad)
+         rg=max(rg,rhoi(k-k0+1)+rad)
+         radmax=max(radmax,rad)
+         rhomax=max(rhomax,rhoi(k-k0+1))
+         hmn=min(hmn,hg)
+         hmx=max(hmx,hg)
+      enddo
+!     A group is halved when its members lie far apart (the box is wider than hg_split times the largest radius) or have very
+!     different h: the list of the group reaches as far as the member with the largest radius, from the middle of the box, so
+!     one such member makes every other member read the candidates of a sphere that holds many more particles than its own.
+      if(k1.gt.k0 .and. (rhomax.gt.hg_split*radmax .or. (hg_hsplit.gt.0.d0 .and. hmx.gt.hg_hsplit*hmn))) then
+         km=(k0+k1)/2
+         call solve_range(k0,km,s)
+         call solve_range(km+1,k1,s)
+         return
+      endif
+      if(useown) then
+         call hg_cands(treeown,c,rg*rg,n,x,y,z,am,u,s%g,sub2glob)
+      else
+         call hg_cands(tree2,c,rg*rg,n,x,y,z,am,u,s%g)
+      endif
+      do k=k0,k1
+         i=gord(k)
+         cov=(rg-rhoi(k-k0+1))*(1.d0-1.d-9)
+         s%g%gcov2=cov*cov
+         if(useown) s%g%gcov2=min(s%g%gcov2,rb2(i-n_lower+1))
+         s%g%cd2ok=.false.
+         s%g%gactive=.true.
+         call solve_particle(-i,s)
+      enddo
+      s%g%gactive=.false.
+      end subroutine solve_range
 
 !     insertion sort of the candidates by particle index: they number a few
 !     tens, and come from the tree in an order that is already local
@@ -1386,6 +1629,102 @@
       enddo
       bonet1_0mega = bonet1_0mega/hpi
 
+      return
+      end
+!***********************************************************************
+      subroutine bonetsum_d2g(i,r2cut,ncand,cand,kloc,cu,bonet1_wn, bonet1_0mega)
+!     bonetsum_d2 for a particle of a group: the gas flag of each candidate (cu, in the order of the group's candidates; kloc says
+!     which one each candidate is) is read from the copy of the group instead of from u
+      use kdtree2_module
+      include 'starsmasher.h'
+      integer i,ncand,k,itab,kloc(*)
+      type(kdtree2_result) :: cand(ncand)
+      real*8 r2cut,bonet1_wn, bonet1_0mega,cu(*)
+      real*8 h2,hpi,ctaboverh2,xq,fq
+
+      bonet1_wn    = 0
+      bonet1_0mega = 0
+
+      hpi=hp(i)
+      h2=hpi**2
+      ctaboverh2=ctab/h2
+      do k=1,ncand
+         if(cand(k)%dis.lt.r2cut) then
+            if(cu(kloc(k)).ne.0.d0) then
+               xq=min(ctaboverh2*cand(k)%dis,4.d0*ctab)
+               itab=int(xq) + 1
+               fq=xq-dble(itab-1)
+               bonet1_wn     = bonet1_wn    + (gtab(itab)&
+                    +fq*(gtab(itab+1)-gtab(itab)))
+               bonet1_0mega  = bonet1_0mega - (dgdhtab(itab)&
+                    +fq*(dgdhtab(itab+1)-dgdhtab(itab)))
+            endif
+         endif
+      enddo
+      bonet1_0mega = bonet1_0mega/hpi
+
+      return
+      end
+!***********************************************************************
+      subroutine bonetsumwithphi_g(i,nl,ldis,lam,lu,bonet1_rho,&
+          bonet1_omega, bonet1_0mega, bonet1_psi, bonet1_wn)
+!     bonetsumwithphi for a gas particle i with dynhco=0 and a non-periodic box, whose neighbours are the nl entries of ldis
+!     (squared distance), lam (mass) and lu (gas flag): the same terms in the same order as the loop over list() of
+!     bonetsumwithphi, which finds the squared distance with the same sum as the tree
+      include 'starsmasher.h'
+      integer i,nl,in,itab
+      real*8 ldis(*),lam(*),lu(*)
+      real*8 bonet1_rho, bonet1_omega, bonet1_0mega
+      real*8 bonet1_psi, bonet1_wn
+      real*8 r2,h3,h2,hpi,h4,ctaboverh2,xq,fq
+      real*8 hpitilde,h2tilde,ctaboverh2tilde,xqtilde,fqtilde
+      integer itabtilde
+
+      hpi = hp(i)
+      h2=hpi**2
+      ctaboverh2=ctab/h2
+      bonet1_rho   = 0.d0
+      bonet1_omega = 0.d0
+      bonet1_0mega = 0.d0
+      bonet1_psi   = 0.d0
+      bonet1_wn    = 0.d0
+      hpitilde=hpi - hfloor
+      h2tilde=hpitilde**2
+      ctaboverh2tilde=ctab/h2tilde
+      h3=hpi*h2
+      h4=h2*h2
+      do in=1,nl
+         r2=ldis(in)
+         xq=min(ctaboverh2*r2,4.d0*ctab)
+         itab=int(xq)+1
+         fq=xq-dble(itab-1)
+         if(r2.lt.4.d0*h2) then
+         if(nselfgravity.eq.1 .or. lu(in).eq.0.d0)&
+              bonet1_psi   = bonet1_psi   + lam(in)*(dphidhtab(itab)&
+              +fq*(dphidhtab(itab+1)-dphidhtab(itab)))
+         endif
+         if(lu(in).ne.0.d0) then
+            if(r2.lt.4d0*h2tilde) then
+               xqtilde=ctaboverh2tilde*r2
+               itabtilde=int(xqtilde)+1
+               fqtilde=xqtilde-dble(itabtilde-1)
+               bonet1_wn    = bonet1_wn    + (gtab(itabtilde)&
+                    +fqtilde*(gtab(itabtilde+1)-gtab(itabtilde)))
+               bonet1_0mega = bonet1_0mega - (dgdhtab(itabtilde)&
+                    +fqtilde*(dgdhtab(itabtilde+1)-dgdhtab(itabtilde)))
+            endif
+            if(r2.lt.4.d0*h2) then
+            bonet1_rho   = bonet1_rho   + lam(in)*(wtab(itab)&
+                 +fq*(wtab(itab+1)-wtab(itab)))
+            bonet1_omega = bonet1_omega + lam(in)*(dwdhtab(itab)&
+                 +fq*(dwdhtab(itab+1)-dwdhtab(itab)))
+            endif
+         endif
+      enddo
+      bonet1_rho   = bonet1_rho/h3
+      bonet1_omega = bonet1_omega/h4
+      bonet1_psi   = bonet1_psi/h2
+      bonet1_0mega = bonet1_0mega/hpitilde
       return
       end
 !***********************************************************************

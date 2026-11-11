@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **102** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **103** settings.
 
 
 .. _sph-input-time-and-output:
@@ -507,6 +507,24 @@ which reads the particles from ``startfile1``.
      - ``0d0``
      - every run
      - period in z, as for boxx
+
+.. _sph-input-smoothing-length-solve:
+
+Smoothing-length solve
+----------------------
+
+.. list-table::
+   :header-rows: 1
+   :widths: 19 16 20 45
+
+   * - Variable
+     - Default
+     - Applies to
+     - Meaning
+   * - ``hgroup``
+     - ``32``
+     - every run
+     - neighbour search of the smoothing-length solve.  N>0: one search of the tree for each group of N particles that are consecutive in the tree (N at most 256), which is faster; 0: one search for each particle.  The results are the same bits for any N and any number of threads, but a build that fuses multiplications and additions (MARCH, aarch64) can differ in the last bit of a sum.  Not used in periodic boxes, with dynhco>0 or with block steps that divide the particles between the ranks
 
 .. _sph-input-input-files:
 

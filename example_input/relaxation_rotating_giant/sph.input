@@ -32,4 +32,5 @@
 ! the final timestep dt is the minimum of dt_sph and dt_co for all particles i
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
  omega_spin=0.001d0 ! angular rotation rate of star, used in nrelax=1 relaxations to give a rigidly rotating model
+ hgroup=32, ! groups of 32 particles share one neighbour search in the smoothing-length solve (faster); 0: one search for each particle
 &end

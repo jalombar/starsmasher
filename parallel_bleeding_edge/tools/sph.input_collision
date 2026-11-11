@@ -12,4 +12,5 @@
  vinf2 = 0.0,  ! Parabolic orbit.
  ngravprocs=2, ! Number of GPUS (must be <= min(nprocs,ngravprocsmax)).
  ppn=16,       ! Number of cpu cores per node.
+ hgroup=32, ! groups of 32 particles share one neighbour search in the smoothing-length solve (faster); 0: one search for each particle
  &end

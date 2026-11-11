@@ -8,4 +8,5 @@
  ngravprocs=-1, ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
  ppn=4, ! set this to the number of cpu cores per node
+ hgroup=32, ! groups of 32 particles share one neighbour search in the smoothing-length solve (faster); 0: one search for each particle
  &end
