@@ -475,6 +475,7 @@ end module kdtree2_priority_queue_module
 module kdtree2_module
   use kdtree2_precision_module
   use kdtree2_priority_queue_module
+  use treebuild
 !$ use omp_lib
   ! k-d tree routines in fortran 90 by matt kennel.
   ! original program was written in sather by steve omohundro and
@@ -516,19 +517,9 @@ module kdtree2_module
   integer, parameter :: bucket_size = 12
   ! the maximum number of points to keep in a terminal node.
 
-  integer, parameter :: taskmin = 2048
-  integer, parameter :: maxtreethreads = 32
-  integer, parameter :: spreadmin = 40000
-  integer, parameter :: parmin = 32768, pblk = 8192
-  ! the cut of a node of more than parmin points is the mean of its points found as a sum over blocks of pblk (added in the order of
-  ! the blocks), and the points are divided by par_partition, which keeps their order in each half; smaller nodes are done as
-  ! they always were.  The tree this gives differs from the one of a plain loop, but not with the number of threads.
-  ! (A search finds every point within the radius whatever the tree, so the neighbours are the same.)
-  ! ranges of more points than this are looked at by several tasks when the spread of a node is found
-  ! the team that builds or frees a tree has at most this many threads
-  ! with OpenMP the subtrees of more than this many points are built (and freed) by tasks of their own.
-  ! The nodes are the same as in the serial build: a task works on its own part of ind and the
-  ! cut of a node does not depend on the order in which the nodes are done.
+  ! The tree is made by the parallel builder of treebuild.f90 (the mean of the coordinate as the cut, as it always was);
+  ! the nodes it numbers are then copied into the pointer nodes below, in a pool kept for the next tree.
+  type(tbwork), save, target :: tbw
 
   type interval
       real(kdkind) :: lower,upper
@@ -545,7 +536,7 @@ module kdtree2_module
       ! improved cutoffs knowing the spread in child boxes.
       integer :: l, u
       type (tree_node), pointer :: left, right
-      type(interval), pointer :: box(:) => null()
+      type(interval) :: box(3)
       ! child pointers
       ! points included in this node are indexes[k] with k \in [l,u] 
 
@@ -584,10 +575,15 @@ module kdtree2_module
       ! some initial computation and storage cost.
       type (tree_node), pointer :: root => null()
       ! root pointer of the tree
-      integer, pointer :: ind2(:) => null()
-      ! scratch of the size of ind, there while the tree is built (par_partition)
+      type (tree_node), pointer :: pool(:) => null()
+      ! the nodes, root = pool(1)
   end type kdtree2
 
+  ! The arrays of the last tree that was destroyed are kept for the next one of the same size (a tree is made at every step,
+  ! and the memory of a big one would be new, and slow to touch, every time).
+  integer, pointer, save :: spare_ind(:) => null()
+  real(kdkind), pointer, save :: spare_pos(:,:) => null()
+  type (tree_node), pointer, save :: spare_pool(:) => null()
 
   type :: tree_search_record
       !
@@ -634,7 +630,8 @@ contains
     ! optional arguments:  if 'dim' is specified, then the tree
     !                      will only search the first 'dim' components
     !                      of input_data, otherwise, dim is inferred
-    !                      from size(input_data,1).
+    !                      from size(input_data,1).  (Only three dimensions
+    !                      are built now.)
     !
     !                      if sort .eqv. .true. then output results
     !                      will be sorted by increasing distance.
@@ -655,7 +652,6 @@ contains
     ! .. array arguments ..
     real(kdkind), target :: input_data(:,:)
     !
-    integer :: i
     ! ..
     allocate (mr)
     mr%the_data => input_data
@@ -678,6 +674,10 @@ contains
        write (*,*) 'kd_tree_trans: is not an appropriate data structure.'
        stop
     end if
+    if (mr%dimen /= 3 .or. size(input_data,1) < 3) then
+       write (*,*) 'kdtree2_create: only trees in three dimensions are built (dimen=', mr%dimen, ')'
+       stop
+    end if
 
     call build_tree(mr)
 
@@ -693,517 +693,138 @@ contains
        mr%rearrange = .true.
     endif
 
-    if (mr%rearrange) then
-       allocate(mr%rearranged_data(mr%dimen,mr%n))
-!$omp parallel do schedule(static) private(i) if(mr%n.gt.4*taskmin .and. .not.omp_in_parallel())
-       do i=1,mr%n
-          mr%rearranged_data(:,i) = mr%the_data(:, &
-           mr%ind(i))
-       enddo
-    else
-       nullify(mr%rearranged_data)
+    if (.not. mr%rearrange) then
+       ! the positions in tree order were only the way to the permutation
+       if (associated(mr%rearranged_data)) deallocate (mr%rearranged_data)
+       nullify (mr%rearranged_data)
     endif
 
   end function kdtree2_create
 
     subroutine build_tree(tp)
+      ! the permutation and the positions in tree order come from the builder; the nodes are copied from its arrays
       type (kdtree2), pointer :: tp
       ! ..
-      integer :: j
-      type(tree_node), pointer :: dummy => null()
-      ! ..
-      allocate (tp%ind(tp%n))
-      forall (j=1:tp%n)
-         tp%ind(j) = j
-      end forall
-      if (tp%n .gt. parmin) then
-         allocate (tp%ind2(tp%n))
-      else
-         nullify (tp%ind2)
+      integer :: n, j, id, ncap, k
+      n = tp%n
+      ! memory of the tree destroyed last, if it fits
+!$omp critical (kdtree2_spare)
+      if (associated(spare_ind)) then
+         if (size(spare_ind) == n) then
+            tp%ind => spare_ind
+         else
+            deallocate (spare_ind)
+         end if
+         nullify (spare_ind)
       end if
-!     inside a parallel region (the tree over all the particles that a search may need beyond the
-!     partial one) the tasks go to the threads of that region; otherwise a team of its own does them
-!$omp parallel if(tp%n.gt.4*taskmin .and. .not.omp_in_parallel()) num_threads(min(omp_get_max_threads(),maxtreethreads))
-!$omp single
-      tp%root => build_tree_for_range(tp,1,tp%n, dummy)
-!$omp end single
+      if (associated(spare_pos)) then
+         if (size(spare_pos,2) == n) then
+            tp%rearranged_data => spare_pos
+         else
+            deallocate (spare_pos)
+         end if
+         nullify (spare_pos)
+      end if
+!$omp end critical (kdtree2_spare)
+      if (.not. associated(tp%ind)) allocate (tp%ind(n))
+      if (.not. associated(tp%rearranged_data)) allocate (tp%rearranged_data(3,n))
+      call tb_build(tbw, n, tp%the_data, tp%ind, tp%rearranged_data, bucket_size + 1, 1)
+      ncap = tbw%nidmax
+!$omp critical (kdtree2_spare)
+      if (associated(spare_pool)) then
+         if (size(spare_pool) >= ncap) then
+            tp%pool => spare_pool
+         else
+            deallocate (spare_pool)
+         end if
+         nullify (spare_pool)
+      end if
+!$omp end critical (kdtree2_spare)
+      if (.not. associated(tp%pool)) allocate (tp%pool(max(ncap,tbw%ncap)))
+      ! the nodes of the top of the tree, then those of the subtrees
+!$omp parallel default(shared) private(id,j,k) if(n.gt.8*2048 .and. .not.omp_in_parallel())
+!$omp do schedule(static)
+      do id = 1, tbw%ntop
+         call copy_node(tp, id)
+      end do
+!$omp end do nowait
+!$omp do schedule(dynamic,4)
+      do j = 1, tbw%nsub
+         do k = tbw%sub_base(j) + 1, tbw%sub_base(j) + tbw%sub_used(j)
+            call copy_node(tp, k)
+         end do
+      end do
+!$omp end do
 !$omp end parallel
-      if (associated(tp%ind2)) then
-         deallocate (tp%ind2)
-         nullify (tp%ind2)
-      end if
+      tp%root => tp%pool(1)
     end subroutine build_tree
 
-    recursive function build_tree_for_range(tp,l,u,parent) result (res)
-      ! .. function return cut_value ..
-      type (tree_node), pointer :: res
-      ! ..
-      ! .. structure arguments ..
+    subroutine copy_node(tp, id)
       type (kdtree2), pointer :: tp
-      type (tree_node),pointer           :: parent
-      ! ..
-      ! .. scalar arguments ..
-      integer, intent (in) :: l, u
-      ! ..
-      ! .. local scalars ..
-      integer :: i, c, m, dimen
-      logical :: recompute
-      real(kdkind)    :: average
-
-!!$      if (.false.) then 
-!!$         if ((l .lt. 1) .or. (l .gt. tp%n)) then
-!!$            stop 'illegal l value in build_tree_for_range'
-!!$         end if
-!!$         if ((u .lt. 1) .or. (u .gt. tp%n)) then
-!!$            stop 'illegal u value in build_tree_for_range'
-!!$         end if
-!!$         if (u .lt. l) then
-!!$            stop 'u is less than l, thats illegal.'
-!!$         end if
-!!$      endif
-!!$      
-      ! first compute min and max
-      dimen = tp%dimen
-      allocate (res)
-      allocate(res%box(dimen))
-
-      ! first, compute an approximate bounding box of all points associated with this node.
-      if ( u < l ) then
-         ! no points in this box
-         nullify(res)
-         return
-      end if
-
-      if ((u-l)<=bucket_size) then
-         !
-         ! always compute true bounding box for terminal nodes.
-         !
-         do i=1,dimen
-            call spread_in_coordinate(tp,i,l,u,res%box(i))
-         end do
-         res%cut_dim = 0
-         res%cut_val = 0.0
-         res%l = l
-         res%u = u
-         res%left =>null()
-         res%right => null() 
+      integer, intent(in) :: id
+      type (tree_node), pointer :: nd
+      integer :: c, i, lc, rc
+      nd => tp%pool(id)
+      nd%l = tbw%nl(id)
+      nd%u = tbw%nu(id)
+      do i = 1, 3
+         nd%box(i)%lower = tbw%lo(i,id)
+         nd%box(i)%upper = tbw%hi(i,id)
+      end do
+      lc = tbw%lc(id)
+      if (lc == 0) then
+         ! a terminal node
+         nd%cut_dim = 0
+         nd%cut_val = 0.0
+         nd%cut_val_left = 0.0
+         nd%cut_val_right = 0.0
+         nullify (nd%left)
+         nullify (nd%right)
       else
-         ! 
-         ! modify approximate bounding box.  this will be an
-         ! overestimate of the true bounding box, as we are only recomputing 
-         ! the bounding box for the dimension that the parent split on.
-         !
-         ! going to a true bounding box computation would significantly
-         ! increase the time necessary to build the tree, and usually
-         ! has only a very small difference.  this box is not used
-         ! for searching but only for deciding which coordinate to split on.
-         !
-         do i=1,dimen
-            recompute=.true.
-            if (associated(parent)) then
-               if (i .ne. parent%cut_dim) then
-                  recompute=.false.
-               end if
-            endif
-            if (recompute) then
-               call spread_in_coordinate(tp,i,l,u,res%box(i))
-            else
-               res%box(i) = parent%box(i)
-            endif
-         end do
-         
-
-         c = maxloc(res%box(1:dimen)%upper-res%box(1:dimen)%lower,1)
-         !
-         ! c is the identity of which coordinate has the greatest spread.
-         !
-         
-         if (.false.) then
-            ! select exact median to have fully balanced tree.
-            m = (l+u)/2
-            call select_on_coordinate(tp%the_data,tp%ind,c,m,l,u)
-         else
-            !
-            ! select point halfway between min and max, as per a. moore,
-            ! who says this helps in some degenerate cases, or 
-            ! actual arithmetic average. 
-            !
-            if (u-l+1 .gt. parmin) then
-               ! a big node: the mean as a sum over blocks, and the points divided by blocks
-               average = par_mean(tp%the_data,tp%ind,c,l,u)
-            else if (.true.) then
-               ! actually compute average
-               average = sum(tp%the_data(c,tp%ind(l:u))) / real(u-l+1,kdkind)
-            else
-               average = (res%box(c)%upper + res%box(c)%lower)/2.0
-            endif
-               
-            res%cut_val = average
-            if (u-l+1 .gt. parmin) then
-               m = par_partition(tp%the_data,tp%ind,tp%ind2,c,average,l,u)
-            else
-               m = select_on_coordinate_value(tp%the_data,tp%ind,c,average,l,u)
-            end if
-         endif
-            
-         ! moves indexes around
-         res%cut_dim = c
-         res%l = l
-         res%u = u
-!         res%cut_val = tp%the_data(c,tp%ind(m))
-
-         if(u-l.gt.taskmin) then
-!$omp task firstprivate(tp,l,m,res)
-            res%left => build_tree_for_range(tp,l,m,res)
-!$omp end task
-!$omp task firstprivate(tp,u,m,res)
-            res%right => build_tree_for_range(tp,m+1,u,res)
-!$omp end task
-!$omp taskwait
-         else
-            res%left => build_tree_for_range(tp,l,m,res)
-            res%right => build_tree_for_range(tp,m+1,u,res)
-         endif
-
-         if (associated(res%right) .eqv. .false.) then
-            res%box = res%left%box
-            res%cut_val_left = res%left%box(c)%upper
-            res%cut_val = res%cut_val_left
-         elseif (associated(res%left) .eqv. .false.) then
-            res%box = res%right%box
-            res%cut_val_right = res%right%box(c)%lower
-            res%cut_val = res%cut_val_right
-         else
-            res%cut_val_right = res%right%box(c)%lower
-            res%cut_val_left = res%left%box(c)%upper
-            res%cut_val = (res%cut_val_left + res%cut_val_right)/2
-
-
-            ! now remake the true bounding box for self.  
-            ! since we are taking unions (in effect) of a tree structure,
-            ! this is much faster than doing an exhaustive
-            ! search over all points
-            res%box%upper = max(res%left%box%upper,res%right%box%upper)
-            res%box%lower = min(res%left%box%lower,res%right%box%lower) 
-         endif
+         rc = tbw%rc(id)
+         c = tbw%cdim(id)
+         nd%cut_dim = c
+         nd%left => tp%pool(lc)
+         nd%right => tp%pool(rc)
+         nd%cut_val_left = tbw%hi(c,lc)
+         nd%cut_val_right = tbw%lo(c,rc)
+         nd%cut_val = (nd%cut_val_left + nd%cut_val_right)/2
       end if
-    end function build_tree_for_range
-
-    real(kdkind) function par_mean(v,ind,c,l,u) result(avg)
-      ! mean of coordinate c of the points ind(l:u): block sums by tasks, added in the order of the blocks
-      real(kdkind) :: v(1:,1:)
-      integer :: ind(1:)
-      integer, intent(in) :: c, l, u
-      integer :: nb, ib, a, b, i
-      real(kdkind) :: ps(1+(u-l)/pblk), t
-      nb = 1 + (u-l)/pblk
-      do ib = 1, nb
-         a = l + (ib-1)*pblk
-         b = min(u, a+pblk-1)
-!$omp task firstprivate(ib,a,b) shared(ps,v,ind,c)
-         t = 0
-         do i = a, b
-            t = t + v(c,ind(i))
-         end do
-         ps(ib) = t
-!$omp end task
-      end do
-!$omp taskwait
-      avg = 0
-      do ib = 1, nb
-         avg = avg + ps(ib)
-      end do
-      avg = avg / real(u-l+1,kdkind)
-    end function par_mean
-
-    integer function par_partition(v,ind,ind2,c,alpha,l,u) result(m)
-      ! move the points ind(l:u) with coordinate c <= alpha before the others, each half in its old order (a stable
-      ! partition by blocks: count, scan, scatter into ind2, copy back); the result is the last place of the first half
-      real(kdkind) :: v(1:,1:)
-      integer :: ind(1:), ind2(1:)
-      integer, intent(in) :: c, l, u
-      real(kdkind), intent(in) :: alpha
-      integer :: nb, ib, a, b, i, k, nl, kl, kr
-      integer :: cnt(1+(u-l)/pblk), offl(1+(u-l)/pblk), offr(1+(u-l)/pblk)
-      nb = 1 + (u-l)/pblk
-      do ib = 1, nb
-         a = l + (ib-1)*pblk
-         b = min(u, a+pblk-1)
-!$omp task firstprivate(ib,a,b) shared(cnt,v,ind,c,alpha)
-         k = 0
-         do i = a, b
-            if (v(c,ind(i)) <= alpha) k = k + 1
-         end do
-         cnt(ib) = k
-!$omp end task
-      end do
-!$omp taskwait
-      nl = 0
-      do ib = 1, nb
-         offl(ib) = nl
-         offr(ib) = (ib-1)*pblk - nl
-         nl = nl + cnt(ib)
-      end do
-      do ib = 1, nb
-         a = l + (ib-1)*pblk
-         b = min(u, a+pblk-1)
-!$omp task firstprivate(ib,a,b) shared(offl,offr,v,ind,ind2,c,alpha,nl,l)
-         kl = l + offl(ib)
-         kr = l + nl + offr(ib)
-         do i = a, b
-            if (v(c,ind(i)) <= alpha) then
-               ind2(kl) = ind(i)
-               kl = kl + 1
-            else
-               ind2(kr) = ind(i)
-               kr = kr + 1
-            end if
-         end do
-!$omp end task
-      end do
-!$omp taskwait
-      do ib = 1, nb
-         a = l + (ib-1)*pblk
-         b = min(u, a+pblk-1)
-!$omp task firstprivate(a,b) shared(ind,ind2)
-         ind(a:b) = ind2(a:b)
-!$omp end task
-      end do
-!$omp taskwait
-      m = l + nl - 1
-    end function par_partition
-
-    integer function select_on_coordinate_value(v,ind,c,alpha,li,ui) &
-     result(res)
-      ! move elts of ind around between l and u, so that all points
-      ! <= than alpha (in c cooordinate) are first, and then
-      ! all points > alpha are second. 
-
-      !
-      ! algorithm (matt kennel). 
-      !
-      ! consider the list as having three parts: on the left,
-      ! the points known to be <= alpha.  on the right, the points
-      ! known to be > alpha, and in the middle, the currently unknown
-      ! points.   the algorithm is to scan the unknown points, starting
-      ! from the left, and swapping them so that they are added to
-      ! the left stack or the right stack, as appropriate.
-      ! 
-      ! the algorithm finishes when the unknown stack is empty. 
-      !
-      ! .. scalar arguments ..
-      integer, intent (in) :: c, li, ui
-      real(kdkind), intent(in) :: alpha
-      ! ..
-      real(kdkind) :: v(1:,1:)
-      integer :: ind(1:)
-      integer :: tmp  
-      ! ..
-      integer :: lb, rb
-      !
-      ! the points known to be <= alpha are in
-      ! [l,lb-1]
-      !
-      ! the points known to be > alpha are in
-      ! [rb+1,u].  
-      !
-      ! therefore we add new points into lb or
-      ! rb as appropriate.  when lb=rb
-      ! we are done.  we return the location of the last point <= alpha.
-      !
-      ! 
-      lb = li; rb = ui
-
-      do while (lb < rb)
-         if ( v(c,ind(lb)) <= alpha ) then
-            ! it is good where it is.
-            lb = lb+1
-         else
-            ! swap it with rb.
-            tmp = ind(lb); ind(lb) = ind(rb); ind(rb) = tmp
-            rb = rb-1
-         endif
-      end do
-      
-      ! now lb .eq. ub 
-      if (v(c,ind(lb)) <= alpha) then
-         res = lb
-      else
-         res = lb-1
-      endif
-      
-    end function select_on_coordinate_value
-
-    subroutine select_on_coordinate(v,ind,c,k,li,ui)
-      ! move elts of ind around between l and u, so that the kth
-      ! element
-      ! is >= those below, <= those above, in the coordinate c.
-      ! .. scalar arguments ..
-      integer, intent (in) :: c, k, li, ui
-      ! ..
-      integer :: i, l, m, s, t, u
-      ! ..
-      real(kdkind) :: v(:,:)
-      integer :: ind(:)
-      ! ..
-      l = li
-      u = ui
-      do while (l<u)
-         t = ind(l)
-         m = l
-         do i = l + 1, u
-            if (v(c,ind(i))<v(c,t)) then
-               m = m + 1
-               s = ind(m)
-               ind(m) = ind(i)
-               ind(i) = s
-            end if
-         end do
-         s = ind(l)
-         ind(l) = ind(m)
-         ind(m) = s
-         if (m<=k) l = m + 1
-         if (m>=k) u = m - 1
-      end do
-    end subroutine select_on_coordinate
-
-   subroutine spread_in_coordinate(tp,c,l,u,interv) 
-      ! the spread in coordinate 'c', between l and u. 
-      !
-      ! return lower bound in 'smin', and upper in 'smax', 
-      ! A long range is cut in pieces for tasks to do: the minimum and the maximum do not
-      ! depend on the order in which the points are looked at.
-      ! ..
-      ! .. structure arguments ..
-      type (kdtree2), pointer :: tp
-      type(interval), intent(out) :: interv
-      ! ..
-      ! .. scalar arguments ..
-      integer, intent (in) :: c, l, u
-      ! ..
-      ! .. local scalars ..
-      integer, parameter :: npiece = 16
-      integer :: k, a, b, seg
-      real(kdkind) :: pmin(npiece), pmax(npiece)
-      ! ..
-      ! .. local arrays ..
-      real(kdkind), pointer :: v(:,:)
-      integer, pointer :: ind(:)
-      ! ..
-      v => tp%the_data(1:,1:)
-      ind => tp%ind(1:)
-      if (u-l+1 .gt. spreadmin) then
-         seg = (u-l+1+npiece-1)/npiece
-         do k = 1, npiece
-            a = l + (k-1)*seg
-            b = min(u, a+seg-1)
-            if (a .gt. u) then
-               pmin(k) = huge(pmin(k))
-               pmax(k) = -huge(pmax(k))
-            else
-!$omp task firstprivate(k,a,b) shared(pmin,pmax,v,ind,c)
-               call range_minmax(v,ind,c,a,b,pmin(k),pmax(k))
-!$omp end task
-            end if
-         end do
-!$omp taskwait
-         interv%lower = minval(pmin)
-         interv%upper = maxval(pmax)
-      else
-         call range_minmax(v,ind,c,l,u,interv%lower,interv%upper)
-      end if
-
-    end subroutine spread_in_coordinate
-
-    subroutine range_minmax(v,ind,c,l,u,smin,smax)
-      ! smallest and largest value of coordinate c of the points ind(l:u)
-      integer, intent (in) :: c, l, u
-      real(kdkind), intent(out) :: smin, smax
-      real(kdkind) :: v(1:,1:)
-      integer :: ind(1:)
-      real(kdkind) :: last, lmax, lmin, t
-      integer :: i, ulocal
-
-      smin = v(c,ind(l))
-      smax = smin
-
-      ulocal = u
-
-      do i = l + 2, ulocal, 2
-         lmin = v(c,ind(i-1))
-         lmax = v(c,ind(i))
-         if (lmin>lmax) then
-            t = lmin
-            lmin = lmax
-            lmax = t
-         end if
-         if (smin>lmin) smin = lmin
-         if (smax<lmax) smax = lmax
-      end do
-      if (i==ulocal+1) then
-         last = v(c,ind(ulocal))
-         if (smin>last) smin = last
-         if (smax<last) smax = last
-      end if
-
-    end subroutine range_minmax
-
+    end subroutine copy_node
 
   subroutine kdtree2_destroy(tp)
     ! deallocates all memory for the tree, except input data matrix
+    ! (the arrays of the tree go to the spare ones if there are none, to serve the next tree)
     ! .. structure arguments ..
     type (kdtree2), pointer :: tp
     ! ..
-!$omp parallel if(tp%n.gt.4*taskmin .and. .not.omp_in_parallel()) num_threads(min(omp_get_max_threads(),maxtreethreads))
-!$omp single
-    call destroy_node(tp%root)
-!$omp end single
-!$omp end parallel
-
-    deallocate (tp%ind)
+!$omp critical (kdtree2_spare)
+    if (.not. associated(spare_ind)) then
+       spare_ind => tp%ind
+    else
+       deallocate (tp%ind)
+    end if
     nullify (tp%ind)
-
-    if (tp%rearrange) then
-       deallocate(tp%rearranged_data)
-       nullify(tp%rearranged_data)
-    endif
-
+    if (associated(tp%rearranged_data)) then
+       if (.not. associated(spare_pos)) then
+          spare_pos => tp%rearranged_data
+       else
+          deallocate (tp%rearranged_data)
+       end if
+       nullify (tp%rearranged_data)
+    end if
+    if (associated(tp%pool)) then
+       if (.not. associated(spare_pool)) then
+          spare_pool => tp%pool
+       else
+          deallocate (tp%pool)
+       end if
+       nullify (tp%pool)
+    end if
+!$omp end critical (kdtree2_spare)
+    nullify (tp%root)
     deallocate(tp)
     return
-
-  contains
-    recursive subroutine destroy_node(np)
-      ! .. structure arguments ..
-      type (tree_node), pointer :: np
-      ! ..
-      ! .. intrinsic functions ..
-      intrinsic associated
-      ! ..
-      if (np%u-np%l.gt.taskmin .and. associated(np%left) .and. associated(np%right)) then
-!$omp task firstprivate(np)
-         call destroy_node(np%left)
-!$omp end task
-!$omp task firstprivate(np)
-         call destroy_node(np%right)
-!$omp end task
-!$omp taskwait
-         nullify (np%left)
-         nullify (np%right)
-      end if
-      if (associated(np%left)) then
-         call destroy_node(np%left)
-         nullify (np%left)
-      end if
-      if (associated(np%right)) then
-         call destroy_node(np%right)
-         nullify (np%right)
-      end if
-      if (associated(np%box)) deallocate(np%box)
-      deallocate(np)
-      return
-      
-    end subroutine destroy_node
-
   end subroutine kdtree2_destroy
 
   subroutine kdtree2_n_nearest(tp,qv,nn,results)

@@ -161,7 +161,7 @@ NNMAX ?= $(DEFAULT_NNMAX)
 NTAB ?= $(DEFAULT_NTAB)
 
 # ---------------------------------------------------------------- objects ----
-FOBJS = omp_utils.o pairbuf.o eos_table_data.o riemann_data.o kdtree2.o advance.o balAV3.o  \
+FOBJS = omp_utils.o pairbuf.o treebuild.o eos_table_data.o riemann_data.o kdtree2.o advance.o balAV3.o  \
         blockstep.o                                              \
         getderivs.o getTemperature.o                             \
         initialize_hyperbolic.o init.o kernels.o                 \
@@ -210,6 +210,8 @@ initialize_parent.o initialize_polyes.o useeostable.o: eos_table_data.o
 advance.o balAV3.o pressure.o riemann.o: riemann_data.o
 advance.o balAV3.o blockstep.o kdtree2.o main.o output.o pressure.o relax.o resplintmu.o tstep.o grav.o pairbuf.o: omp_utils.o
 balAV3.o: pairbuf.o riemann_data.o
+kdtree2.o: treebuild.o
+advance.o blockstep.o: kdtree2.o
 
 # ----------------------------------------------------------------- targets ---
 gpu: check-gpu-backend $(GPUOBJS)
