@@ -21,7 +21,7 @@ c     has grown past its limit.
       if(ngr.eq.0 .or. nblock.eq.1) return
       if(myrank.ge.ngravprocs) return
       mygravlength=ngrav_upper-ngrav_lower+1
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,ntot
          rbound(i) = 1.5625d0*4*hp(i)**2
          if(u(i).eq.0.d0) rbound(i)=-rbound(i)
@@ -71,7 +71,7 @@ c     gravity is done again below
          if(farstarted) then
             farstarted=.false.
             nbad=0
-!$omp parallel do simd schedule(static) private(i) reduction(+:nbad)
+!$omp parallel do simd schedule(static) reduction(+:nbad)
             do i=1,ntot
                if(abs(range(i)).gt.abs(rbound(i))) nbad=nbad+1
             enddo
