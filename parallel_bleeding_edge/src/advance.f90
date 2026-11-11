@@ -568,7 +568,7 @@
       endif
       if(usegroup) then
          allocate(gsel(n))
-!$omp parallel do simd schedule(static) private(k)
+!$omp parallel do simd schedule(static)
          do k=1,n
             gsel(k)=0
          enddo
