@@ -30,6 +30,7 @@ it. Pass `--exe /path/to/..._sph` to test an executable you have already built.
 | `cpu_gpu` | The CPU and GPU builds agree. |
 | `block_cpu_gpu` | With block timesteps, where gravity is computed on the active particles only, the CPU and GPU builds agree. |
 | `gpu_hilo` | GPU gravity with and without the float remainders of the positions (`ngravhilo`) agrees for a single star. |
+| `gpu_tree` | The tree gravity on the GPU (`ngravtree=2`) agrees with the tree on the CPUs (`ngravtree=1`) for the same opening angle and leaf size: energies, accelerations and potentials of a relaxed star; a second GPU run divides most leaves in chunks (`STARSMASHER_TREE_HEAVY`, below). |
 | `guard_neighbors` | Exhausting the neighbour list stops the run with a message rather than corrupting memory. |
 | `guard_ngravprocs` | Asking for more gravity processes than there are GPUs is clamped, not fatal. |
 | `periodic` | A fully periodic box conserves momentum and energy and has no density seam at its faces. |
@@ -51,4 +52,16 @@ STARSMASHER_TEST_EXTRA="ngravtree=1,treeacc=0.45" python3 tests/run_tests.py
 
 runs the whole suite with the gravity tree on the CPUs. The reference values and
 the tolerances of the tests do not change, so this checks that the other solver
-passes the same physical and consistency tests as the default one.
+passes the same physical and consistency tests as the default one. The one
+exception is `ngravtree=2`: the GPU build then runs the tree on the GPU and the CPU
+build the tree on the CPUs, and `cpu_gpu` and `block_cpu_gpu` compare the two builds
+with the limits 5e-6 and 2e-4 instead of 1e-6 and 1e-5 (the worst differences
+measured are 1.1e-6 and 2.5e-5).
+
+## Environment variables of the tests
+
+`STARSMASHER_TEST_EXTRA` is described above. `STARSMASHER_TREE_HEAVY` is read by the
+tree gravity on the GPUs (`ngravtree=2`): the number of entries of the list of near
+leaves above which a leaf is divided in chunks (768 by default). The `gpu_tree` test
+sets it to 24 for its second GPU run, so that most leaves of its small star take the
+path of the leaves with a very long list, which an ordinary model never takes.

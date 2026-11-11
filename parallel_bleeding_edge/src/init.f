@@ -652,7 +652,7 @@ c      end
      $     boxx,boxy,boxz
       
       character*9 slurm_gpu_count_str
-      integer slurm_gpu_count,actual_gpu_count
+      integer slurm_gpu_count,actual_gpu_count,itreeok
 
 
       semimajoraxis=0.d0 ! orbital semimajor axis.  0 means unset, so that it is deduced from the others
@@ -712,7 +712,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       nintvar=2                ! 1=integrate entropic variable a, 2=integrate internal energy u, 3=integrate buoyancy ln A (needs neos=1), 12=a then u, 32=ln A then u
       tswitchtou=-1.d0         ! nintvar=12 or 32: time to hand over to u.  <0 means use treloff.
       ngravprocs=0             ! the number of gravity processors (must be <= min(nprocs,ngravprocsmax))
-      ngpuperrank=1            ! direct gravity on the gpus: how many gpus each gravity process uses.  1: one each.  N>1: the process with local number r uses gpus r*N .. r*N+N-1, which each take a share of the particles; the result has the same bits for any N.  0: all the gpus of the node divided among the gravity processes.  Works with ngravoverlap=1; the tree gravity on the cpus does not use gpus
+      ngpuperrank=1            ! direct gravity on the gpus: how many gpus each gravity process uses.  1: one each.  N>1: the process with local number r uses gpus r*N .. r*N+N-1, which each take a share of the particles; the result has the same bits for any N.  0: all the gpus of the node divided among the gravity processes.  Works with ngravoverlap=1 and with ngravtree=2 (the leaves of the tree are divided among the gpus); the tree on the cpus (ngravtree=1) does not use gpus
       qthreads=0               ! number of gpu threads per particle. typically set to 1, 2, 4, or 8.  set to a negative value to optimize the number of threads by timing.  set to 0 to guess the best number of threads without timing.
       mbh=10d0                 ! mass of the point mass used as the second object when startfile2 is absent
       runit=6.957d10          ! number of cm in the unit of length.  use 6.957d10 if want MESA solar radius.
@@ -742,10 +742,10 @@ c     set some default values, so that they don't necessarily have to be set in 
       ncooling=0 ! 0 if no cooling, otherwise radiative cooling
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
       ngravhilo=1 ! GPU gravity only: 1 sends each position to the card as a float plus the float's remainder, so separations keep single precision however far the pair is from the reference point (the gas centre of mass), and with block timesteps the rounding of a pair's force cancels between its two particles.  0 sends the float alone, at the same cost for the whole system and about 15% less for the active particles of block steps, but a star far from that point loses digits in its close separations, and with nblock=1 momentum and angular momentum drift
-      ngravtree=0 ! gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), which uses the threads of every rank and no gpu.  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads, but it does not conserve momentum and angular momentum to machine precision
-      treeacc=0.45d0 ! opening angle theta of the tree (ngravtree=1): a node is used as a whole if theta^2 r^2 > (size_A + size_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
-      nleafgrav=24 ! most particles in a leaf of the gravity tree (ngravtree=1); the particles of a leaf share one Taylor series of the far field
-      ngravoverlap=0 ! 1 lets the gpus work while the cpus solve the smoothing lengths, for the direct sum on the gpus (ngravtree=0): the tiles of the far field that are far whatever the smoothing lengths turn out to be start first, the others when they are solved.  Not used with block steps (nblock=1) or with ngravtree=1.  The result differs from 0 in the last bits of the sums of the force
+      ngravtree=0 ! gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), using the threads of every rank and no gpu.  2: the same tree walked on the gpus (CUDA build, nleafgrav<=32).  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads or gpus, but it does not conserve momentum and angular momentum to machine precision
+      treeacc=0.45d0 ! opening angle theta of the tree (ngravtree=1 or 2): a node is used as a whole if theta^2 r^2 > (size_A + size_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
+      nleafgrav=24 ! most particles in a leaf of the gravity tree (ngravtree=1 or 2; at most 32 for 2, a leaf being one warp of the gpu); the particles of a leaf share one Taylor series of the far field
+      ngravoverlap=0 ! 1 lets the gpus work while the cpus do something else.  ngravtree=0: the tiles of the far field that are far whatever the smoothing lengths turn out to be start on the gpus first, the others when they are solved; the result differs from 0 in the last bits of the sums of the force.  ngravtree=2: the visit of the tree is queued as soon as the tree is made and collected after the pair loop; the same bits as 0.  Not used with block steps (nblock=1) for ngravtree=0, or with ngravtree=1
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
       ndtoutafter=100 ! once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
@@ -834,21 +834,32 @@ c     read in order, as for 12: 3 first, then 2.
 c     the tree gravity (gravtree.f90) is collected as the gpu's is: nusegpus=1 and
 c     self-gravity, every rank (up to ngravprocsmax of them) does the gravity of its
 c     own range of particles
-      if(ngravtree.lt.0 .or. ngravtree.gt.1) stop 'init: ngravtree must be 0 or 1'
+      if(ngravtree.lt.0 .or. ngravtree.gt.2) stop 'init: ngravtree must be 0, 1 or 2'
       if(ngpuperrank.lt.0) stop 'init: ngpuperrank must not be negative'
       if(ngravhilo.ne.0 .and. ngravhilo.ne.1) stop 'init: ngravhilo must be 0 or 1'
       if(ngravoverlap.lt.0 .or. ngravoverlap.gt.1) stop 'init: ngravoverlap must be 0 or 1'
+      if(ngravtree.eq.2) then
+c     the visit of the tree on the gpus needs the library with CUDA (the cpu build and the Metal one say no)
+         call gpu_tree_available(itreeok)
+         if(nusegpus.eq.0 .or. itreeok.eq.0) then
+            write(69,*) 'ngravtree=2 needs the build with CUDA (make gpu, on a node with NVIDIA gpus)'
+            stop 'init: ngravtree=2 needs the CUDA build'
+         endif
+         if(nleafgrav.gt.32) stop 'init: ngravtree=2 needs nleafgrav<=32 (a leaf is one warp of the gpu)'
+      endif
       if(ngravtree.ne.0) then
          nusegpus=1
          nselfgravity=1
-         ngravprocs=min(nprocs,ngravprocsmax)
+c     ngravtree=1 does the gravity on the cpus: every rank (up to ngravprocsmax) does its range.  ngravtree=2 is on the gpus as the
+c     direct sum is: the number of gravity processes is found below, from the gpus of the node
+         if(ngravtree.eq.1) ngravprocs=min(nprocs,ngravprocsmax)
          if(treeacc.lt.0.d0) stop 'init: treeacc must not be negative'
          if(nleafgrav.lt.1) stop 'init: nleafgrav must be at least 1'
       endif
 
 c      call system('env')
 
-      if(nusegpus.gt.0 .and. ngravtree.eq.0) then
+      if(nusegpus.gt.0 .and. ngravtree.ne.1) then
          call get_gpu_count(actual_gpu_count,myrank)
          call getenv('SLURM_GPUS_ON_NODE', slurm_gpu_count_str)
 !     Convert the string to an integer

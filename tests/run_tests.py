@@ -4,7 +4,7 @@
 Runs short calculations and checks them against expectations that must hold,
 rather than against stored output.  See tests/README.md.
 """
-import argparse, math, os, random, re, shutil, struct, subprocess, sys, tempfile, time
+import argparse, glob, math, os, random, re, shutil, struct, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC  = os.path.join(ROOT, 'parallel_bleeding_edge', 'src')
@@ -39,12 +39,17 @@ def build(target='gpu', base=None):
                    % (target, (p.stdout + p.stderr)[-1500:]))
     return exe[0]
 
-def sph_input(**kw):
-    # STARSMASHER_TEST_EXTRA="ngravtree=1,treeacc=0.45" adds namelist entries to every run (the settings of a test win),
-    # to run the suite with another gravity solver; the reference values of the tests are not changed
+def sph_input(cpu=False, **kw):
+    # STARSMASHER_TEST_EXTRA="ngravtree=1,treeacc=0.45" adds namelist entries to every run (the
+    # settings of a test win), to run the suite with another gravity solver; the reference values
+    # of the tests are not changed
     for item in filter(None, os.environ.get('STARSMASHER_TEST_EXTRA', '').split(',')):
         k, v = item.split('=', 1)
         kw.setdefault(k.strip(), v.strip())
+    # the CPU build cannot do ngravtree=2 (the visit of the tree on the GPUs): it gets ngravtree=1,
+    # which has the same physics
+    if cpu and str(kw.get('ngravtree', '')).strip() == '2':
+        kw['ngravtree'] = '1'
     body = '\n'.join(' %s=%s,' % (k, v) for k, v in kw.items())
     return ' &input\n%s\n &end\n' % body
 
@@ -53,7 +58,8 @@ def run(exe, workdir, np=4, init="'1es'", timeout=1800, **settings):
     shutil.copy(exe, os.path.join(workdir, 'run_sph'))
     open(os.path.join(workdir, 'sph.init'), 'w').write(
         ' &INITT\n INAME=%s\n &END\n' % init)
-    open(os.path.join(workdir, 'sph.input'), 'w').write(sph_input(**settings))
+    open(os.path.join(workdir, 'sph.input'), 'w').write(
+        sph_input(cpu=exe.endswith('_cpu_sph'), **settings))
     p = sh(['mpirun', '--oversubscribe', '-np', str(np), './run_sph'],
            cwd=workdir, timeout=timeout, check=False)
     return p, os.path.join(workdir, 'energy0.sph')
@@ -126,6 +132,16 @@ def t_ranks(ctx):
         close(b[i], a[i], 1e-6, '%s at np=%d vs np=1' % (name, ctx.np))
     return 'np=1 and np=%d agree on W, U and Etot to 1e-6' % ctx.np
 
+def tree2_extra():
+    """True when STARSMASHER_TEST_EXTRA asks for ngravtree=2: the GPU build then runs the tree on the GPU and the
+    CPU build the tree on the CPUs (ngravtree=1), which differ by the rounding of the float arithmetic.  The stars
+    that the two builds make in the relaxation differ by that rounding amplified by the opening of the nodes (a
+    tree force is not continuous in the positions), so cpu_gpu and block_cpu_gpu compare them with wider limits:
+    5e-6 and 2e-4, against 1e-6 and 1e-5 for the direct sum.  The worst differences measured in eight runs (the
+    star of 2000 and of 10000 particles, 2 and 4 ranks, with and without OpenMP) are 1.1e-6 in cpu_gpu and 2.5e-5
+    in block_cpu_gpu."""
+    return 'ngravtree=2' in os.environ.get('STARSMASHER_TEST_EXTRA', '').replace(' ', '')
+
 def t_cpu_gpu(ctx):
     """The CPU and GPU builds must agree."""
     if not ctx.cpu_exe:
@@ -134,9 +150,10 @@ def t_cpu_gpu(ctx):
     for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
         _, e = run(exe, ctx.dir('cpugpu_' + tag), np=ctx.np, **POLY)
         res[tag] = energies(e)[0]
+    tol = 5e-6 if tree2_extra() else 1e-6
     for i, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
-        close(res['cpu'][i], res['gpu'][i], 1e-6, '%s, cpu vs gpu' % name)
-    return 'cpu and gpu agree on W, U and Etot to 1e-6'
+        close(res['cpu'][i], res['gpu'][i], tol, '%s, cpu vs gpu' % name)
+    return 'cpu and gpu agree on W, U and Etot to %.0e' % tol
 
 def t_block_cpu_gpu(ctx):
     """With block timesteps the CPU and GPU builds must agree.
@@ -166,10 +183,11 @@ def t_block_cpu_gpu(ctx):
         res[tag] = energies(e), min(active) / ntot
     rows, frac = res['gpu']
     close(rows[-1][4], rows[0][4], 1e-3, 'total energy with block steps (gpu)')
+    tol = 2e-4 if tree2_extra() else 1e-5
     for i, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
-        close(res['cpu'][0][-1][i], rows[-1][i], 1e-5, '%s at t=%g, cpu vs gpu' % (name, rows[-1][0]))
-    return ('t=%g: cpu and gpu agree on W, U and Etot to 1e-5 '
-            '(as few as %.0f%% of particles active per substep)' % (rows[-1][0], 100 * frac))
+        close(res['cpu'][0][-1][i], rows[-1][i], tol, '%s at t=%g, cpu vs gpu' % (name, rows[-1][0]))
+    return ('t=%g: cpu and gpu agree on W, U and Etot to %.0e '
+            '(as few as %.0f%% of particles active per substep)' % (rows[-1][0], tol, 100 * frac))
 
 def t_gpu_hilo(ctx):
     """GPU gravity with ngravhilo=1 (the default) and 0 agrees for one star.
@@ -185,6 +203,87 @@ def t_gpu_hilo(ctx):
     for i, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
         close(res[0][i], res[1][i], 1e-6, '%s, ngravhilo=0 vs 1' % name)
     return 'ngravhilo=0 and 1 agree on W, U and Etot to 1e-6'
+
+def t_gpu_tree(ctx):
+    """The tree gravity on the GPU (ngravtree=2) agrees with the tree on the CPUs (ngravtree=1).
+
+    For the same opening angle and leaf size the two have the same physics (the criterion, the
+    Taylor series of the far field, the pair formula), so the accelerations, the potentials and the
+    energies of the same stars differ by rounding only: the GPU does the arithmetic in float.  They
+    are compared on the same state: a star is relaxed once, and each solver starts from that
+    snapshot (as the test startfiles does with tri).  Two stars made in two runs would not do: a
+    tree force is not continuous in the positions (a node is opened or not), so two runs that
+    differ by rounding follow different paths, and the stars they make differ by the error of the
+    tree.
+    """
+    d = ctx.dir('gputree_relax')
+    s = dict(POLY); s['tf'] = 2; s['dtout'] = 1; s['n'] = 2000
+    p, e = run(ctx.exe, d, np=ctx.np, **s)
+    snaps = sorted(glob.glob(os.path.join(d, 'out*.sph')))
+    if not snaps:
+        raise Fail('the relaxation produced no snapshot to use as a start file\n'
+                   + (p.stdout + p.stderr)[-800:])
+    m = POLY['starmass'].replace('d0', '')
+    res = {}
+    # gpuh: the same on the GPU with a threshold so low that most leaves take the path of the leaves
+    # with a very long list (divided in chunks), see grav_tree_gpu.cu
+    for tag, nt in (('cpu', 1), ('gpu', 2), ('gpuh', 2)):
+        d2 = ctx.dir('gputree_' + tag)
+        for name in ('body_one.sph', 'body_two.sph', 'body_three.sph'):
+            shutil.copy(snaps[-1], os.path.join(d2, name))
+        open(os.path.join(d2, 'three_bodies.txt'), 'w').write(
+            'triple:\n%s\n0.0 0.0 0.0\n0.0 0.0 0.0\n%s\n20.0 0.0 0.0\n0.0 0.3 0.0\n'
+            '%s\n0.0 60.0 0.0\n-0.2 0.0 0.0\n' % (m, m, m))
+        if tag == 'gpuh':
+            os.environ['STARSMASHER_TREE_HEAVY'] = '24'
+        try:
+            p2, e2 = run(ctx.exe, d2, np=ctx.np, init="'tri'", tf=0.05, dtout=0.05, nrelax=0,
+                         startfile1="'body_one.sph'", startfile2="'body_two.sph'",
+                         startfile3="'body_three.sph'", triplefile="'three_bodies.txt'",
+                         ngravtree=nt, treeacc='0.4d0', nleafgrav=16, ngravprocs=1)
+        finally:
+            os.environ.pop('STARSMASHER_TREE_HEAVY', None)
+        dump = os.path.join(d2, 'out0000.sph')
+        if not os.path.exists(dump):
+            raise Fail('the ngravtree=%d run wrote no dump\n' % nt + (p2.stdout + p2.stderr)[-800:])
+        res[tag] = energies(e2), read_dump(dump, full=True)[1]
+    ec, dc = res['cpu']
+    out = []
+    for tag in ('gpu', 'gpuh'):
+        eg, dg = res[tag]
+        for i, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
+            close(eg[0][i], ec[0][i], 1e-6, '%s at t=0, ngravtree=2 vs 1 (%s)' % (name, tag))
+        # the two start from the same snapshot, so the positions are the same at the first dump
+        # to the change of one step
+        dx = max(abs(a[c] - b[c]) for a, b in zip(dc, dg) for c in (0, 1, 2))
+        if dx > 1e-6:
+            raise Fail('the two runs do not start from the same state (positions differ by %.2e)'
+                       % dx)
+        # the accelerations are compared with the scale of the gravity of a star, G M / R^2
+        g0 = (float(POLY['starmass'].replace('d0', ''))
+              / float(POLY['starradius'].replace('d0', '')) ** 2)
+        n = len(dc)
+        sq = mx = 0.0
+        spot = 0.0
+        for a, b in zip(dc, dg):
+            d2s = (a[9] - b[9]) ** 2 + (a[10] - b[10]) ** 2 + (a[11] - b[11]) ** 2
+            sq += d2s
+            mx = max(mx, math.sqrt(d2s))
+            spot += ((a[14] - b[14]) / a[14]) ** 2
+        rms = math.sqrt(sq / n) / g0
+        prms = math.sqrt(spot / n)
+        # the limits are three times the worst difference measured in eight runs (2 and 4 ranks,
+        # with and without OpenMP, ngravtree=2 and -1 in the environment): accelerations rms 9e-7,
+        # max 5.5e-6 of G M / R^2, potentials 1.9e-8, energies identical
+        if rms > 5e-6 or mx / g0 > 2e-5:
+            raise Fail('accelerations differ (%s): rms %.2e, max %.2e of G M / R^2 '
+                       '(limits 5e-6, 2e-5)' % (tag, rms, mx / g0))
+        if prms > 1e-7:
+            raise Fail('potentials differ (%s): rms relative %.2e (limit 1e-7)' % (tag, prms))
+        out.append('%s: accelerations rms %.1e max %.1e of G M/R^2, potentials rms %.1e'
+                   % (tag, rms, mx / g0, prms))
+    return ('ngravtree=2 and 1 agree on the same state of %d particles (W, U, Etot to 1e-6), '
+            'also with the leaves divided in chunks (gpuh) - ' % n) + '; '.join(out)
 
 def t_guard_ngravprocs(ctx):
     """Requesting more gravity processes than GPUs must be clamped, not fatal."""
@@ -271,8 +370,9 @@ def write_dump(path, parts):
                                0, 0, 0, p['u'], 0, 0, 1.0, 0, 0))
         rec(f, struct.pack('<i', len(parts)))
 
-def read_dump(path):
-    """(t, list of (x, y, z, am, rho, vx, vy, vz, u))"""
+def read_dump(path, full=False):
+    """(t, list of (x, y, z, am, rho, vx, vy, vz, u)); with full, the first 16 doubles of every
+    particle: x y z am hp rho vx vy vz vxdot vydot vzdot u udot grpot meanmolecular"""
     data = open(path, 'rb').read()
     n = struct.unpack_from('<i', data, 4)[0]
     t = struct.unpack_from('<d', data, 4 + 4 * 4 + 5 * 8)[0]
@@ -280,7 +380,7 @@ def read_dump(path):
     out = []
     for _ in range(n):
         v = struct.unpack_from(PART_FMT, data, pos + 4)
-        out.append((v[0], v[1], v[2], v[3], v[5], v[6], v[7], v[8], v[12]))
+        out.append(v[:16] if full else (v[0], v[1], v[2], v[3], v[5], v[6], v[7], v[8], v[12]))
         pos += struct.calcsize(PART_FMT) + 8
     return t, out
 
@@ -399,6 +499,7 @@ TESTS = {
     'cpu_gpu':          t_cpu_gpu,
     'block_cpu_gpu':    t_block_cpu_gpu,
     'gpu_hilo':         t_gpu_hilo,
+    'gpu_tree':         t_gpu_tree,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,
