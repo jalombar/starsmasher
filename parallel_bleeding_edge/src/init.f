@@ -640,7 +640,7 @@ c      end
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,ngravhilo,throwaway,
-     $     ngravtree,treeacc,nleafgrav,ngravoverlap,
+     $     ngravtree,ngravtreeauto,treeacc,nleafgrav,ngravoverlap,
      $     internal_energy_fraction,
      $     startfile3,binaryfile,triplefile,bpbhfile,
      $     imagefile,advectedfile,
@@ -742,7 +742,8 @@ c     set some default values, so that they don't necessarily have to be set in 
       ncooling=0 ! 0 if no cooling, otherwise radiative cooling
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
       ngravhilo=1 ! GPU gravity only: 1 sends each position to the card as a float plus the float's remainder, so separations keep single precision however far the pair is from the reference point (the gas centre of mass), and with block timesteps the rounding of a pair's force cancels between its two particles.  0 sends the float alone, at the same cost for the whole system and about 15% less for the active particles of block steps, but a star far from that point loses digits in its close separations, and with nblock=1 momentum and angular momentum drift
-      ngravtree=0 ! gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), using the threads of every rank and no gpu.  2: the same tree walked on the gpus (CUDA build, nleafgrav<=32).  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads or gpus, but it does not conserve momentum and angular momentum to machine precision
+      ngravtree=0 ! gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), using the threads of every rank and no gpu.  2: the same tree walked on the gpus (CUDA build, nleafgrav<=32).  -1: chosen once from the number of particles N and the gpus: see ngravtreeauto.  The tree needs nselfgravity=1 (set when it is used) and does not conserve momentum and angular momentum to machine precision
+      ngravtreeauto=299000 ! ngravtree=-1 only: with a gpu, the direct sum (0) is used below this number of particles and the tree walked on the gpu (2) from it up; with no gpu, the tree on the cpus (1).  0 is used for ngr=0, no self-gravity or an invalid tree setting.  The choice is written in log0.sph.  Measured on one kind of node (63 cores, Blackwell gpus): other hardware may need another value
       treeacc=0.45d0 ! opening angle theta of the tree (ngravtree=1 or 2): a node is used as a whole if theta^2 r^2 > (size_A + size_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
       nleafgrav=24 ! most particles in a leaf of the gravity tree (ngravtree=1 or 2; at most 32 for 2, a leaf being one warp of the gpu); the particles of a leaf share one Taylor series of the far field
       ngravoverlap=0 ! 1 lets the gpus work while the cpus do something else.  ngravtree=0: the tiles of the far field that are far whatever the smoothing lengths turn out to be start on the gpus first, the others when they are solved; the result differs from 0 in the last bits of the sums of the force.  ngravtree=2: the visit of the tree is queued as soon as the tree is made and collected after the pair loop; the same bits as 0.  Not used with block steps (nblock=1) for ngravtree=0, or with ngravtree=1
@@ -834,10 +835,16 @@ c     read in order, as for 12: 3 first, then 2.
 c     the tree gravity (gravtree.f90) is collected as the gpu's is: nusegpus=1 and
 c     self-gravity, every rank (up to ngravprocsmax of them) does the gravity of its
 c     own range of particles
-      if(ngravtree.lt.0 .or. ngravtree.gt.2) stop 'init: ngravtree must be 0, 1 or 2'
+      if(ngravtree.lt.-1 .or. ngravtree.gt.2) stop 'init: ngravtree must be -1, 0, 1 or 2'
+      if(ngravtreeauto.lt.0) stop 'init: ngravtreeauto must not be negative'
       if(ngpuperrank.lt.0) stop 'init: ngpuperrank must not be negative'
       if(ngravhilo.ne.0 .and. ngravhilo.ne.1) stop 'init: ngravhilo must be 0 or 1'
       if(ngravoverlap.lt.0 .or. ngravoverlap.gt.1) stop 'init: ngravoverlap must be 0 or 1'
+c     ngravtree=-1 (automatic): which of 0, 1 and 2 is used is decided in gravtree_auto, called by the first gravquant, when the number of
+c     particles is known; here only whether there is a gpu that can walk the tree is found (ngravgpuok, in the block below)
+      ngravgpuok=0
+      itreeok=0
+      if(ngravtree.eq.-1) call gpu_tree_available(itreeok)
       if(ngravtree.eq.2) then
 c     the visit of the tree on the gpus needs the library with CUDA (the cpu build and the Metal one say no)
          call gpu_tree_available(itreeok)
@@ -847,7 +854,7 @@ c     the visit of the tree on the gpus needs the library with CUDA (the cpu bui
          endif
          if(nleafgrav.gt.32) stop 'init: ngravtree=2 needs nleafgrav<=32 (a leaf is one warp of the gpu)'
       endif
-      if(ngravtree.ne.0) then
+      if(ngravtree.gt.0) then
          nusegpus=1
          nselfgravity=1
 c     ngravtree=1 does the gravity on the cpus: every rank (up to ngravprocsmax) does its range.  ngravtree=2 is on the gpus as the
@@ -865,6 +872,13 @@ c      call system('env')
 !     Convert the string to an integer
          read(slurm_gpu_count_str, *, IOSTAT=ierr) slurm_gpu_count
 c         write(200+myrank,*) slurm_gpu_count, ierr
+         if(ngravtree.eq.-1 .and.
+     $        ((ierr == 0 .and. slurm_gpu_count.gt.0) .or.
+     $        actual_gpu_count.gt.0)) then
+            ngravgpuok=1
+c     a gpu build whose library cannot walk the tree (Metal) keeps the direct sum
+            if(itreeok.eq.0) ngravgpuok=2
+         endif
          if (ierr == 0 .and. slurm_gpu_count.gt.0) then
             if(ngravprocs.eq.0 .or. abs(ngravprocs).gt.slurm_gpu_count)then
                ngravprocs=-slurm_gpu_count
@@ -951,6 +965,62 @@ c     energy*.sph and log*.sph
 
  100  stop 'init: error reading input file sph.input'
 
+      end
+************************************************************************
+      subroutine gravtree_auto
+c     ngravtree=-1: chooses the gravity once, when the number of particles ntot is known (the first gravquant), from nothing but ntot,
+c     ngravtreeauto and the gpus, so that the choice is the same in every run and every restart (never from a time measured):
+c       no gravity (ngr=0), no self-gravity (nselfgravity=0), or a tree that cannot be made (treeacc, nleafgrav): 0
+c       no gpu (cpu build, or no gpu on the node): 1, the tree on the cpus
+c       a gpu that cannot walk the tree (the Metal build): 0, the direct sum on the gpu
+c       a gpu that can, and ntot < ngravtreeauto: 0, the direct sum on the gpus;  ntot >= ngravtreeauto: 2, the tree walked on the gpus
+c     (nleafgrav>32 does not fit the tree on the gpu: the direct sum then).  The choice of rank 0 is the one all the ranks take.  The
+c     settings that get_input makes for the value chosen are made here.
+      include 'starsmasher.h'
+      include 'mpif.h'
+      integer choice,ierr
+      character*120 why
+      character*40 desc
+      character*24 snum,sthr
+      character*300 msg
+      write(snum,'(i0)') ntot
+      write(sthr,'(i0)') ngravtreeauto
+      choice=0
+      if(ngr.eq.0) then
+         why='ngr=0 (no gravity)'
+      else if(nselfgravity.ne.1) then
+         why='nselfgravity=0 (the tree needs self-gravity)'
+      else if(treeacc.lt.0.d0 .or. nleafgrav.lt.1) then
+         why='treeacc or nleafgrav not valid for a tree'
+      else if(ngravgpuok.eq.0) then
+         choice=1
+         why='N='//trim(snum)//' and no GPU available'
+      else if(ngravgpuok.eq.2) then
+         why='N='//trim(snum)//' and a GPU that cannot walk the tree (Metal)'
+      else if(nleafgrav.gt.32) then
+         why='N='//trim(snum)//', a GPU, but nleafgrav>32 does not fit the tree on the GPU'
+      else if(ntot.lt.ngravtreeauto) then
+         why='N='//trim(snum)//' < ngravtreeauto='//trim(sthr)//' and a GPU'
+      else
+         choice=2
+         why='N='//trim(snum)//' >= ngravtreeauto='//trim(sthr)//' and a GPU'
+      endif
+      call mpi_bcast(choice,1,mpi_integer,0,mpi_comm_world,ierr)
+      ngravtree=choice
+      if(choice.gt.0) then
+         nusegpus=1
+         nselfgravity=1
+         if(choice.eq.1) ngravprocs=min(nprocs,ngravprocsmax)
+      endif
+      if(myrank.eq.0) then
+         if(choice.eq.0) desc='direct sum'
+         if(choice.eq.1) desc='tree on the CPUs'
+         if(choice.eq.2) desc='tree walked on the GPU'
+         write(msg,'(a,i0,a)') 'gravity: ngravtree=-1 (auto): '//trim(why)//' -> ngravtree=',choice,' ('//trim(desc)//')'
+         write(69,'(a)') trim(msg)
+         write(6,'(a)') trim(msg)
+      endif
+      return
       end
 ************************************************************************
       subroutine stride_setup

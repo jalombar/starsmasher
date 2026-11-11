@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **107** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **108** settings.
 
 
 .. _sph-input-time-and-output:
@@ -441,7 +441,11 @@ Parallelism and GPUs
    * - ``ngravtree``
      - ``0``
      - every run
-     - gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), using the threads of every rank and no gpu.  2: the same tree walked on the gpus (CUDA build, nleafgrav<=32).  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads or gpus, but it does not conserve momentum and angular momentum to machine precision
+     - gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), using the threads of every rank and no gpu.  2: the same tree walked on the gpus (CUDA build, nleafgrav<=32).  -1: chosen once from the number of particles N and the gpus: see ngravtreeauto.  The tree needs nselfgravity=1 (set when it is used) and does not conserve momentum and angular momentum to machine precision
+   * - ``ngravtreeauto``
+     - ``299000``
+     - every run
+     - ngravtree=-1 only: with a gpu, the direct sum (0) is used below this number of particles and the tree walked on the gpu (2) from it up; with no gpu, the tree on the cpus (1).  0 is used for ngr=0, no self-gravity or an invalid tree setting.  The choice is written in log0.sph.  Measured on one kind of node (63 cores, Blackwell gpus): other hardware may need another value
    * - ``treeacc``
      - ``0.45d0``
      - every run

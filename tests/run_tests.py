@@ -133,14 +133,17 @@ def t_ranks(ctx):
     return 'np=1 and np=%d agree on W, U and Etot to 1e-6' % ctx.np
 
 def tree2_extra():
-    """True when STARSMASHER_TEST_EXTRA asks for ngravtree=2: the GPU build then runs the tree on the GPU and the
-    CPU build the tree on the CPUs (ngravtree=1), which differ by the rounding of the float arithmetic.  The stars
-    that the two builds make in the relaxation differ by that rounding amplified by the opening of the nodes (a
-    tree force is not continuous in the positions), so cpu_gpu and block_cpu_gpu compare them with wider limits:
-    5e-6 and 2e-4, against 1e-6 and 1e-5 for the direct sum.  The worst differences measured in eight runs (the
-    star of 2000 and of 10000 particles, 2 and 4 ranks, with and without OpenMP) are 1.1e-6 in cpu_gpu and 2.5e-5
-    in block_cpu_gpu."""
-    return 'ngravtree=2' in os.environ.get('STARSMASHER_TEST_EXTRA', '').replace(' ', '')
+    """True when STARSMASHER_TEST_EXTRA asks for ngravtree=2 or -1: the GPU build then runs the tree on the GPU
+    (with -1, below ngravtreeauto, the direct sum) and the CPU build the tree on the CPUs (ngravtree=1), which
+    differ by the rounding of the float arithmetic (and by the error of the tree).  The stars that the two builds
+    make in the relaxation differ by that, amplified by the opening of the nodes (a tree force is not continuous
+    in the positions), so cpu_gpu and block_cpu_gpu compare them with wider limits: 5e-6 and 2e-4, against 1e-6
+    and 1e-5 for the direct sum.  The worst differences measured in sixteen runs (the star of 2000 and of 10000
+    particles, 2 and 4 ranks, with and without OpenMP, ngravtree=2 and -1) are 1.2e-6 in cpu_gpu and 5.6e-5 in
+    block_cpu_gpu."""
+    e = os.environ.get('STARSMASHER_TEST_EXTRA', '').replace(' ', '')
+    return 'ngravtree=2' in e or 'ngravtree=-1' in e
+
 
 def t_cpu_gpu(ctx):
     """The CPU and GPU builds must agree."""
@@ -491,6 +494,57 @@ def t_guard_periodic(ctx):
         raise Fail('expected the padding guard to stop the run\n' + text[-800:])
     return 'stopped with: search radius exceeds periodic padding'
 
+def t_gravity_auto(ctx):
+    """ngravtree=-1 chooses the gravity from the number of particles and writes the choice in the log.
+
+    The GPU build takes the direct sum (0) below ngravtreeauto and the tree walked on the GPU (2) from
+    it up; the CPU build takes the tree on the CPUs (1).  The star has n particles (read from the log,
+    a few less than POLY['n']): with ngravtreeauto=n+1 it is below the threshold, with ngravtreeauto=n
+    at it.  Each run is compared, row by row and exactly, with the run that sets the chosen value by
+    hand, so the choice gives the bits of the value it chose.
+    """
+    out = []
+    n = None
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        if not exe:
+            continue
+        cpu = exe.endswith('_cpu_sph')
+        if n is None:
+            # the star has a few particles less than POLY['n'] (the lattice): read the number the
+            # code reports
+            d0 = ctx.dir('auto_n')
+            run(exe, d0, np=ctx.np, ngravtree=-1, ngravtreeauto=10 ** 9,
+                **dict(POLY, tf=0.1, dtout=1))
+            m0 = re.search(r'ngravtree=-1 \(auto\):[^\n]*N=(\d+)',
+                           open(os.path.join(d0, 'log0.sph')).read())
+            if not m0:
+                raise Fail('no "gravity: ngravtree=-1 (auto): N=..." line in log0.sph')
+            n = int(m0.group(1))
+        for thr, want_gpu in ((n + 1, 0), (n, 2)):
+            want = 1 if cpu else want_gpu
+            s = dict(POLY, tf=1, dtout=1)
+            d = ctx.dir('auto_%s_%d' % (tag, thr))
+            p, e = run(exe, d, np=ctx.np, ngravtree=-1, ngravtreeauto=thr, **s)
+            log = os.path.join(d, 'log0.sph')
+            text = open(log).read() if os.path.exists(log) else ''
+            m = re.search(r'gravity: ngravtree=-1 \(auto\):[^\n]*-> ngravtree=(\d)', text)
+            if not m:
+                raise Fail('%s build, ngravtreeauto=%d: no "gravity: ngravtree=-1 (auto)" line in '
+                           'log0.sph\n' % (tag, thr) + (p.stdout + p.stderr)[-800:])
+            if int(m.group(1)) != want:
+                raise Fail('%s build, N=%d, ngravtreeauto=%d: chose ngravtree=%s, expected %d\n%s'
+                           % (tag, n, thr, m.group(1), want, m.group(0)))
+            if 'N=%d' % n not in m.group(0) and not cpu:
+                raise Fail('the log line does not say N=%d: %s' % (n, m.group(0)))
+            auto = energies(e)
+            d2 = ctx.dir('hand_%s_%d' % (tag, thr))
+            _, e2 = run(exe, d2, np=ctx.np, ngravtree=want, ngravtreeauto=thr, **s)
+            if energies(e2) != auto:
+                raise Fail('%s build, ngravtree=-1 and ngravtree=%d by hand do not give the same '
+                           'energies' % (tag, want))
+            out.append('%s N=%d thr=%d -> %d' % (tag, n, thr, want))
+    return 'chosen as expected and the same bits as by hand: ' + '; '.join(out)
+
 TESTS = {
     'virial':           t_virial,
     'energy':           t_energy,
@@ -500,6 +554,7 @@ TESTS = {
     'block_cpu_gpu':    t_block_cpu_gpu,
     'gpu_hilo':         t_gpu_hilo,
     'gpu_tree':         t_gpu_tree,
+    'gravity_auto':     t_gravity_auto,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,
