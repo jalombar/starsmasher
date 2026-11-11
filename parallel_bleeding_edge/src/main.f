@@ -285,6 +285,7 @@ c     hydro), while myrank=2,3,4,5,6,7 do hydro (and no gravity):
          call gpu_init_dev(myrank/((nprocs+ppn-1)/ppn), theta_angle) ! if the gpus are set up in device exclusive mode,
                                    ! then you probably won't want to do this
          call gpu_set_hilo(ngravhilo)
+         call gpu_set_ndev(myrank/((nprocs+ppn-1)/ppn), ngpuperrank, ngravprocs)
          write(6,"('myrank=',I3,' is running on ',A,' with gpu',i3)")
      $        myrank,
      $        trim(name),

@@ -66,3 +66,25 @@ The result is deterministic, but not the same bits as ``ngravoverlap = 0``: the
 force sums are grouped differently, which changes them in the last digits.  The
 energy is conserved as well as without it.  It is not used with block time steps
 (``nblock = 1``) or with the tree on the CPUs.
+
+Several GPUs for one process
+----------------------------
+
+By default each process that does gravity (up to ``ngravprocs`` of them) uses one
+GPU.  ``ngpuperrank = N`` lets a process use ``N`` GPUs: the process with local
+number *r* on its node uses the GPUs *r*\ N to *r*\ N + N - 1.  Each of them sorts
+all the particles in the same order, takes a run of whole blocks of the sorted
+list and sums over all the other particles with the same division as a single
+GPU, so **the forces have the same bits for any** ``N``, however the blocks are
+shared.  The blocks are shared in proportion to the speed each GPU showed in the
+last calls, which moves only the borders between the runs; a warning is written
+when the GPUs of a process are out of balance (the slowest more than 10% above
+the mean) in three calls in a row.  ``ngpuperrank = 0`` divides all the GPUs of
+the node among the gravity processes.
+
+This is the way to use all the GPUs of a node from a single process that has all
+the cores (``-np 1`` with the OpenMP build): the preparation of the particles
+and the sort are done by every GPU, so the gain is smaller than the number of
+GPUs for a small number of particles.  It works with ``ngravoverlap = 1``.  The
+tree gravity on the CPUs does not use the GPUs, and the block time steps use
+the first GPU of the process only.
