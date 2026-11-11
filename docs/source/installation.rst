@@ -185,6 +185,22 @@ and the run is ``OMP_NUM_THREADS=7 OMP_PLACES=cores OMP_PROC_BIND=close mpirun
 --rankfile rankfile -np 8 -x OMP_NUM_THREADS -x OMP_PLACES -x OMP_PROC_BIND
 ./parallel_bleeding_edge_gpu_sph``.
 
+Building for the processor
+--------------------------
+
+By default the code is compiled for a generic x86-64 processor; the tree
+gravity (``gravtree.f90`` and ``gravpair.f90``) has flags of its own,
+``TREEFLAGS``, which need AVX2.  ``make MARCH=native`` adds ``-march=native`` to
+the flags of every Fortran, C and C++ file, the host code of the CUDA library
+included, and replaces the ``-mavx2 -mfma`` of ``TREEFLAGS``, so that the
+compiler can use everything the processor has (AVX-512, fused multiply-add).
+``MARCH`` can also be the name of an architecture (``MARCH=znver5``), which is
+what to use to build on one machine for another; ``make config`` prints it.  The
+bits of the results change with ``MARCH`` (fused multiply-add changes the
+rounding, and wider vectors the order of some sums in the compiler's hands) but,
+as with the default, they do not depend on the number of threads.  Change
+``MARCH`` and the next ``make`` rebuilds every file.
+
 Checking that it works
 ----------------------
 
