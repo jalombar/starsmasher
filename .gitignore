@@ -17,3 +17,4 @@
 *__*.f90
 *_gpu_sph
 *_cpu_sph
+parallel_bleeding_edge/src/SPHgrav_lib2/cu_flags.stamp

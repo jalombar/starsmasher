@@ -34,6 +34,9 @@
       logical active(nmax)
       integer i,j,in,k,knat,kmx,ierr,nact,nwake,nalist
       integer alist(nmax)
+!     the large work arrays are not kept between calls, but they are static (the OpenMP
+!     build would otherwise put them on the stack): this routine only runs in the master thread
+      save axs,ays,azs,uds,dxp,dyp,dzp,knew,active,alist
 !     refresh marking: below this many active particles, the direct loop
 !     over active particles is cheaper than building and searching a tree
 !     (and the tree is never built for fewer than 8, which kdtree2 needs)

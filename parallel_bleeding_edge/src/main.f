@@ -6,6 +6,7 @@ c primary developer: jamie lombardi (jamie.lombardi@allegheny.edu)
 c 
 c *****************************************
 
+      use omp_utils
       include 'starsmasher.h'
       include 'mpif.h'
 
@@ -20,14 +21,19 @@ c *****************************************
       omeg=0.d0
       gonedynamic=.false.
 
-c mpi initialization:
-      call mpi_init(ierr)
+c mpi initialization (MPI_Init_thread with MPI_THREAD_FUNNELED when built
+c with OPENMP=1: only the master thread of each rank calls MPI and CUDA):
+      call omp_mpi_init(ierr)
       call mpi_comm_rank(mpi_comm_world,myrank,ierr)
       call mpi_comm_size(mpi_comm_world,nprocs,ierr)
+c threads per rank: OMP_NUM_THREADS if it is set; else 1 when there are
+c several ranks, the OpenMP default when there is only one
+      call omp_setup(nprocs)
       omega2=0
       call init
 
       if(myrank.eq.0) write(69,*) 'nprocs=',nprocs
+      call omp_report(myrank,nprocs)
 
 c      if(myrank.eq.0) then
 cc         open(72,file='energy.sph', status='unknown')
@@ -127,7 +133,7 @@ c     main iteration
       include 'starsmasher.h'                                         
       include 'mpif.h'
 
-      if(myrank.eq.nprocs-1)call cpu_time(time1)
+      if(myrank.eq.nprocs-1)call wall_time(time1)
 
 c      if (mod(nit, 100) .eq. 0) then
 c        write (6, '(a)')  'sorting particle in peano-hilber order'
@@ -140,7 +146,7 @@ c      end if
 
 
       if(myrank.eq.nprocs-1) then
-         call cpu_time(time2)
+         call wall_time(time2)
          seconds = time2-time1
          write (6,'(a,f6.3,a)')
      $     'mainit: ',seconds
@@ -366,13 +372,13 @@ c     the first call to a gpu is usually slow, so let's not time this one:
                imax=2
                do logq=0,2
                   qtest=2**logq
-                  call cpu_time(time0)
+                  call wall_time(time0)
                   do i=1,imax
                      call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength, x,y,z,
      $                    am, range, qtest, nkernel)
                      call lasthalf_grav_forces(ntot, gx, gy,gz, grpot)
                   enddo
-                  call cpu_time(time1)
+                  call wall_time(time1)
                   write(6,*)myrank,'average time=',(time1-time0)/imax,
      $                 'for q=',qtest
                   if(time1-time0 .lt. mintime)then

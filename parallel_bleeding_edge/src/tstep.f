@@ -2,6 +2,7 @@ c
 c     update timestep
 c***********************************************************************
       subroutine tstep
+      use omp_utils
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 dtiacc,dtivel,dtvelmin(2),dtaccmin(2),dtiacc4,dtacc4min(2)
@@ -16,6 +17,12 @@ c***********************************************************************
       real*8 mydtvelco(2),mydtaccco(2)
       integer idtvel,idtacc,idtu,idtacc4, ierr
       integer idtvelco,idtaccco
+c     the minima over the particles are found in blocks of fixed size and
+c     combined in block order, which gives the first particle that reaches the
+c     minimum whatever the number of threads (the minima themselves would be
+c     the same anyway; the index goes to the log)
+      integer ib,nb,nown,npoint
+      real*8 bvl,bvi,bal,bai,bul,bui,b4l,b4i,bdt,bcvl,bcvi,bcal,bcai,bdtp
 c     start-up ramp (see below)
       logical ramp,firstcall
       real*8 dtlast
@@ -46,11 +53,27 @@ c     substeps since the last full synchronization
       mydt=1.d30                ! overall minimum dt (on this myrank process)
 
       if(nblock.eq.1) then
+!$omp parallel do schedule(static) private(i)
          do i=1,ntot
             dtpart(i)=1.d30
          enddo
       endif
-      do i=n_lower,n_upper
+      nown=n_upper-n_lower+1
+      nb=nblk(nown,redblock_fine)
+      call reserve_rpart(9,nb)
+!$omp parallel do schedule(static) private(ib,i,dtivel,dtiacc,dtiu,dtiacc4,bvl,bvi,bal,bai,bul,bui,b4l,b4i,bdt)
+      do ib=1,nb
+      bvl=1.d30
+      bvi=0.d0
+      bal=1.d30
+      bai=0.d0
+      bul=1.d30
+      bui=0.d0
+      b4l=1.d30
+      b4i=0.d0
+      bdt=1.d30
+      do i=n_lower+(ib-1)*redblock_fine,
+     $     min(n_lower+ib*redblock_fine-1,n_upper)
          if(u(i).ne.0.d0) then
 c            dtivel=cn1*hp(i)/sqrt(uijmax(i))
             dtivel=cn1*hp(i)/sqrt(max(uijmax(i),
@@ -76,27 +99,56 @@ c               dtiu=cn3*u(i)/dabs(udot(i) + (ueq(i)-u(i))*(1-exp(-dth/tthermal(
             dtiacc4=cn4*sqrt(uijmax(i))/((vxdot(i)-vxdotsm(i))**2
      $           +(vydot(i)-vydotsm(i))**2
      $           +(vzdot(i)-vzdotsm(i))**2)**0.5d0
-            if(dtivel.lt.mydtvel(1)) then
-               mydtvel(1)=dtivel
-               mydtvel(2)=i
+            if(dtivel.lt.bvl) then
+               bvl=dtivel
+               bvi=i
             endif
-            if(dtiacc.lt.mydtacc(1)) then
-               mydtacc(1)=dtiacc
-               mydtacc(2)=i
+            if(dtiacc.lt.bal) then
+               bal=dtiacc
+               bai=i
             endif
-            if(dtiu.lt.mydtu(1)) then
-               mydtu(1)=dtiu
-               mydtu(2)=i
+            if(dtiu.lt.bul) then
+               bul=dtiu
+               bui=i
             endif
-            if(dtiacc4.lt.mydtacc4(1)) then
-               mydtacc4(1)=dtiacc4
-               mydtacc4(2)=i
+            if(dtiacc4.lt.b4l) then
+               b4l=dtiacc4
+               b4i=i
             endif
-            mydt=min(mydt,(1.d0/dtivel+1.d0/dtiacc+1.d0/dtiu
+            bdt=min(bdt,(1.d0/dtivel+1.d0/dtiacc+1.d0/dtiu
      $            +1.d0/dtiacc4)**(-1.d0))
             if(nblock.eq.1) dtpart(i)=min(dtpart(i),(1.d0/dtivel
      $           +1.d0/dtiacc+1.d0/dtiu+1.d0/dtiacc4)**(-1.d0))
          endif
+      enddo
+      rpart(1,ib)=bvl
+      rpart(2,ib)=bvi
+      rpart(3,ib)=bal
+      rpart(4,ib)=bai
+      rpart(5,ib)=bul
+      rpart(6,ib)=bui
+      rpart(7,ib)=b4l
+      rpart(8,ib)=b4i
+      rpart(9,ib)=bdt
+      enddo
+      do ib=1,nb
+         if(rpart(1,ib).lt.mydtvel(1)) then
+            mydtvel(1)=rpart(1,ib)
+            mydtvel(2)=rpart(2,ib)
+         endif
+         if(rpart(3,ib).lt.mydtacc(1)) then
+            mydtacc(1)=rpart(3,ib)
+            mydtacc(2)=rpart(4,ib)
+         endif
+         if(rpart(5,ib).lt.mydtu(1)) then
+            mydtu(1)=rpart(5,ib)
+            mydtu(2)=rpart(6,ib)
+         endif
+         if(rpart(7,ib).lt.mydtacc4(1)) then
+            mydtacc4(1)=rpart(7,ib)
+            mydtacc4(2)=rpart(8,ib)
+         endif
+         mydt=min(mydt,rpart(9,ib))
       enddo
 
 
@@ -106,7 +158,13 @@ c     partner j it owns, so the work is shared instead of falling on the rank
 c     that owns the point particle, and the minima are combined below.  hp of
 c     a point particle is broadcast from its owner first, since otherwise only
 c     the gravity processes are sure to hold its current value.
+      npoint=0
+!$omp parallel do schedule(static) private(i) reduction(+:npoint)
       do i=1,ntot
+         if(u(i).eq.0.d0) npoint=npoint+1
+      enddo
+      do i=1,ntot
+         if(npoint.eq.0) exit
          if(u(i).ne.0.d0) cycle
          do irank=0,nprocs-1
             if(i.gt.displs(irank+1) .and.
@@ -116,7 +174,18 @@ c     the gravity processes are sure to hold its current value.
                exit
             endif
          enddo
-         do j=n_lower,n_upper
+c     the partners j are shared among the threads in fixed blocks, with the
+c     partial minima combined in block order
+         call reserve_rpart(5,nb)
+!$omp parallel do schedule(static) private(ib,j,rij,vij,vdotij,dtivel,dtiacc,bcvl,bcvi,bcal,bcai,bdtp)
+         do ib=1,nb
+            bcvl=1.d30
+            bcvi=0.d0
+            bcal=1.d30
+            bcai=0.d0
+            bdtp=1.d30
+            do j=n_lower+(ib-1)*redblock_fine,
+     $           min(n_lower+ib*redblock_fine-1,n_upper)
             if(j.ne.i)then
                rij=((x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
      $                 +cn7*hp(i)**2)**0.5d0
@@ -128,24 +197,40 @@ c     the gravity processes are sure to hold its current value.
      $                 +(vzdot(i)-vzdot(j))**2)**0.5d0
                dtivel=cn5*rij/vij
                dtiacc=cn6*(rij/vdotij)**0.5d0
-               if(dtivel.lt.mydtvelco(1)) then
-                  mydtvelco(1)=dtivel
-                  mydtvelco(2)=j
+               if(dtivel.lt.bcvl) then
+                  bcvl=dtivel
+                  bcvi=j
                endif
-               if(dtiacc.lt.mydtaccco(1)) then
-                  mydtaccco(1)=dtiacc
-                  mydtaccco(2)=j
+               if(dtiacc.lt.bcal) then
+                  bcal=dtiacc
+                  bcai=j
                endif
-               mydt=min(mydt,(1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
+               bdtp=min(bdtp,(1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
 c     block steps: the pairwise limit protects both partners, since gas
 c     particles have no acceleration criterion of their own (cn2=cn4=1e30)
                if(nblock.eq.1) then
-                  dtpart(i)=min(dtpart(i),
-     $                    (1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
                   dtpart(j)=min(dtpart(j),
      $                    (1.d0/dtivel+1.d0/dtiacc)**(-1.d0))
                endif
             endif
+            enddo
+            rpart(1,ib)=bcvl
+            rpart(2,ib)=bcvi
+            rpart(3,ib)=bcal
+            rpart(4,ib)=bcai
+            rpart(5,ib)=bdtp
+         enddo
+         do ib=1,nb
+            if(rpart(1,ib).lt.mydtvelco(1)) then
+               mydtvelco(1)=rpart(1,ib)
+               mydtvelco(2)=rpart(2,ib)
+            endif
+            if(rpart(3,ib).lt.mydtaccco(1)) then
+               mydtaccco(1)=rpart(3,ib)
+               mydtaccco(2)=rpart(4,ib)
+            endif
+            mydt=min(mydt,rpart(5,ib))
+            if(nblock.eq.1) dtpart(i)=min(dtpart(i),rpart(5,ib))
          enddo
       enddo
 

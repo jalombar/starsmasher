@@ -125,6 +125,7 @@ c     would read trelax0auto before anything set it.
          trelaxmin=1.d30
          trelaxmax=-1.d30
 
+!$omp parallel do schedule(static) private(i) firstprivate(trelaxuse) reduction(min:trelaxmin) reduction(max:trelaxmax)
          do i=1,ntot
             if(trelax.lt.0.d0) then
                trelaxuse=-trelax/rho(i)**0.5d0
@@ -141,6 +142,7 @@ c     would read trelax0auto before anything set it.
          if(.not. gonedynamic) call getomega2
 c     add in centrifugal acceleration, since velocity is measured in 
 c     corotating frame
+!$omp parallel do schedule(static) private(i)
          do i=1,ntot
             vxdot(i)=vxdot(i)-vx(i)/trelaxeff+omega2*x(i)                     
             vydot(i)=vydot(i)-vy(i)/trelaxeff+omega2*y(i)                     
@@ -150,6 +152,7 @@ c     corotating frame
          if(.not. gonedynamic) call getomega2
 c     add in centrifugal and coriolis acceleration, since velocity
 c     is measured in corotating frame
+!$omp parallel do schedule(static) private(i)
          do i=1,ntot
             vxdot(i)=vxdot(i)-vx(i)/trelaxeff+omega2*x(i)+2.d0*omeg*vy(i)
             vydot(i)=vydot(i)-vy(i)/trelaxeff+omega2*y(i)-2.d0*omeg*vx(i)

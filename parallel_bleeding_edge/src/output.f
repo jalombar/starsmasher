@@ -49,13 +49,13 @@ c     myrank=0 needs the rho, divv values to make the output file
 
          if(myrank.ne.0) return
 
-         call cpu_time(time1)
+         call wall_time(time1)
          write (69,*) 'checkpt: writing local checkpt file at nit=',
      $        nit
          open(12,file='restartrad.sph',form='unformatted',err=100)
          call dump(12)
          close (12)
-         call cpu_time(time2)
+         call wall_time(time2)
          seconds = time2-time1
          write (6,*) 'restartrad:',seconds,'s'
       endif
@@ -137,6 +137,7 @@ c     (if dtout<0, interpret as a number of iterations)
       end
 ********************************************************************
       subroutine enout(printingenergytofile)
+      use omp_utils
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
@@ -159,6 +160,12 @@ c     (if dtout<0, interpret as a number of iterations)
       real*8 myhpmin(2),hpmin(2),myhpmax(2),hpmax(2)
       real*8 mypmin(2),pmin(2),mypmax(2),pmax(2)
       integer ierr,i
+c     the sums of enout are made of partial sums over fixed blocks of
+c     particles, added in block order (see omp_utils), so that their bits
+c     do not depend on the number of threads
+      integer ib,nb,nspecial,nown
+      real*8 bs(10),bm(6)
+      real*8 bsm(5),bmm(20)
       double precision mynneavr,nneavr,mynnesig,nnesig
       double precision myeint,mystot,myekin
       real*8 rhocgs, ucgs, temperature, ugas
@@ -192,33 +199,65 @@ c     find system box and center of mass:
          ajz=0.d0
 c     omeg=sqrt(omega2)
          if(nrelax.eq.2) write(69,*)'enout: omeg=',omeg
-         do i=1,ntot
-            xmin=min(x(i),xmin)
-            ymin=min(y(i),ymin)
-            zmin=min(z(i),zmin)
-            xmax=max(x(i),xmax)
-            ymax=max(y(i),ymax)
-            zmax=max(z(i),zmax)
-            amtot=amtot+am(i)
-            xcm=xcm+am(i)*x(i)
-            ycm=ycm+am(i)*y(i)
-            zcm=zcm+am(i)*z(i)
-            vcmx=vcmx+am(i)*vx(i)
-            vcmy=vcmy+am(i)*vy(i)
-            vcmz=vcmz+am(i)*vz(i)
-            if((nrelax.eq.2 .and. .not. gonedynamic) .or. nrelax.eq.3) then 
-               ajx=ajx+am(i)*(y(i)*vz(i)-z(i)*(vy(i)+omeg*x(i)))
-               ajy=ajy+am(i)*(z(i)*(vx(i)-omeg*y(i))-x(i)*vz(i))
-               ajz=ajz+
-     $              am(i)*(x(i)*(vy(i)+omeg*x(i))-y(i)*(vx(i)-omeg*y(i)))
-            else
-               xi=x(i)
-               yi=y(i)
-               zi=z(i)
-               ajx=ajx+am(i)*(yi*vz(i)-zi*vy(i))
-               ajy=ajy+am(i)*(zi*vx(i)-xi*vz(i))
-               ajz=ajz+am(i)*(xi*vy(i)-yi*vx(i))
-            endif
+         nb=nredblocks(ntot)
+         call reserve_rpart(16,nb)
+!$omp parallel do schedule(static) private(ib,i,xi,yi,zi,bs,bm)
+         do ib=1,nb
+            bm(1)=1.d30
+            bm(2)=1.d30
+            bm(3)=1.d30
+            bm(4)=-1.d30
+            bm(5)=-1.d30
+            bm(6)=-1.d30
+            bs=0.d0
+            do i=(ib-1)*redblock+1,min(ib*redblock,ntot)
+               bm(1)=min(x(i),bm(1))
+               bm(2)=min(y(i),bm(2))
+               bm(3)=min(z(i),bm(3))
+               bm(4)=max(x(i),bm(4))
+               bm(5)=max(y(i),bm(5))
+               bm(6)=max(z(i),bm(6))
+               bs(1)=bs(1)+am(i)
+               bs(2)=bs(2)+am(i)*x(i)
+               bs(3)=bs(3)+am(i)*y(i)
+               bs(4)=bs(4)+am(i)*z(i)
+               bs(5)=bs(5)+am(i)*vx(i)
+               bs(6)=bs(6)+am(i)*vy(i)
+               bs(7)=bs(7)+am(i)*vz(i)
+               if((nrelax.eq.2 .and. .not. gonedynamic) .or. nrelax.eq.3) then 
+                  bs(8)=bs(8)+am(i)*(y(i)*vz(i)-z(i)*(vy(i)+omeg*x(i)))
+                  bs(9)=bs(9)+am(i)*(z(i)*(vx(i)-omeg*y(i))-x(i)*vz(i))
+                  bs(10)=bs(10)+
+     $                 am(i)*(x(i)*(vy(i)+omeg*x(i))-y(i)*(vx(i)-omeg*y(i)))
+               else
+                  xi=x(i)
+                  yi=y(i)
+                  zi=z(i)
+                  bs(8)=bs(8)+am(i)*(yi*vz(i)-zi*vy(i))
+                  bs(9)=bs(9)+am(i)*(zi*vx(i)-xi*vz(i))
+                  bs(10)=bs(10)+am(i)*(xi*vy(i)-yi*vx(i))
+               endif
+            enddo
+            rpart(1:10,ib)=bs
+            rpart(11:16,ib)=bm
+         enddo
+         do ib=1,nb
+            amtot=amtot+rpart(1,ib)
+            xcm=xcm+rpart(2,ib)
+            ycm=ycm+rpart(3,ib)
+            zcm=zcm+rpart(4,ib)
+            vcmx=vcmx+rpart(5,ib)
+            vcmy=vcmy+rpart(6,ib)
+            vcmz=vcmz+rpart(7,ib)
+            ajx=ajx+rpart(8,ib)
+            ajy=ajy+rpart(9,ib)
+            ajz=ajz+rpart(10,ib)
+            xmin=min(rpart(11,ib),xmin)
+            ymin=min(rpart(12,ib),ymin)
+            zmin=min(rpart(13,ib),zmin)
+            xmax=max(rpart(14,ib),xmax)
+            ymax=max(rpart(15,ib),ymax)
+            zmax=max(rpart(16,ib),zmax)
          enddo
          xcm=xcm/amtot
          ycm=ycm/amtot
@@ -261,22 +300,40 @@ c     log stays at one per dtmaxblk, plus the first call, at the start.
          epot=0.d0
          if(ngr.ne.0)then
 c     do loop to get total gravitational potential energy:
-            do i=1,ntot
-               if(logit .and. (hp(i).le.0.d0 .or. u(i).eq.0.d0)) then
-                  write(69,'(a,i6,3g17.9)')
-     $                 'position of point mass',i,x(i),y(i),z(i)
-               endif
-c             if(u(i).ne.0.d0)then
-               epot=epot+am(i)*grpot(i)
-
-               if(grpot(i).ne.grpot(i)) then
-                  write(129,*) epot,i,am(i),grpot(i),hp(i),x(i),y(i),z(i),u(i)
-               endif
-
-c             else
-c              epot=epot+am(i)**2*42.d0/30.d0/hp(i) ! undo self-energy of point mass
-c             endif
+c     the sum is made by blocks.  The loop that follows it is the one that
+c     reports point masses and NaNs, and it adds up epot itself in the
+c     old way, so it runs only when there is something to report
+            nb=nredblocks(ntot)
+            call reserve_rpart(2,nb)
+!$omp parallel do schedule(static) private(ib,i)
+            do ib=1,nb
+               rpart(1,ib)=0.d0
+               rpart(2,ib)=0.d0
+               do i=(ib-1)*redblock+1,min(ib*redblock,ntot)
+                  rpart(1,ib)=rpart(1,ib)+am(i)*grpot(i)
+                  if(grpot(i).ne.grpot(i)) rpart(2,ib)=rpart(2,ib)+1.d0
+                  if(logit .and. (hp(i).le.0.d0 .or. u(i).eq.0.d0))
+     $                 rpart(2,ib)=rpart(2,ib)+1.d0
+               enddo
             enddo
+            nspecial=0
+            do ib=1,nb
+               epot=epot+rpart(1,ib)
+               nspecial=nspecial+nint(rpart(2,ib))
+            enddo
+            if(nspecial.gt.0) then
+               epot=0.d0
+               do i=1,ntot
+                  if(logit .and. (hp(i).le.0.d0 .or. u(i).eq.0.d0)) then
+                     write(69,'(a,i6,3g17.9)')
+     $                    'position of point mass',i,x(i),y(i),z(i)
+                  endif
+                  epot=epot+am(i)*grpot(i)
+                  if(grpot(i).ne.grpot(i)) then
+                     write(129,*) epot,i,am(i),grpot(i),hp(i),x(i),y(i),z(i),u(i)
+                  endif
+               enddo
+            endif
             if (epot.eq.0) then
                write(69,*) 'Problem calculating gravity: epot=0'
                stop
@@ -296,60 +353,99 @@ c     get min/max values of various quantities:
       myhpmax(1)=0
       mypmin(1)=1d30
       mypmax(1)=0
+      mynnemin(2)=0
+      mynnemax(2)=0
+      myrhomin(2)=0
+      myrhomax(2)=0
+      myumin(2)=0
+      myumax(2)=0
+      myhpmin(2)=0
+      myhpmax(2)=0
+      mypmin(2)=0
+      mypmax(2)=0
       mynneavr=0
       mynnesig=0
       myeint=0.d0
       mystot=0.d0
       myekin=0.d0
-      do i=n_lower,n_upper
-         if(nn(i).lt.mynnemin(1))then
-            mynnemin(1)=nn(i)
-            mynnemin(2)=i
+      nown=n_upper-n_lower+1
+      nb=nblk(nown,redblock_fine)
+      call reserve_rpart(25,nb)
+c     the equation of state inversion costs more in some blocks than in others (the core, the envelope): blocks are handed out
+c     dynamically; each block has its own partial sum, so the bits do not depend on who does it
+!$omp parallel do schedule(dynamic,4) private(ib,i,bsm,bmm,pressi,rhocgs,ucgs,temperature,ugas,v2i)
+      do ib=1,nb
+         bmm(1)=nmax
+         bmm(2)=0.d0
+         bmm(3)=0.d0
+         bmm(4)=0.d0
+         bmm(5)=1d30
+         bmm(6)=0.d0
+         bmm(7)=0.d0
+         bmm(8)=0.d0
+         bmm(9)=1d30
+         bmm(10)=0.d0
+         bmm(11)=0.d0
+         bmm(12)=0.d0
+         bmm(13)=1d30
+         bmm(14)=0.d0
+         bmm(15)=0.d0
+         bmm(16)=0.d0
+         bmm(17)=1d30
+         bmm(18)=0.d0
+         bmm(19)=0.d0
+         bmm(20)=0.d0
+         bsm=0.d0
+         do i=n_lower+(ib-1)*redblock_fine,
+     $        min(n_lower+ib*redblock_fine-1,n_upper)
+         if(nn(i).lt.bmm(1))then
+            bmm(1)=nn(i)
+            bmm(2)=i
          endif
-         if(nn(i).gt.mynnemax(1))then
-            mynnemax(1)=nn(i)
-            mynnemax(2)=i
+         if(nn(i).gt.bmm(3))then
+            bmm(3)=nn(i)
+            bmm(4)=i
          endif
-         if(rho(i).lt.myrhomin(1) .and. u(i).ne.0.d0)then
-            myrhomin(1)=rho(i)
-            myrhomin(2)=i
+         if(rho(i).lt.bmm(5) .and. u(i).ne.0.d0)then
+            bmm(5)=rho(i)
+            bmm(6)=i
          endif
-         if(rho(i).gt.myrhomax(1))then
-            myrhomax(1)=rho(i)
-            myrhomax(2)=i
+         if(rho(i).gt.bmm(7))then
+            bmm(7)=rho(i)
+            bmm(8)=i
          endif
-         if(u(i).lt.myumin(1) .and. u(i).ne.0.d0)then
-            myumin(1)=u(i)
-            myumin(2)=i
+         if(u(i).lt.bmm(9) .and. u(i).ne.0.d0)then
+            bmm(9)=u(i)
+            bmm(10)=i
          endif
-         if(u(i).gt.myumax(1))then
-            myumax(1)=u(i)
-            myumax(2)=i
+         if(u(i).gt.bmm(11))then
+            bmm(11)=u(i)
+            bmm(12)=i
          endif
-         if(hp(i).lt.myhpmin(1) .and. u(i).ne.0)then
-            myhpmin(1)=hp(i)
-            myhpmin(2)=i
+         if(hp(i).lt.bmm(13) .and. u(i).ne.0)then
+            bmm(13)=hp(i)
+            bmm(14)=i
          endif
-         if(hp(i).gt.myhpmax(1) .and. u(i).ne.0)then
-            myhpmax(1)=hp(i)
-            myhpmax(2)=i
+         if(hp(i).gt.bmm(15) .and. u(i).ne.0)then
+            bmm(15)=hp(i)
+            bmm(16)=i
          endif
          pressi = por2(i)*rho(i)**2
-         if(pressi.lt.mypmin(1) .and. u(i).ne.0.d0)then
-            mypmin(1)=pressi
-            mypmin(2)=i
+         if(pressi.lt.bmm(17) .and. u(i).ne.0.d0)then
+            bmm(17)=pressi
+            bmm(18)=i
          endif
-         if(pressi.gt.mypmax(1))then
-            mypmax(1)=pressi
-            mypmax(2)=i
+         if(pressi.gt.bmm(19))then
+            bmm(19)=pressi
+            bmm(20)=i
          endif
-         mynneavr=mynneavr+nn(i)
-         mynnesig=mynnesig+nn(i)**2
+         bsm(1)=bsm(1)+nn(i)
+         bsm(2)=bsm(2)+nn(i)**2
 
          if(u(i).gt.0.d0) then
             if(nintvar.eq.1) then
 c     p=(gam-1)*rho*u=a*rho^gam, so u=a*rho^(gam-1)/(gam-1)
-               myeint=myeint+am(i)*u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
+               bsm(3)=bsm(3)+am(i)*u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
                ucgs=u(i)*rho(i)**(gam-1.d0)/(gam-1.d0)
      $              *gravconst*munit/runit
             else if(nintvar.eq.3) then
@@ -360,9 +456,9 @@ c     temperature before it can be added to the energy budget.
      $              temperature)
                ucgs=1.5d0*boltz*temperature/meanmolecular(i)
      $              +arad*temperature**4/rhocgs
-               myeint=myeint+am(i)*ucgs/(gravconst*munit/runit)
+               bsm(3)=bsm(3)+am(i)*ucgs/(gravconst*munit/runit)
             else
-               myeint=myeint+am(i)*u(i)
+               bsm(3)=bsm(3)+am(i)*u(i)
                ucgs=u(i)*gravconst*munit/runit
             endif
             if(neos.eq.1) then
@@ -371,16 +467,16 @@ c     temperature before it can be added to the energy budget.
      $              -ucgs*rhocgs/arad,
      $              temperature )
                ugas=1.5d0*boltz*temperature/meanmolecular(i)
-               mystot=mystot+am(i)*munit*(
+               bsm(4)=bsm(4)+am(i)*munit*(
      $              1.5d0*boltz/meanmolecular(i)*
      $              log(ugas*rhocgs**(-2.d0/3.d0)) +
      $              4.d0/3.d0*arad*temperature**3.d0/rhocgs)
             elseif(neos.eq.0) then
                if(nintvar.eq.1) then
-                  mystot=mystot+am(i)*
+                  bsm(4)=bsm(4)+am(i)*
      $                 log(u(i))/(gam-1.d0)
                else
-                  mystot=mystot+am(i)*
+                  bsm(4)=bsm(4)+am(i)*
      $                 log(u(i)*rho(i)**(1.d0-gam))/(gam-1.d0)
                endif
             elseif(neos.eq.2)then
@@ -395,8 +491,60 @@ c     so updating the entropy calculation is a low priority.
          else 
             v2i=vx(i)**2+vy(i)**2+vz(i)**2
          endif
-         myekin=myekin+am(i)*v2i
+         bsm(5)=bsm(5)+am(i)*v2i
 
+         enddo
+         rpart(1:20,ib)=bmm
+         rpart(21:25,ib)=bsm
+      enddo
+c     the partial results of the blocks, combined in block order (the first
+c     particle to reach a minimum or maximum, as the plain loop gave)
+      do ib=1,nb
+         if(rpart(1,ib).lt.mynnemin(1)) then
+            mynnemin(1)=nint(rpart(1,ib))
+            mynnemin(2)=nint(rpart(2,ib))
+         endif
+         if(rpart(3,ib).gt.mynnemax(1)) then
+            mynnemax(1)=nint(rpart(3,ib))
+            mynnemax(2)=nint(rpart(4,ib))
+         endif
+         if(rpart(5,ib).lt.myrhomin(1)) then
+            myrhomin(1)=rpart(5,ib)
+            myrhomin(2)=rpart(6,ib)
+         endif
+         if(rpart(7,ib).gt.myrhomax(1)) then
+            myrhomax(1)=rpart(7,ib)
+            myrhomax(2)=rpart(8,ib)
+         endif
+         if(rpart(9,ib).lt.myumin(1)) then
+            myumin(1)=rpart(9,ib)
+            myumin(2)=rpart(10,ib)
+         endif
+         if(rpart(11,ib).gt.myumax(1)) then
+            myumax(1)=rpart(11,ib)
+            myumax(2)=rpart(12,ib)
+         endif
+         if(rpart(13,ib).lt.myhpmin(1)) then
+            myhpmin(1)=rpart(13,ib)
+            myhpmin(2)=rpart(14,ib)
+         endif
+         if(rpart(15,ib).gt.myhpmax(1)) then
+            myhpmax(1)=rpart(15,ib)
+            myhpmax(2)=rpart(16,ib)
+         endif
+         if(rpart(17,ib).lt.mypmin(1)) then
+            mypmin(1)=rpart(17,ib)
+            mypmin(2)=rpart(18,ib)
+         endif
+         if(rpart(19,ib).gt.mypmax(1)) then
+            mypmax(1)=rpart(19,ib)
+            mypmax(2)=rpart(20,ib)
+         endif
+         mynneavr=mynneavr+rpart(21,ib)
+         mynnesig=mynnesig+rpart(22,ib)
+         myeint=myeint+rpart(23,ib)
+         mystot=mystot+rpart(24,ib)
+         myekin=myekin+rpart(25,ib)
       enddo
 
       call mpi_reduce(mynnemin,nnemin,1,mpi_2integer,mpi_minloc,0,
