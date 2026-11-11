@@ -640,6 +640,7 @@ c      end
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,ngravhilo,throwaway,
+     $     ngravtree,treeacc,nleafgrav,
      $     internal_energy_fraction,
      $     startfile3,binaryfile,triplefile,bpbhfile,
      $     imagefile,advectedfile,
@@ -740,6 +741,9 @@ c     set some default values, so that they don't necessarily have to be set in 
       ncooling=0 ! 0 if no cooling, otherwise radiative cooling
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
       ngravhilo=1 ! GPU gravity only: 1 sends each position to the card as a float plus the float's remainder, so separations keep single precision however far the pair is from the reference point (the gas centre of mass), and with block timesteps the rounding of a pair's force cancels between its two particles.  0 sends the float alone, at the same cost for the whole system and about 15% less for the active particles of block steps, but a star far from that point loses digits in its close separations, and with nblock=1 momentum and angular momentum drift
+      ngravtree=0 ! gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), which uses the threads of every rank and no gpu.  The tree needs nselfgravity=1 (set when it is used).  Its result is within treeacc of the direct sum and does not depend on the number of threads, but it does not conserve momentum and angular momentum to machine precision
+      treeacc=0.45d0 ! opening angle theta of the tree (ngravtree=1): a node is used as a whole if theta^2 r^2 > (size_A + size_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
+      nleafgrav=24 ! most particles in a leaf of the gravity tree (ngravtree=1); the particles of a leaf share one Taylor series of the far field
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
       ndtoutafter=100 ! once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
@@ -825,9 +829,21 @@ c     read in order, as for 12: 3 first, then 2.
 
       call set_nusegpus         ! if using gpus, this sets nusegpus=1 *and* nselfgravity=1
 
+c     the tree gravity (gravtree.f90) is collected as the gpu's is: nusegpus=1 and
+c     self-gravity, every rank (up to ngravprocsmax of them) does the gravity of its
+c     own range of particles
+      if(ngravtree.lt.0 .or. ngravtree.gt.1) stop 'init: ngravtree must be 0 or 1'
+      if(ngravtree.ne.0) then
+         nusegpus=1
+         nselfgravity=1
+         ngravprocs=min(nprocs,ngravprocsmax)
+         if(treeacc.lt.0.d0) stop 'init: treeacc must not be negative'
+         if(nleafgrav.lt.1) stop 'init: nleafgrav must be at least 1'
+      endif
+
 c      call system('env')
 
-      if(nusegpus.gt.0) then
+      if(nusegpus.gt.0 .and. ngravtree.eq.0) then
          call get_gpu_count(actual_gpu_count,myrank)
          call getenv('SLURM_GPUS_ON_NODE', slurm_gpu_count_str)
 !     Convert the string to an integer

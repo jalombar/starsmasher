@@ -9,6 +9,7 @@
       integer nlist,ilist(ntot)
 
       if(nusegpus.eq.0)return
+      if(ngravtree.ne.0)return ! the tree finds the gravity when it is collected (grav_collect)
 
       if(myrank.lt.ngravprocs) then
 c     each processor will compute gravity for its chunk of particles

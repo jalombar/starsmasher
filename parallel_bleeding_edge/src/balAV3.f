@@ -304,7 +304,7 @@ c      write(6,'(a)')'hydrompi_complete'
       if(ngr.ne.0 .and. myrank.lt.ngravprocs)then
          if(myrank.eq.ngravprocs-1) call wall_time(time0)
          if(nusegpus.eq.1)then
-            call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+            call grav_collect(ntot, gx, gy, gz, grpot)
          else
 c     block steps: gravity only on the active particles, unless at least
 c     90% are active, when the symmetric pair loop over all pairs is cheaper

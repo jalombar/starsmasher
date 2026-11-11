@@ -681,7 +681,7 @@ c     do loop to get total gravitational potential energy:
             call gravforce
             if(myrank.lt.ngravprocs)then
                if(nusegpus.eq.1)then
-                  call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+                  call grav_collect(ntot, gx, gy, gz, grpot)
                else
                   call get_gravity_using_cpus
                endif
