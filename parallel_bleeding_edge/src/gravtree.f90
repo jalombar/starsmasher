@@ -113,7 +113,7 @@ contains
     real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n)
     integer :: i, j
     call reserve(n, nleaf)
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
     do i = 1, n
        gxyz(1,i) = x(i)
        gxyz(2,i) = y(i)
@@ -125,7 +125,7 @@ contains
        deallocate (nd)
        allocate (nd(nfd,gtw%nidmax))
     end if
-!$omp parallel do simd schedule(static) private(i, j)
+!$omp parallel do simd schedule(static) private(j)
     do i = 1, n
        j = gind(i)
        xt(i) = gpos(1,i)
@@ -152,7 +152,7 @@ contains
     integer :: i, id, nlf
     real(dp) :: theta2
     theta2 = theta*theta
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
     do i = ilow, ihigh
        gx(i) = 0.d0
        gy(i) = 0.d0
