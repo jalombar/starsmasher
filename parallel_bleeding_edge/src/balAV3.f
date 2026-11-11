@@ -414,7 +414,7 @@ c     with one rank there is nothing to add: the accelerations are the ones give
       if(blkdist .and. nblock.eq.1) then
 c     block steps: only the accelerations of the listed particles (active, or refreshed: wall) are used afterwards, so only those
 c     are added up; the others keep what this rank has for them, which is replaced before anyone reads it
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
          do i=1,n
             vxdot(i)=ax(i)
             vydot(i)=ay(i)
