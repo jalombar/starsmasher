@@ -87,6 +87,8 @@ The CPU executable is written to:
 parallel_bleeding_edge/parallel_bleeding_edge_cpu_sph
 ```
 
+On macOS the default build is the plain MPI one (`OPENMP=0`): Apple's clang has no OpenMP. `make OPENMP=1` asks for the hybrid MPI x OpenMP build, which needs a gfortran with OpenMP (Homebrew's has it); it was not tried on a Mac.
+
 ### [2.1] Optional cpu-only builds
 
 The CPU-only build is available for debugging, validation, and comparisons, but it is not the recommended way to run StarSmasher on Apple Silicon. Apple Silicon systems already include an integrated GPU in the processor, and the current M1 Pro benchmarks show the Metal GPU build running about 5x faster than the CPU-only build for the tested StarSmasher simulations. As a rough estimate for gravity-dominated runs, Pro-class Apple Silicon chips are expected to run about 5x faster with the Metal GPU build than with the CPU-only build on the same system, while Max-class chips are expected to run about 10x faster.

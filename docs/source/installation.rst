@@ -79,8 +79,8 @@ the command line rather than editing the Makefile:
      - ``make OLEVEL=-O2``
    * - the compute capability, if ``nvidia-smi`` cannot report it
      - ``make COMPUTE_CAPABILITY=120``
-   * - whether to build with OpenMP threads (the default is ``OPENMP=0``)
-     - ``make OPENMP=1``
+   * - whether to build with OpenMP threads (the default build is hybrid MPI x OpenMP, except on macOS)
+     - ``make OPENMP=0`` for the plain MPI build
 
 Building
 --------
@@ -143,10 +143,16 @@ level up.  ``make cpu`` produces ``..._cpu_sph`` in the same place.
 Hybrid MPI x OpenMP
 -------------------
 
-``make OPENMP=1`` adds ``-fopenmp`` to the Fortran flags and to the link line
-(``make config`` shows ``OpenMP ON``).  The default, ``OPENMP=0``, is the plain
-MPI build.  With OpenMP the code starts MPI with ``MPI_THREAD_FUNNELED`` (only
-the master thread of each rank calls MPI and CUDA) and the loops that have
+The default build is hybrid: ``make`` adds ``-fopenmp`` to the Fortran flags and
+to the link line (``make config`` shows ``OpenMP ON``).  It needs a compiler with
+OpenMP, which gfortran has; if ``mpif90`` does not take ``-fopenmp`` the default
+falls back to the plain MPI build with a warning, and ``make OPENMP=1`` stops with
+an error.  ``make OPENMP=0`` gives the plain MPI build back.  On macOS the
+default is the plain MPI build (Apple's clang has no OpenMP); ``make OPENMP=1``
+asks for the hybrid one there.
+
+With OpenMP the code starts MPI with ``MPI_THREAD_FUNNELED`` (only the master
+thread of each rank calls MPI and CUDA) and the loops that have
 been made parallel use the threads of each rank.  Sums that are made in
 parallel use a fixed partition into blocks of 4096 terms, so that **the results
 do not depend on the number of threads** (they are the same bits for any
@@ -156,7 +162,8 @@ thread gives the same bits as the plain MPI build.
 The number of threads of each rank is ``OMP_NUM_THREADS`` if it is set.  If it
 is not set, a run with more than one MPI rank uses one thread per rank (so that
 the ranks do not all try to use the whole node), and a run with a single rank
-uses the OpenMP default, one thread per logical CPU.  The first lines of
+uses the OpenMP default, one thread per logical CPU (on a shared machine set
+``OMP_NUM_THREADS``, as a single rank takes every CPU it sees).  The first lines of
 ``log0.sph`` give the number of ranks, the number of threads and the cores of the
 threads of rank 0.  Pin the threads, for example::
 
