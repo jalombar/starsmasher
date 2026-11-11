@@ -58,7 +58,7 @@ c     nav=4: the pair's Riemann problem along r_ij (see riemann.f)
 
       if(nav.eq.0) then
          if(nintvar.eq.1 .or. nintvar.eq.3)then
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
             do i=1,n
                udot(i)=0.d0
             enddo
@@ -341,14 +341,14 @@ c     90% are active, when the symmetric pair loop over all pairs is cheaper
             write(6,'(a,f6.3,a,g10.3,a,i4)')'2ndhalf:',time1-time0
          endif
          if(nusegpus.eq.1)then
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
             do i=ngrav_lower,ngrav_upper
                myvxdot(i)=myvxdot(i)+gx(i)
                myvydot(i)=myvydot(i)+gy(i)
                myvzdot(i)=myvzdot(i)+gz(i)
             enddo
          else
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
             do i=1,n
                myvxdot(i)=myvxdot(i)+gx(i)
                myvydot(i)=myvydot(i)+gy(i)
@@ -366,7 +366,7 @@ c     to all processes
 
 c     Now that scaleheight has been calculated, we can include all
 c     relevant terms in the calculation of the acceleration:
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,n
          myvxdot(i)=myvxdot(i)+myvxdotgc(i)
          myvydot(i)=myvydot(i)+myvydotgc(i)
@@ -401,7 +401,7 @@ c     with one collective instead of one for each component
 
 c     with one rank there is nothing to add: the accelerations are the ones given
       if(nprocs.eq.1) then
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
          do i=1,n
             vxdot(i)=ax(i)
             vydot(i)=ay(i)
@@ -413,7 +413,7 @@ c     with one rank there is nothing to add: the accelerations are the ones give
          if(size(buf).lt.3*n) deallocate(buf)
       endif
       if(.not.allocated(buf)) allocate(buf(3*n))
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,n
          buf(i)=ax(i)
          buf(n+i)=ay(i)
@@ -421,7 +421,7 @@ c     with one rank there is nothing to add: the accelerations are the ones give
       enddo
       call mpi_allreduce(mpi_in_place,buf,3*n,mpi_double_precision,
      $     mpi_sum,mpi_comm_world,ierr)
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,n
          vxdot(i)=buf(i)
          vydot(i)=buf(n+i)

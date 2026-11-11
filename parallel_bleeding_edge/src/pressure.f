@@ -40,7 +40,7 @@ c     otherwise its own index range
          enddo
       else
          nil=n_upper-n_lower+1
-!$omp parallel do simd schedule(static) private(iw)
+!$omp parallel do simd schedule(static)
          do iw=1,nil
             ilist(iw)=n_lower+iw-1
          enddo

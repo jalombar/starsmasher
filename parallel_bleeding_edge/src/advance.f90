@@ -197,7 +197,7 @@
       dthnew=0.5d0*dt
 
 !     advance velocities:
-!$omp parallel do simd schedule(static) private(i)
+!$omp parallel do simd schedule(static)
       do i=1,n
          vx(i)=vxo(i)+(dth+dthnew)*vxdot(i) ! update vx next half-timestep
          vy(i)=vyo(i)+(dth+dthnew)*vydot(i) ! update vy next half-timestep
@@ -486,7 +486,7 @@
       endif
       ntree=n+nimg
       allocate(my_array(3,ntree))
-!$omp parallel do simd schedule(static) private(k)
+!$omp parallel do simd schedule(static)
       do k=1,n
          my_array(1,k)=x(k)
          my_array(2,k)=y(k)
@@ -1267,7 +1267,7 @@
          return
       endif
       allocate(sub2glob(nsub),sub_array(3,nsub))
-!$omp parallel do simd schedule(static) private(k)
+!$omp parallel do simd schedule(static)
       do k=1,nown
          sub2glob(k)=n_lower+k-1
       enddo
