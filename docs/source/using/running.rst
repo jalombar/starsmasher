@@ -266,7 +266,14 @@ only when particles have moved too far for it to be trusted, with a search
 radius enlarged to guarantee that every current neighbour is found.  The active
 and refreshed particles are dealt out evenly across MPI ranks, whatever their
 particle numbers, and the black hole to gas timestep check is shared the same
-way.
+way.  The loops over all the particles that every substep still has (the
+prediction of each particle, the marking of the refreshed ones, the tree for the
+smoothing lengths and the sums over the ranks) run on the OpenMP threads of the
+rank, and the sums over the ranks cover only the particles that are listed; the
+results are the same for any number of threads.  A part of the cost of a substep
+still grows with the whole number of particles, so a run with block timesteps
+need not be shorter than one with shared steps when a large fraction of the
+particles is active often.
 
 Gravity is likewise computed on the active particles only, from all particles.
 The CPU build sums the active particles' forces directly until 90% of the

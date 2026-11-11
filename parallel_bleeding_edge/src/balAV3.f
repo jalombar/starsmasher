@@ -315,7 +315,8 @@ c     90% are active, when the symmetric pair loop over all pairs is cheaper
             endif
          endif   
          if(myrank.eq.ngravprocs-1) call wall_time(time1)
-         if(ngravprocs.gt.1) then
+c     (with block steps the potential is needed only when every particle is active, for the energies)
+         if(ngravprocs.gt.1 .and. (nblock.ne.1 .or. count(actblk(1:ntot)).eq.ntot)) then
             if(nusegpus.eq.1)then
                mygravlength=ngrav_upper-ngrav_lower+1
                if(myrank.ne.0) then
@@ -397,7 +398,8 @@ c     with one collective instead of one for each component
       include 'mpif.h'
       real*8 ax(n),ay(n),az(n)
       real*8, allocatable, save :: buf(:)
-      integer i,ierr
+      real*8, allocatable :: wbuf(:)
+      integer i,k,ierr
 
 c     with one rank there is nothing to add: the accelerations are the ones given
       if(nprocs.eq.1) then
@@ -407,6 +409,36 @@ c     with one rank there is nothing to add: the accelerations are the ones give
             vydot(i)=ay(i)
             vzdot(i)=az(i)
          enddo
+         return
+      endif
+      if(blkdist .and. nblock.eq.1) then
+c     block steps: only the accelerations of the listed particles (active, or refreshed: wall) are used afterwards, so only those
+c     are added up; the others keep what this rank has for them, which is replaced before anyone reads it
+!$omp parallel do simd schedule(static)
+         do i=1,n
+            vxdot(i)=ax(i)
+            vydot(i)=ay(i)
+            vzdot(i)=az(i)
+         enddo
+         if(nwall.eq.0) return
+         allocate(wbuf(3*nwall))
+!$omp parallel do schedule(static) private(i,k)
+         do k=1,nwall
+            i=wall(k)
+            wbuf(k)=ax(i)
+            wbuf(nwall+k)=ay(i)
+            wbuf(2*nwall+k)=az(i)
+         enddo
+         call mpi_allreduce(mpi_in_place,wbuf,3*nwall,mpi_double_precision,
+     $        mpi_sum,mpi_comm_world,ierr)
+!$omp parallel do schedule(static) private(i,k)
+         do k=1,nwall
+            i=wall(k)
+            vxdot(i)=wbuf(k)
+            vydot(i)=wbuf(nwall+k)
+            vzdot(i)=wbuf(2*nwall+k)
+         enddo
+         deallocate(wbuf)
          return
       endif
       if(allocated(buf)) then

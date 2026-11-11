@@ -14,7 +14,6 @@
       implicit none
       type(kdtree2), pointer :: stree => null()
       real(kdkind), allocatable :: sxb(:,:)
-      type(kdtree2_result), allocatable :: swork(:)
       real*8 :: sdmax = 0.d0
       integer :: sn = 0
       integer*8 :: nrebuild = 0, ncalls = 0
@@ -600,9 +599,8 @@
       failneed=0
 !     The particles are independent: each one is solved by one thread, which
 !     writes only the elements of the arrays with the index of the particle
-!     and the list in its own block.  usebrute keeps one thread (brute_r2
-!     works in the arrays of stale_tree_mod).
-!$omp parallel default(shared) private(iw,it) num_threads(nthr) if(.not.usebrute)
+!     and the list in its own block.
+!$omp parallel default(shared) private(iw,it) num_threads(nthr)
       it=thread_id()+1
 !$omp do schedule(dynamic,hchunk)
       do iw=1,nloop
@@ -644,17 +642,9 @@
       call pressure
       if(blkdist) then
 !     each listed particle's values from the rank that solved it
-         call sync_w(hp)
-         call sync_w(rho)
-         call sync_w(por2)
-!     with neos=0 every Gamma_1 is gam (riemann_alloc), so there is nothing to share
-         if(nav.eq.4 .and. neos.ne.0) call sync_w(gam1p)
-         call sync_w(bonet_omega)
-         call sync_w(bonet_0mega)
-         call sync_w(bonet_psi)
-         call sync_w(hdynco)
-         call sync_w(hdynlast)
-         call sync_wi(nn)
+!     (hp, rho, por2, Gamma_1, omega, chi, psi, hdynco, hdynlast and nn in one reduction; with neos=0 every Gamma_1 is gam
+!     (riemann_alloc), so there is nothing to share)
+         call sync_wpack(hdynlast,nav.eq.4 .and. neos.ne.0)
       else if(nblock.eq.1) then
          call sync_all(hp)
          call sync_all(rho)
@@ -1692,16 +1682,19 @@
       include 'starsmasher.h'
       integer i,cnt,j,k,nf,m,gap
       real*8 r2,d2,rq
-      type(kdtree2_result) :: results(*)
+      type(kdtree2_result) :: results(n)
       type(kdtree2_result) :: tmp
       cnt=0
       if(associated(stree) .and. sn.eq.n) then
          rq=sqrt(r2)+2.d0*sdmax
+!     the search fills results (room for n elements, as every thread's scratch has for this path), and the candidates
+!     within r2 are then moved to the front of it, in the order found: cnt never gets ahead of k, so no one is overwritten
+!     before it is read.  (Each thread has its own results.)
          call kdtree2_r_nearest_around_point(tp=stree,idxin=i,&
               correltime=-1,r2=rq*rq*(1.d0+1.d-12),nfound=nf,nalloc=n,&
-              results=swork)
+              results=results)
          do k=1,nf
-            j=swork(k)%idx
+            j=results(k)%idx
             d2=(x(i)-x(j))**2+(y(i)-y(j))**2+(z(i)-z(j))**2
             if(d2.le.r2) then
                cnt=cnt+1
@@ -1757,8 +1750,7 @@
       if(.not.associated(stree) .or. sn.ne.n .or. sdmax.gt.0.25d0*hsmall) then
          if(associated(stree)) call kdtree2_destroy(stree)
          if(allocated(sxb)) deallocate(sxb)
-         if(allocated(swork)) deallocate(swork)
-         allocate(sxb(3,n),swork(n))
+         allocate(sxb(3,n))
          do k=1,n
             sxb(1,k)=x(k)
             sxb(2,k)=y(k)
