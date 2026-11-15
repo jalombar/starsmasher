@@ -3,9 +3,10 @@
       include 'starsmasher.h'
       real*8 pgas,prad
       real*8 rhocgs,ucgs,beta1,temperature,gam1,useeostable
-      real*8 ptab,dlpr,dlpu,eps
+      real*8 ptab,dlpr,dlpu,eps,gmaxdev
       parameter(eps=0.01d0)
       integer i,iw,nil,ilist(nmax)
+      save ilist
 !     Subroutine calculating pressure.
 !     
 !     The calculation is dependent on the equation of state used
@@ -39,12 +40,14 @@ c     otherwise its own index range
          enddo
       else
          nil=n_upper-n_lower+1
+!$omp parallel do simd schedule(static)
          do iw=1,nil
             ilist(iw)=n_lower+iw-1
          enddo
       endif
       if(neos.eq.0) then
          if(nintvar.eq.1) then
+!$omp parallel do schedule(static) private(iw,i)
             do iw=1,nil
                i=ilist(iw)
 c     p=a*rho^gam, so p/rho^2=a*rho^(gam-2.d0)
@@ -52,6 +55,7 @@ c     p=a*rho^gam, so p/rho^2=a*rho^(gam-2.d0)
             enddo
 
          else
+!$omp parallel do schedule(static) private(iw,i)
             do iw=1,nil
                i=ilist(iw)
 c     p=(gam-1)*rho*u, so p/rho^2=(gam-1)*u/rho
@@ -60,6 +64,9 @@ c     p=(gam-1)*rho*u, so p/rho^2=(gam-1)*u/rho
          endif
 
       else if(neos.eq.1) then
+         gmaxdev=gam1maxdev
+c     the loop is long and every particle costs about the same: static
+!$omp parallel do schedule(static) private(iw,i,rhocgs,ucgs,temperature,pgas,prad,beta1,gam1) reduction(max:gmaxdev)
          do iw=1,nil
             i=ilist(iw)
 c     block steps: only active particles and refreshed neighbours need P
@@ -96,8 +103,8 @@ c     so the Newton inside normally takes one or two passes.
 c     a=p/rho^gam assumes a gam-law gas.  Record how far the true Gamma_1
 c     departs from gam so that the breakdown of that assumption is visible
 c     rather than silent; for a radiation-dominated envelope it will be large.
-               if(nintvar.eq.1) gam1maxdev=
-     $              max(gam1maxdev,abs(gam1-gam)/gam)
+               if(nintvar.eq.1) gmaxdev=
+     $              max(gmaxdev,abs(gam1-gam)/gam)
 
                if(gam1.lt.0.999*4.d0/3.d0 .or. gam1.gt.1.001*5.d0/3.d0) then
                   write(69,*)'warning gam1=',gam1,'at i=',i
@@ -114,8 +121,10 @@ c     rather than silent; for a radiation-dominated envelope it will be large.
                por2(i)=0.d0
             endif
          enddo
+         gam1maxdev=gmaxdev
 
       else if(neos.eq.2) then
+!$omp parallel do schedule(static) private(iw,i,rhocgs,ucgs,ptab,dlpr,dlpu)
          do iw=1,nil
             i=ilist(iw)
 c     block steps: only active particles and refreshed neighbours need P

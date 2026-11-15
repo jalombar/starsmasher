@@ -12,13 +12,14 @@
 
       if(myrank.lt.ngravprocs) then
 c     each processor will compute gravity for its chunk of particles
-         call cpu_time(time0)
+         call wall_time(time0)
+!$omp parallel do simd schedule(static)
          do i=1,ntot
             range(i) = 4*hp(i)**2;
             if(u(i).eq.0.d0) range(i)=-range(i)
          enddo
          
-         if(myrank.eq.ngravprocs-1) call cpu_time(time1) 
+         if(myrank.eq.ngravprocs-1) call wall_time(time1) 
 ccc   ********* build the tree **********
          
          mygravlength=ngrav_upper-ngrav_lower+1
@@ -44,7 +45,7 @@ c     there is no fraction active above which doing them all is cheaper
      $           x, y, z, am, range,q,nkernel)
          endif
          if(myrank.eq.ngravprocs-1) then
-            call cpu_time(time2)         
+            call wall_time(time2)         
             write (6,'( a, f6.3, a,i4, a, i4)')'1sthalf:',time2-time1
          endif
       endif
@@ -73,7 +74,7 @@ c         gy(i)=gy(i)-fcmy
 c         gz(i)=gz(i)-fcmz
 c      enddo
       
-c      call cpu_time(time3)
+c      call wall_time(time3)
       
 c      write (6,'(3(a,g10.3),g10.3,a)')
 c     $     'gravfo: ',time3-time0,' s' !,

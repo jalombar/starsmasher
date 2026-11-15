@@ -75,7 +75,7 @@
       real*8 gx(nmax),gy(nmax),gz(nmax),tthermal(nmax),ueq(nmax)
       integer nn(nmax),list(nnmax*nmax),first(nmax), ngb_j(nmax)
       real*8 rp,vinf2,equalmass,treloff,tresplintmuoff,impactparameter
-      real time0,time1,time2,time3,seconds
+      real*8 time0,time1,time2,time3,seconds
       parameter (pi=3.1415926535897932384626d0)
       real*8 arad,boltz,erg,cm,gram,sec,kelvin,qconst
       real*8 crad2,sigma,crad,planck

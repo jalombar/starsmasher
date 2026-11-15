@@ -79,6 +79,8 @@ the command line rather than editing the Makefile:
      - ``make OLEVEL=-O2``
    * - the compute capability, if ``nvidia-smi`` cannot report it
      - ``make COMPUTE_CAPABILITY=120``
+   * - whether to build with OpenMP threads (the default is ``OPENMP=0``)
+     - ``make OPENMP=1``
 
 Building
 --------
@@ -137,6 +139,51 @@ level up.  ``make cpu`` produces ``..._cpu_sph`` in the same place.
    200001 is more accurate than the former 10\ :sup:`7` entries read without
    interpolation, except for the cubic spline within 0.03\ *h* of a particle.
    ``kdm`` remains a compile-time constant in ``starsmasher.h``.
+
+Hybrid MPI x OpenMP
+-------------------
+
+``make OPENMP=1`` adds ``-fopenmp`` to the Fortran flags and to the link line
+(``make config`` shows ``OpenMP ON``).  The default, ``OPENMP=0``, is the plain
+MPI build.  With OpenMP the code starts MPI with ``MPI_THREAD_FUNNELED`` (only
+the master thread of each rank calls MPI and CUDA) and the loops that have
+been made parallel use the threads of each rank.  Sums that are made in
+parallel use a fixed partition into blocks of 4096 terms, so that **the results
+do not depend on the number of threads** (they are the same bits for any
+``OMP_NUM_THREADS`` at a fixed number of MPI ranks), and a build with one
+thread gives the same bits as the plain MPI build.
+
+The number of threads of each rank is ``OMP_NUM_THREADS`` if it is set.  If it
+is not set, a run with more than one MPI rank uses one thread per rank (so that
+the ranks do not all try to use the whole node), and a run with a single rank
+uses the OpenMP default, one thread per logical CPU.  The first lines of
+``log0.sph`` give the number of ranks, the number of threads and the cores of the
+threads of rank 0.  Pin the threads, for example::
+
+   $ OMP_NUM_THREADS=8 OMP_PLACES=cores OMP_PROC_BIND=close \
+       mpirun --map-by ppr:1:l3cache:pe=8 --bind-to core -np 8 ./parallel_bleeding_edge_gpu_sph
+
+and check the placement with ``mpirun --report-bindings`` and
+``OMP_DISPLAY_AFFINITY=true``.
+
+The layout of the ranks and threads depends on the number of GPUs.  With one
+GPU, use one rank that has all the cores (``-np 1``, ``OMP_NUM_THREADS`` equal to
+the number of cores, ``ngravprocs = 1``); one rank per core is not a good
+choice with the threaded build.  With several GPUs, set ``ngravprocs`` to the
+number of GPUs and run one rank per GPU, each with the threads of its share of
+the cores, placed next to its GPU (``nvidia-smi topo -m`` shows which cores are
+close to which card).  For 8 ranks of 7 threads on a node with 63 usable cores
+and 8 cores per L3 cache, the rankfile that places rank *r* on the cores
+8\ *r*..8\ *r*\ +6 is::
+
+   rank 0=+n0 slot=0-6
+   rank 1=+n0 slot=8-14
+   ...
+   rank 7=+n0 slot=56-62
+
+and the run is ``OMP_NUM_THREADS=7 OMP_PLACES=cores OMP_PROC_BIND=close mpirun
+--rankfile rankfile -np 8 -x OMP_NUM_THREADS -x OMP_PLACES -x OMP_PROC_BIND
+./parallel_bleeding_edge_gpu_sph``.
 
 Checking that it works
 ----------------------

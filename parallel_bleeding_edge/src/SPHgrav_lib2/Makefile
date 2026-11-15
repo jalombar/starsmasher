@@ -34,6 +34,11 @@ NVCCFLAGS += -Xcompiler="-Wall"
 CUDA_LIBS = -L$(CUDAPATH)/lib64 -lcudart
 
 CXXFLAGS  +=  -Wall -g -O4
+# the host code of the library uses OpenMP when StarSmasher is built with OPENMP=1 (the top Makefile passes OMPCXX)
+ifneq ($(OMPCXX),)
+override NVCCFLAGS += -Xcompiler=$(OMPCXX)
+override CXXFLAGS += $(OMPCXX)
+endif
 # LDFLAGS   +=  -fopenmp
 LDGPUGLAGS := $(LDFLAGS) $(CUDA_LIBS)
 
@@ -42,6 +47,12 @@ GRAVLIB = libSPHgrav.a
 
 all: $(GRAVLIB)
 
+# the flags of the last build, so that a change of OMPCXX (the top Makefile passes it) or of the optimisation rebuilds the objects
+FLAGSTAMP = cu_flags.stamp
+$(FLAGSTAMP): FORCE
+	@echo "$(subst ",,$(NVCCFLAGS) $(CXXFLAGS))" > $@.tmp; if cmp -s $@.tmp $@; then /bin/rm -f $@.tmp; else mv $@.tmp $@; fi
+FORCE:
+
 $(GRAVLIB): $(OBJS)
 	    /bin/rm -f $@
 	    $(AR) $@ $(OBJS)
@@ -49,10 +60,8 @@ $(GRAVLIB): $(OBJS)
 .cpp.o: 
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
-%.cu_o:  %.cu
+%.cu_o:  %.cu cutil.h cuVec3.h cuVector.h $(FLAGSTAMP)
 	 $(NVCC) $(NVCCFLAGS) -c $< -o $@
 
 clean:
-	/bin/rm -rf *.cu_o $(GRAVLIB)
-
-$(GRAVLIB): cutil.h cuVec3.h cuVector.h
+	/bin/rm -rf *.cu_o $(GRAVLIB) $(FLAGSTAMP)

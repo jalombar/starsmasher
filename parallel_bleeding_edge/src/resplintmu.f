@@ -9,6 +9,7 @@
      $     uarray2,muarray2,rhoarray2,amass,radius,
      $     integratednum,maxmu,minmu,numlines
 
+!$omp parallel do schedule(static) private(i,rtry,meanmolecularexi)
       do i=1,n
          rtry=sqrt(x(i)**2.d0+y(i)**2.d0+z(i)**2.d0)
          call sph_splint(rarray,muarray,muarray2,numlines,rtry,

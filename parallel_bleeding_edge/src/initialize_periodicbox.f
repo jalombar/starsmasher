@@ -69,6 +69,7 @@ c     replace a separation by that of the nearest periodic image
 c     put every particle back inside the box, -box/2 <= x < box/2
       include 'starsmasher.h'
       integer i
+!$omp parallel do schedule(static) private(i)
       do i=1,n
          if(boxx.gt.0.d0) x(i)=x(i)-boxx*floor(x(i)/boxx+0.5d0)
          if(boxy.gt.0.d0) y(i)=y(i)-boxy*floor(y(i)/boxy+0.5d0)
