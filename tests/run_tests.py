@@ -12,6 +12,9 @@ SRC  = os.path.join(ROOT, 'parallel_bleeding_edge', 'src')
 class Fail(Exception):
     pass
 
+class Skip(Exception):
+    """The test cannot say anything here (a missing build option or library)."""
+
 # ---------------------------------------------------------------- helpers ---
 
 def sh(cmd, cwd=None, timeout=1800, check=True):
@@ -21,7 +24,7 @@ def sh(cmd, cwd=None, timeout=1800, check=True):
         raise Fail('command failed: %s\n%s' % (cmd, (p.stderr or p.stdout)[-1500:]))
     return p
 
-def build(target='gpu', base=None):
+def build(target='gpu', base=None, hdf5=False):
     """Build in a copy of the source tree, never in the repository itself.
 
     Building in place would leave object files, .mod files and executables
@@ -30,7 +33,8 @@ def build(target='gpu', base=None):
     """
     work = os.path.join(base, 'build-%s' % target, 'src')
     shutil.copytree(SRC, work)
-    p = sh('make %s' % ('' if target == 'gpu' else target), cwd=work, check=False)
+    p = sh('make %s%s' % ('' if target == 'gpu' else target,
+                          ' HDF5=1' if hdf5 else ''), cwd=work, check=False)
     parent = os.path.dirname(work)
     exe = [os.path.join(parent, f) for f in os.listdir(parent)
            if f.endswith('_%s_sph' % target)]
@@ -386,6 +390,95 @@ def t_guard_periodic(ctx):
         raise Fail('expected the padding guard to stop the run\n' + text[-800:])
     return 'stopped with: search radius exceeds periodic padding'
 
+
+# --------------------------------------------------------------- HDF5 -----
+
+def t_hdf5_dump(ctx):
+    """nhdf5=1 writes an out*.h5 that holds exactly what out*.sph holds.
+
+    The two files are compared bit for bit, column by column (the floats
+    through their bit patterns) and entry by entry of the header.  nhdf5=2 must
+    write the same out*.h5 and no out*.sph, and restartrad.sph stays native.
+    A build without the HDF5 writer stops a run that asks for nhdf5>0 (in init,
+    with a message), and the test is skipped then, as it is when h5py is
+    missing.  Build with make HDF5=1, or run the suite with --hdf5, to run it.
+    """
+    import glob, gzip
+    try:
+        import numpy, h5py                                   # noqa: F401
+    except ImportError as e:
+        raise Skip('needs numpy and h5py (%s)' % e)
+    sys.path.insert(0, os.path.join(ROOT, 'parallel_bleeding_edge', 'bin'))
+    import StSm_snapshot as ss
+
+    s = dict(POLY, tf=2, dtout=1)
+    d = ctx.dir('hdf5_dump')
+    p, _ = run(ctx.exe, d, np=ctx.np, nhdf5=1, **s)
+    text = p.stdout + p.stderr
+    if 'needs a build with make HDF5=1' in text:
+        raise Skip('this build has no HDF5 writer; build with make HDF5=1 '
+                   '(tests/run_tests.py --hdf5)')
+    sph = sorted(glob.glob(os.path.join(d, 'out*.sph')))
+    h5 = sorted(glob.glob(os.path.join(d, 'out*.h5')))
+    if len(sph) < 2:
+        raise Fail('the run wrote %d snapshots, expected at least 2\n' % len(sph)
+                   + text[-800:])
+    if [f[:-4] for f in sph] != [f[:-3] for f in h5]:
+        raise Fail('nhdf5=1 wrote %s but %s' % ([os.path.basename(f) for f in h5],
+                                                 [os.path.basename(f) for f in sph]))
+    for a, b in zip(sph, h5):
+        nd, bad, badh = ss.compare(a, b)
+        if nd != len(ss.COLUMNS) or bad or badh:
+            raise Fail('%s and %s differ: %d columns compared, columns %s, '
+                       'header entries %s' % (os.path.basename(a),
+                                              os.path.basename(b), nd, bad, badh))
+    if os.path.exists(os.path.join(d, 'restartrad.sph')):
+        if ss.is_hdf5(os.path.join(d, 'restartrad.sph')):
+            raise Fail('restartrad.sph is not in the native format')
+    log = open(os.path.join(d, 'log0.sph')).read()
+    if len(re.findall(r'wall time writing out\d+\.h5 \(hdf5\)', log)) != len(h5):
+        raise Fail('log0.sph does not give the time of each HDF5 write')
+
+    # nhdf5=2: the same .h5 files, and no .sph
+    d2 = ctx.dir('hdf5_dump_only')
+    run(ctx.exe, d2, np=ctx.np, nhdf5=2, **s)
+    if glob.glob(os.path.join(d2, 'out*.sph')):
+        raise Fail('nhdf5=2 still wrote out*.sph')
+    h5b = sorted(glob.glob(os.path.join(d2, 'out*.h5')))
+    if [os.path.basename(f) for f in h5b] != [os.path.basename(f) for f in h5]:
+        raise Fail('nhdf5=2 wrote %s, nhdf5=1 wrote %s'
+                   % ([os.path.basename(f) for f in h5b],
+                      [os.path.basename(f) for f in h5]))
+    for a, b in zip(sph, h5b):
+        nd, bad, badh = ss.compare(a, b)
+        if bad or badh:
+            raise Fail('nhdf5=2 gave %s, which differs from the nhdf5=1 run\'s '
+                       '%s in columns %s, header entries %s'
+                       % (os.path.basename(b), os.path.basename(a), bad, badh))
+
+    # the other layout, with ueq and tthermal, needs the cooling tables
+    gz = os.path.join(ROOT, 'example_input', 'sph.opacity.gz')
+    extra = ''
+    if os.path.exists(gz):
+        d3 = ctx.dir('hdf5_dump_cooling')
+        with gzip.open(gz, 'rb') as fi, open(os.path.join(d3, 'sph.opacity'), 'wb') as fo:
+            shutil.copyfileobj(fi, fo)
+        run(ctx.exe, d3, np=ctx.np, nhdf5=1, ncooling=1, **s)
+        sph3 = sorted(glob.glob(os.path.join(d3, 'out*.sph')))
+        h53 = sorted(glob.glob(os.path.join(d3, 'out*.h5')))
+        if not sph3 or len(sph3) != len(h53):
+            raise Fail('the ncooling=1 run wrote %d .sph and %d .h5'
+                       % (len(sph3), len(h53)))
+        for a, b in zip(sph3, h53):
+            nd, bad, badh = ss.compare(a, b)
+            if nd != len(ss.COLUMNS) + 2 or bad or badh:
+                raise Fail('ncooling=1: %s differs from %s (%d columns, %s, %s)'
+                           % (os.path.basename(b), os.path.basename(a), nd, bad, badh))
+        extra = ', and with ncooling=1 (20 columns)'
+    return ('%d snapshots: out*.h5 equals out*.sph bit for bit (18 columns, 25 '
+            'header entries); nhdf5=2 gives the same files without out*.sph%s'
+            % (len(sph), extra))
+
 TESTS = {
     'virial':           t_virial,
     'energy':           t_energy,
@@ -399,6 +492,7 @@ TESTS = {
     'periodic':         t_periodic,
     'periodic_block':   t_periodic_block,
     'guard_periodic':   t_guard_periodic,
+    'hdf5_dump':        t_hdf5_dump,
 }
 
 # ------------------------------------------------------------------- main ---
@@ -420,6 +514,8 @@ def main():
     ap.add_argument('--exe', help='use this executable instead of building')
     ap.add_argument('--cpu-exe', help='CPU executable for the cpu_gpu test')
     ap.add_argument('--with-cpu', action='store_true', help='also build the CPU version')
+    ap.add_argument('--hdf5', action='store_true',
+                    help='build with make HDF5=1, which writes out*.h5 (the hdf5_dump test)')
     ap.add_argument('--keep', action='store_true', help='keep the scratch directory')
     ap.add_argument('--quick', action='store_true',
                     help='use a smaller star, for continuous integration')
@@ -446,20 +542,23 @@ def main():
     base = tempfile.mkdtemp(prefix='starsmasher-tests-')
     print('scratch: %s' % base)
     try:
-        exe = a.exe or build('gpu', base)
-        cpu = a.cpu_exe or (build('cpu', base) if a.with_cpu else None)
+        exe = a.exe or build('gpu', base, a.hdf5)
+        cpu = a.cpu_exe or (build('cpu', base, a.hdf5) if a.with_cpu else None)
         ctx = Ctx(base, exe, cpu, a.np)
         print('executable: %s' % exe)
         print('ranks: %d\n' % a.np)
 
         width = max(len(n) for n in names)
-        failures = 0
+        failures = skipped = 0
         for n in names:
             sys.stdout.write('%-*s ... ' % (width, n)); sys.stdout.flush()
             t0 = time.time()
             try:
                 detail = TESTS[n](ctx)
                 print('ok   (%4.1fs)  %s' % (time.time() - t0, detail))
+            except Skip as exc:
+                skipped += 1
+                print('skip (%4.1fs)  %s' % (time.time() - t0, exc))
             except Fail as exc:
                 failures += 1
                 print('FAIL (%4.1fs)' % (time.time() - t0))
@@ -468,7 +567,8 @@ def main():
             except subprocess.TimeoutExpired:
                 failures += 1
                 print('TIMEOUT')
-        print('\n%d of %d passed' % (len(names) - failures, len(names)))
+        print('\n%d of %d passed%s' % (len(names) - failures - skipped, len(names),
+              ', %d skipped' % skipped if skipped else ''))
         return 1 if failures else 0
     finally:
         if not a.keep:

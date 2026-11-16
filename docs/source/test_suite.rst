@@ -49,6 +49,12 @@ something changed.  These tell you whether the answer is right.
    * - ``guard_periodic``
      - A periodic box too small for the kernel (2h beyond half a period) stops
        the run with a message rather than missing neighbours.
+   * - ``hdf5_dump``
+     - With ``nhdf5=1`` the ``out*.h5`` snapshots hold exactly the numbers of
+       the ``out*.sph`` ones, bit for bit, in every column and every entry of
+       the header; with ``nhdf5=2`` the same files appear without
+       ``out*.sph``; ``restartrad.sph`` stays native.  Skipped unless the
+       build has HDF5 and ``h5py`` is installed.
 
 Options::
 
@@ -58,6 +64,7 @@ Options::
    python3 tests/run_tests.py --exe /path/to/..._sph   # skip the build
    python3 tests/run_tests.py --with-cpu        # also build the CPU version
    python3 tests/run_tests.py --quick           # smaller star, same assertions
+   python3 tests/run_tests.py --hdf5            # build with make HDF5=1, so that hdf5_dump runs
 
 Each build happens in a copy of the source under the suite's own scratch
 directory, so a test run leaves the repository untouched.

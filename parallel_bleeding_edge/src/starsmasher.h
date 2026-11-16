@@ -182,3 +182,9 @@
       real*8 boxx,boxy,boxz
       logical periodic
       common/pbcbox/boxx,boxy,boxz,periodic
+
+!     nhdf5: format of the snapshots.  0 writes out*.sph only, 1 writes
+!     out*.h5 (HDF5, see hdf5_dump.c) as well, 2 writes out*.h5 only.  1 and 2
+!     need a build made with make HDF5=1.  restartrad.sph is always native.
+      integer nhdf5
+      common/hdf5opt/nhdf5

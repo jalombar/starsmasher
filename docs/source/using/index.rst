@@ -7,5 +7,6 @@ Using StarSmasher
    running
    input
    output
+   hdf5
    jumping_ahead
    visualisation

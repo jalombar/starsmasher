@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **102** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **103** settings.
 
 
 .. _sph-input-time-and-output:
@@ -76,6 +76,10 @@ Time and output
      - ``0d0``
      - every run
      - how much of a particle's specific internal energy counts toward unbinding it when compbest3 sorts particles into components.  0 leaves it out, as Nandez, Ivanova & Lombardi (2014) argue for; 1 counts all of it, as in Kremer et al. (2022)
+   * - ``nhdf5``
+     - ``0``
+     - every run
+     - snapshot format: 0 writes out\*.sph only, 1 writes out\*.h5 (HDF5) as well, 2 writes out\*.h5 only.  1 and 2 need a build made with make HDF5=1.  2 leaves no out\*.sph, which startfile1 and splash read, so use it only to analyse a run.  restartrad.sph is always written in the native format
 
 .. _sph-input-the-particles:
 
