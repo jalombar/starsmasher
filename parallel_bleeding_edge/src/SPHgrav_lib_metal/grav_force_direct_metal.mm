@@ -18,8 +18,10 @@ constexpr float kLargeCoordinate = 1.0e10f;
 // (a few per core; SPHGRAV_METAL_GROUPS overrides), the most chunks, and the
 // fewest tiles of kThreadsPerGroup j in a chunk
 constexpr int kResidentGroups = 80;
-constexpr int kMaxSplit = 32;
-constexpr int kMinTilesPerChunk = 2;
+// (20k particles, a late block step: 32 chunks 1.19 ms per call, one tile
+// per chunk (78) 0.91 ms)
+constexpr int kMaxSplit = 128;
+constexpr int kMinTilesPerChunk = 1;
 
 struct FloatPair {
   float hi;
