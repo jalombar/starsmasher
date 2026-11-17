@@ -32,6 +32,12 @@ something changed.  These tell you whether the answer is right.
    * - ``gpu_hilo``
      - GPU gravity with and without the float remainders of the positions
        (``ngravhilo``) agrees for a single star.
+   * - ``gpu_tree``
+     - The tree gravity on the GPU (``ngravtree = 2``) agrees with the tree on
+       the CPUs (``ngravtree = 1``) for the same opening angle and leaf size:
+       energies, accelerations and potentials of a relaxed star; a second GPU run
+       has the threshold of the leaves with a very long list so low that most
+       leaves are divided in chunks.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.

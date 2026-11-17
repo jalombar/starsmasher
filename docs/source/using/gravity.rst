@@ -88,3 +88,42 @@ and the sort are done by every GPU, so the gain is smaller than the number of
 GPUs for a small number of particles.  It works with ``ngravoverlap = 1``.  The
 tree gravity on the CPUs does not use the GPUs, and the block time steps use
 the first GPU of the process only.
+
+The tree on the GPUs
+--------------------
+
+``ngravtree = 2`` is the same tree gravity as ``ngravtree = 1`` (the same opening
+criterion, the same Taylor series of the far field about the centre of mass of each
+leaf, the same pair formula for the leaves that are near), with the visit of the
+tree done by the GPUs.  The CPUs make the tree and its moments, and the GPUs do the
+rest: a warp for each leaf, a thread for each particle.  It needs a build with CUDA
+(``make cpu`` and the Metal build stop with a message) and ``nleafgrav`` of at most
+32; ``treeacc`` and ``nleafgrav`` mean the same as for ``ngravtree = 1``, and the
+default is still ``ngravtree = 0``, the direct sum.
+
+The forces differ from those of ``ngravtree = 1`` with the same ``treeacc`` and
+``nleafgrav`` only by the rounding of the float arithmetic of the GPU, which is far
+below the error of the tree itself.  The force on a particle depends on the tree and
+on nothing else: **the same bits for any number of GPUs** (``ngpuperrank``), **of
+processes and of threads**, and with block steps the active particles have the bits
+they have when all are active.  (The dumps of two runs with a different number of
+processes still differ, with every gravity solver, because the sums of the SPH part
+depend on it.)
+
+A leaf that holds a particle whose softening length is larger than a star (the
+particles thrown out of a collision) cannot use any node near it: its list is the
+whole system.  Such a leaf is divided in chunks of its list that different warps, and
+different GPUs, do, and the sums of the chunks are added in a fixed order, so that the
+bits do not depend on who did what; the other leaves are done as they would be
+otherwise.  With several GPUs for one process the leaves are divided among the GPUs in
+proportion to the speed each showed in its first pass.
+
+``ngravoverlap = 1`` with ``ngravtree = 2`` makes the tree and queues the visit on the
+GPUs as soon as the smoothing lengths are solved, and collects the forces after the
+loop over the pairs, so that the CPUs and the GPUs work together.  The bits are those
+of ``ngravoverlap = 0``.
+
+As the tree on the CPUs, the tree on the GPUs does not conserve the momentum and the
+angular momentum exactly, and conserves the energy as well as the direct sum does.  Use
+one process with the OpenMP build: every process builds the whole tree, so one process
+for each GPU repeats the work.

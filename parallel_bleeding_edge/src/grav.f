@@ -49,6 +49,13 @@ c     has grown past its limit.
       common/gravfari/farstarted,nfallback,nfar
 
       if(nusegpus.eq.0)return
+c     ngravtree=2 with ngravoverlap=1: the tree is made and its visit queued on the gpus now, so that the cpus do the pair loop
+c     while
+c     the gpus work; grav_collect finishes it
+      if(ngravtree.eq.2 .and. ngravoverlap.eq.1) then
+         call tree_gpu_start
+         return
+      endif
       if(ngravtree.ne.0)return ! the tree finds the gravity when it is collected (grav_collect)
 
       if(myrank.lt.ngravprocs) then

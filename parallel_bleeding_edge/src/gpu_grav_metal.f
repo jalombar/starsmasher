@@ -42,3 +42,27 @@
       subroutine gravity_far_abort
       return
       end
+
+c     ngravtree=2 (the tree gravity on the GPUs) needs the CUDA library: gravtree.f90 calls these, init.f asks
+c     gpu_tree_available first
+      subroutine gpu_tree_available(ok)
+      integer ok
+      ok=0
+      return
+      end
+
+      subroutine gpu_tree_reserve(n, nnode, pa, pb, pneed, pnf,
+     $     pni, pwork, pout)
+      integer n,nnode
+      stop 'ngravtree=2 needs the CUDA (NVIDIA GPU) build'
+      end
+
+      subroutine gpu_tree_launch(n, nnode, nwork, nkernel, theta2)
+      integer n,nnode,nwork,nkernel
+      stop 'ngravtree=2 needs the CUDA (NVIDIA GPU) build'
+      end
+
+      subroutine gpu_tree_wait(ierr)
+      integer ierr
+      stop 'ngravtree=2 needs the CUDA (NVIDIA GPU) build'
+      end
