@@ -38,6 +38,12 @@ something changed.  These tell you whether the answer is right.
        energies, accelerations and potentials of a relaxed star; a second GPU run
        has the threshold of the leaves with a very long list so low that most
        leaves are divided in chunks.
+   * - ``gravity_auto``
+     - ``ngravtree = -1`` chooses the gravity from the number of particles (the
+       direct sum below ``ngravtreeauto`` and the tree on the GPU from it up with
+       a GPU, the tree on the CPUs in the CPU build), writes the choice in
+       ``log0.sph``, and gives exactly the energies of the value it chose, set by
+       hand.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.

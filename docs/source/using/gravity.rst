@@ -127,3 +127,30 @@ As the tree on the CPUs, the tree on the GPUs does not conserve the momentum and
 angular momentum exactly, and conserves the energy as well as the direct sum does.  Use
 one process with the OpenMP build: every process builds the whole tree, so one process
 for each GPU repeats the work.
+
+Letting the code choose
+-----------------------
+
+``ngravtree = -1`` chooses the solver once, when the number of particles N is known,
+and writes the choice in the log of rank 0, for example::
+
+   gravity: ngravtree=-1 (auto): N=499770 >= ngravtreeauto=299000 and a GPU -> ngravtree=2 (tree walked on the GPU)
+
+The rule is:
+
+* no GPU (the CPU build, or no GPU on the node): the tree on the CPUs (1);
+* a GPU and N below ``ngravtreeauto``: the direct sum (0);
+* a GPU and N at least ``ngravtreeauto``: the tree walked on the GPU (2), if
+  ``nleafgrav`` is at most 32, and the direct sum otherwise;
+* no gravity (``ngr = 0``), no self-gravity or an invalid tree setting: the direct
+  sum, with the reason in the log, rather than a stop;
+* a GPU that cannot walk the tree (the Metal build): the direct sum.
+
+The choice depends on nothing but N and the hardware, never on a time measured during
+the run, so a run and its restart choose the same, and the results are bit for bit
+those of the value chosen, set by hand.  ``ngravtreeauto`` was measured on one kind
+of node (63 cores and Blackwell GPUs); on other hardware the best value may be
+different.  ``-1`` does not change ``ngravoverlap``.  With several MPI processes
+the rule is the same, but the tree is built by each of them, so one process is
+advised.  The default stays ``ngravtree = 0``, which keeps the results of earlier
+versions.
