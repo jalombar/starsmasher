@@ -33,4 +33,5 @@
  cn7=4.d0,   ! r_ij=(x_ij^2+y_ij^2+z_ij^2+cn7*h_i^2)^.5
 ! the final timestep dt is the minimum of dt_sph and dt_co for all particles i
  computeexclusivemode=0, ! set this to 1 if on machine like grapefree with gpus in compute exclusive mode; set this to 0 on supercomputers like lincoln
+ hgroup=32, ! groups of 32 particles share one neighbour search in the smoothing-length solve (faster); 0: one search for each particle
  &end

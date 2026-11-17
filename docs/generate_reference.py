@@ -233,6 +233,7 @@ GROUPS = [
                      ['ngravprocs','ngravhilo','qthreads','ppn','computeexclusivemode','gflag']),
  ('Units',           ['runit','munit','gravconst']),
  ('Periodic box',    ['boxx','boxy','boxz']),
+ ('Smoothing-length solve', ['hgroup']),
  ('Input files',     ['startfile1','startfile2','startfile3','binaryfile','triplefile',
                       'bpbhfile','imagefile','advectedfile',
                       'eosfile','opacityfile','profilefile',

@@ -648,6 +648,7 @@ c      end
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
      $     bbh_longitude,rp,rjump,rjumpfactor,rjumppercent,ndtoutafter,
      $     reentryfactor,
+     $     hgroup,
      $     boxx,boxy,boxz,nhdf5
       
       character*9 slurm_gpu_count_str
@@ -764,6 +765,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       boxx=0d0 ! period in x of a periodic box running from -boxx/2 to boxx/2.  0 leaves x open
       boxy=0d0 ! period in y, as for boxx
       boxz=0d0 ! period in z, as for boxx
+      hgroup=32 ! neighbour search of the smoothing-length solve.  N>0: one search of the tree for each group of N particles that are consecutive in the tree (N at most 256), which is faster; 0: one search for each particle.  The results are the same bits for any N and any number of threads, but a build that fuses multiplications and additions (MARCH, aarch64) can differ in the last bit of a sum.  Not used in periodic boxes, with dynhco>0 or with block steps that divide the particles between the ranks
       nhdf5=0 ! snapshot format: 0 writes out*.sph only, 1 writes out*.h5 (HDF5) as well, 2 writes out*.h5 only.  1 and 2 need a build made with make HDF5=1.  2 leaves no out*.sph, which startfile1 and splash read, so use it only to analyse a run.  restartrad.sph is always written in the native format
 
       open(12,file='sph.input',err=100,STATUS='OLD')
@@ -774,6 +776,8 @@ c     set some default values, so that they don't necessarily have to be set in 
      $     stop 'init: rjumppercent must be above 0 and at most 100'
       if(reentryfactor.le.0.d0 .or. reentryfactor.gt.1.d0)
      $     stop 'init: reentryfactor must be above 0 and at most 1'
+      if(hgroup.lt.0 .or. hgroup.gt.256)
+     $     stop 'init: hgroup must be between 0 and 256'
 c     snapshots in HDF5 need the writer, which only make HDF5=1 builds in;
 c     ignoring the request in silence would leave a run with no snapshots
       if(nhdf5.lt.0 .or. nhdf5.gt.2)
