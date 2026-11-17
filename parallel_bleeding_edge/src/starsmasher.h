@@ -147,6 +147,13 @@
 !     and doubles as the starting point for the next inversion.
       real*8 tempcache(nmax)
       common/tempcachecom/tempcache
+!     neos=1 and nintvar not 3: pressure_one keeps the temperature it finds (in tempcache) together with the u, rho and mean molecular
+!     weight it found it from (tmemo_u, tmemo_rho, tmemo_mu), and enout, which would invert the equation of state again with the same
+!     u and rho (it runs before u is advanced), takes the temperature from there when they are the same.  tmemo_nv is the nintvar
+!     of the stored values (-1: none are valid, set by pressure_memo_set before the particles are done).
+      integer tmemo_nv
+      real*8 tmemo_u(nmax),tmemo_rho(nmax),tmemo_mu(nmax)
+      common/tempmemocom/tmemo_u,tmemo_rho,tmemo_mu,tmemo_nv
       parameter(kdm=5000)
       integer ntypes,cc(nmax)
       parameter(ntypes=32)
