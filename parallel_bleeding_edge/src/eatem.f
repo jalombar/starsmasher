@@ -200,9 +200,9 @@ c     are empty stubs (cpu_grav.f), so grpot was never recomputed here and the
 c     mpi_reduce below summed rank 0's already-reduced grpot with the other
 c     ranks' stale partials, giving epotfinal ~2x.  Branch as balAV3.f does.
             if(nusegpus.eq.1)then
-               call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength,
+               if(ngravtree.eq.0) call firsthalf_grav_forces(ntot, ngrav_lower, mygravlength,
      $              x, y, z, am, range,q,nkernel)
-               call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+               call grav_collect(ntot, gx, gy, gz, grpot)
             else
                call get_gravity_using_cpus
             endif

@@ -127,6 +127,12 @@ LDFLAGS  += $(OMPLINK)
 
 LIBS = -lm
 
+ifeq ($(shell uname -m),x86_64)
+  TREEFLAGS ?= -mavx2 -mfma -fno-trapping-math
+else
+  TREEFLAGS ?=
+endif
+
 # ------------------------------------------------------------------ HDF5 ----
 # make HDF5=1 builds the writer of out*.h5 snapshots (nhdf5 in sph.input).
 # Without it nothing changes: no new library, no C compiler, and a stand-in
@@ -199,7 +205,7 @@ NNMAX ?= $(DEFAULT_NNMAX)
 NTAB ?= $(DEFAULT_NTAB)
 
 # ---------------------------------------------------------------- objects ----
-FOBJS = omp_utils.o pairbuf.o treebuild.o eos_table_data.o riemann_data.o kdtree2.o advance.o balAV3.o  \
+FOBJS = omp_utils.o pairbuf.o treebuild.o gravpair.o gravtree.o eos_table_data.o riemann_data.o kdtree2.o advance.o balAV3.o  \
         blockstep.o                                              \
         getderivs.o getTemperature.o                             \
         initialize_hyperbolic.o init.o kernels.o                 \
@@ -264,6 +270,10 @@ advance.o balAV3.o blockstep.o kdtree2.o main.o output.o pressure.o relax.o resp
 balAV3.o: pairbuf.o riemann_data.o
 kdtree2.o: treebuild.o
 advance.o blockstep.o: kdtree2.o
+gravtree.o: treebuild.o gravpair.o
+# the tree gravity is vectorised for the machine it runs on; nothing else is compiled with these flags (the default gravity keeps
+# its bits).  TREEFLAGS= (empty) for a processor without AVX2
+gravtree.o gravpair.o: FFLAGS += $(TREEFLAGS)
 
 hdf5_dump.o: hdf5_dump.c
 	$(MPICC) $(CFLAGS) $(HDF5_CFLAGS) -c $<

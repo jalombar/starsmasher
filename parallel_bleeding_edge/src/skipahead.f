@@ -86,7 +86,7 @@ c     particles being thrown away and renumbered anyway.
       call gravforce
       if(ngr.ne.0 .and. myrank.lt.ngravprocs)then
          if(nusegpus.eq.1)then
-            call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+            call grav_collect(ntot, gx, gy, gz, grpot)
          else
             call get_gravity_using_cpus
          endif
@@ -565,7 +565,7 @@ c     minus sign.
       call gravforce
       if(ngr.ne.0 .and. myrank.lt.ngravprocs)then
          if(nusegpus.eq.1)then
-            call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+            call grav_collect(ntot, gx, gy, gz, grpot)
          else
             call get_gravity_using_cpus
          endif
@@ -670,7 +670,7 @@ c     kept and only material bound to neither goes.
          call gravforce
          if(ngr.ne.0 .and. myrank.lt.ngravprocs)then
             if(nusegpus.eq.1)then
-               call lasthalf_grav_forces(ntot, gx, gy, gz, grpot)
+               call grav_collect(ntot, gx, gy, gz, grpot)
             else
                call get_gravity_using_cpus
             endif
