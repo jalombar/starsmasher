@@ -56,10 +56,11 @@
       integer ngrav_lower,ngrav_upper,ngravprocs
       common/ngravlimits/ngrav_lower,ngrav_upper,ngravprocs
 !     ngravtree=1: gravity with a tree on the cpus (gravtree.f90) instead of the direct sum.  treeacc is the opening angle
-!     theta, nleafgrav the most particles in a leaf
-      integer ngravtree,nleafgrav
+!     theta, nleafgrav the most particles in a leaf.  ngravoverlap=1 starts the far field of the direct sum on the gpus before the
+!     smoothing lengths are solved
+      integer ngravtree,nleafgrav,ngravoverlap
       real*8 treeacc
-      common/gravtreepars/treeacc,ngravtree,nleafgrav
+      common/gravtreepars/treeacc,ngravtree,nleafgrav,ngravoverlap
       real*8 vxdotsm(nmax),vydotsm(nmax),vzdotsm(nmax)
       integer n,nnopt,ntot,nout,nit,nitpot,ngr,nrelax,nav,nintvar
       common/mine/vxdotsm,vydotsm,vzdotsm

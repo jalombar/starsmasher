@@ -48,3 +48,21 @@ Things to know when running it:
   -fno-trapping-math`` on x86-64, and nothing else is, so the default gravity
   keeps its bits.  ``make TREEFLAGS=`` (empty) builds them for a processor
   without AVX2.
+
+Overlapping the GPUs with the smoothing-length solve
+----------------------------------------------------
+
+With the direct sum on the GPUs the card is idle while the CPUs solve the
+smoothing lengths.  ``ngravoverlap = 1`` uses that time.  Before the lengths are
+solved, the GPU starts the tiles of particles that are far from each block
+whatever the lengths turn out to be (almost all the pairs of a large model);
+when they are solved the code checks that none has grown past the limit that
+was assumed, and the GPU does the remaining tiles and adds the two parts in a
+fixed order.  If a length did grow past its limit, which is rare, the gravity of
+that step is done again in the usual way and a line is written to the standard
+output.
+
+The result is deterministic, but not the same bits as ``ngravoverlap = 0``: the
+force sums are grouped differently, which changes them in the last digits.  The
+energy is conserved as well as without it.  It is not used with block time steps
+(``nblock = 1``) or with the tree on the CPUs.
