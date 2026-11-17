@@ -67,6 +67,15 @@ force sums are grouped differently, which changes them in the last digits.  The
 energy is conserved as well as without it.  It is not used with block time steps
 (``nblock = 1``) or with the tree on the CPUs.
 
+The default, ``ngravoverlap = -1``, chooses once at the start: 1 for the direct
+sum on one GPU and for the tree on the GPUs, and 0 for the direct sum on more than
+one GPU (``ngravprocs`` above 1, or ``ngpuperrank`` other than 1), where the
+overlap made the step longer for 100k to 500k particles (it made it shorter at 2M,
+where the tree is the better solver, which ``ngravtree = -1`` takes), and 0 where
+there is no CUDA library (``make cpu``, the Metal build).  The choice is written in the
+log of rank 0.  ``ngravoverlap = 0`` and ``ngravoverlap = 1`` set it by hand;
+``ngravoverlap = 0`` gives back the bits of the direct sum without the overlap.
+
 Several GPUs for one process
 ----------------------------
 
@@ -150,7 +159,8 @@ The choice depends on nothing but N and the hardware, never on a time measured d
 the run, so a run and its restart choose the same, and the results are bit for bit
 those of the value chosen, set by hand.  ``ngravtreeauto`` was measured on one kind
 of node (63 cores and Blackwell GPUs); on other hardware the best value may be
-different.  ``-1`` does not change ``ngravoverlap``.  With several MPI processes
+different.  ``ngravoverlap = -1`` (the default) then takes the value that suits the
+choice, 1 for the tree on the GPU.  With several MPI processes
 the rule is the same, but the tree is built by each of them, so one process is
 advised.  The default stays ``ngravtree = 0``, which keeps the results of earlier
 versions.
