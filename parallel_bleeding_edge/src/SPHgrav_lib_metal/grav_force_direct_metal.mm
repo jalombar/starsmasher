@@ -1,6 +1,7 @@
 #include <Metal/Metal.h>
 #include <Foundation/Foundation.h>
 
+#include <algorithm>
 #include <cassert>
 #include <chrono>
 #include <cstdint>
@@ -13,6 +14,14 @@ namespace {
 
 constexpr NSUInteger kThreadsPerGroup = 256;
 constexpr float kLargeCoordinate = 1.0e10f;
+// splitting the j range (chooseSplit): threadgroups that keep the GPU busy
+// (a few per core; SPHGRAV_METAL_GROUPS overrides), the most chunks, and the
+// fewest tiles of kThreadsPerGroup j in a chunk
+constexpr int kResidentGroups = 80;
+// (20k particles, a late block step: 32 chunks 1.19 ms per call, one tile
+// per chunk (78) 0.91 ms)
+constexpr int kMaxSplit = 128;
+constexpr int kMinTilesPerChunk = 1;
 
 struct FloatPair {
   float hi;
@@ -52,6 +61,7 @@ struct MetalParams {
   uint32_t ni;
   int32_t nkernel;
   uint32_t uselist;
+  uint32_t jchunk;
 };
 
 static const char *kSPHgravMetalSource = R"METAL(
@@ -89,9 +99,13 @@ struct Params {
   uint ni;
   int nkernel;
   uint uselist;
+  uint jchunk;
 };
 
+// The shader is built with fast math, which may reassociate (vx - hi) - x
+// to zero and drop the correction; math_mode(safe) keeps it, here only.
 inline void ds64_add(thread FloatPair &accum, const float x) {
+#pragma METAL fp math_mode(safe)
   const float vx = accum.hi + x;
   const float vy = accum.lo - ((vx - accum.hi) - x);
   accum.hi = vx;
@@ -117,8 +131,12 @@ inline float3 position(const Particle p) {
 // lets the compiler reorder (pj - pi) + (jlo - ilo); for i == j the reordered
 // sum can come out as -ilo instead of 0, and the point particle then picks up
 // a spurious self-potential of order -3 m/h.
+// math_mode(safe): under fast math the hilo sum (pj - pi) + (jlo - ilo) may be
+// reordered as (pj + jlo) - (pi + ilo), which loses the remainders, and with them
+// the separation of a close pair far from the reference point.
 inline float3 separation(const Particle pi, const Particle pj, const float3 ilo, const float3 jlo,
                          const bool isself) {
+#pragma METAL fp math_mode(safe)
   if (isself) {
     return float3(0.0f);
   }
@@ -405,10 +423,17 @@ kernel void compute_forces(const device Particle *ptcl [[buffer(0)]],
                            constant Params &params [[buffer(2)]],
                            const device uint *ilist [[buffer(3)]],
                            const device float4 *plo [[buffer(4)]],
-                           uint gid [[thread_position_in_grid]],
+                           uint2 gid2 [[thread_position_in_grid]],
                            uint tid [[thread_index_in_threadgroup]]) {
   threadgroup Particle jpshared[THREADS_PER_GROUP];
   threadgroup float3 jloshared[THREADS_PER_GROUP];
+
+  // gid2.y picks the chunk of jchunk consecutive j that this threadgroup sums
+  // over, and force_out then holds one partial force for each chunk,
+  // gid2.y * ni + gid, added up by last_half
+  const uint gid = gid2.x;
+  const uint jbeg = gid2.y * params.jchunk;
+  const uint jend = min(params.nj, jbeg + params.jchunk);
 
   // uselist (block timesteps): force_out[gid] is for particle ilist[gid]
   // rather than for particle nibeg+gid
@@ -427,7 +452,7 @@ kernel void compute_forces(const device Particle *ptcl [[buffer(0)]],
 
   Force iforce = zero_force();
 
-  for (uint j = 0; j < params.nj; j += THREADS_PER_GROUP) {
+  for (uint j = jbeg; j < jend; j += THREADS_PER_GROUP) {
     jpshared[tid] = ptcl[j + tid];
     if (kHilo) {
       jloshared[tid] = plo[j + tid].xyz;
@@ -451,7 +476,7 @@ kernel void compute_forces(const device Particle *ptcl [[buffer(0)]],
   }
 
   if (gid < params.ni) {
-    force_out[gid] = iforce;
+    force_out[gid2.y * params.ni + gid] = iforce;
   }
 }
 )METAL";
@@ -484,6 +509,7 @@ class SPHgravMetal {
       device_ = nextDevice;
       commandQueue_ = [device_ newCommandQueue];
       buildPipeline();
+      readSplitSettings();
 
       std::fprintf(stderr, " SPHgrav Metal found %lu device(s)\n", static_cast<unsigned long>(deviceCount));
       for (NSUInteger i = 0; i < deviceCount; ++i) {
@@ -551,13 +577,23 @@ class SPHgravMetal {
         std::abort();
       }
 
+      // the partial forces of the j chunks, added in the order of the chunks:
+      // the same result every time, and with one chunk the same as before
       const auto *force = static_cast<const MetalForce *>([forceBuffer_ contents]);
       for (int i = 0; i < pendingNi_; ++i) {
         const int j = pendingUseList_ ? pendingList_[i] : i + pendingNibeg_;
-        ax[j] = static_cast<double>(force[i].ax.hi) + static_cast<double>(force[i].ax.lo);
-        ay[j] = static_cast<double>(force[i].ay.hi) + static_cast<double>(force[i].ay.lo);
-        az[j] = static_cast<double>(force[i].az.hi) + static_cast<double>(force[i].az.lo);
-        pot[j] = static_cast<double>(force[i].pot.hi) + static_cast<double>(force[i].pot.lo);
+        double sx = 0.0, sy = 0.0, sz = 0.0, sp = 0.0;
+        for (int s = 0; s < pendingNsplit_; ++s) {
+          const MetalForce &f = force[s * pendingNi_ + i];
+          sx += static_cast<double>(f.ax.hi) + static_cast<double>(f.ax.lo);
+          sy += static_cast<double>(f.ay.hi) + static_cast<double>(f.ay.lo);
+          sz += static_cast<double>(f.az.hi) + static_cast<double>(f.az.lo);
+          sp += static_cast<double>(f.pot.hi) + static_cast<double>(f.pot.lo);
+        }
+        ax[j] = sx;
+        ay[j] = sy;
+        az[j] = sz;
+        pot[j] = sp;
       }
     }
 
@@ -647,7 +683,15 @@ class SPHgravMetal {
       return;
     }
 
-    resizeForceBuffer(ni);
+    const NSUInteger nblocks =
+        (static_cast<NSUInteger>(ni) + kThreadsPerGroup - 1) / kThreadsPerGroup;
+    const int ntiles = paddedCount / static_cast<int>(kThreadsPerGroup);
+    int nsplit = chooseSplit(static_cast<int>(nblocks), ntiles);
+    const int tiles = (ntiles + nsplit - 1) / nsplit;
+    nsplit = (ntiles + tiles - 1) / tiles;
+    pendingNsplit_ = nsplit;
+
+    resizeForceBuffer(ni * nsplit);
     // the kernel declares the list buffer, so it is bound even when unused
     resizeListBuffer(1);
 
@@ -657,6 +701,7 @@ class SPHgravMetal {
         static_cast<uint32_t>(ni),
         static_cast<int32_t>(nkernel),
         uselist ? 1u : 0u,
+        static_cast<uint32_t>(tiles * static_cast<int>(kThreadsPerGroup)),
     };
     std::memcpy([paramBuffer_ contents], &params, sizeof(params));
 
@@ -670,13 +715,42 @@ class SPHgravMetal {
       [encoder setBuffer:listBuffer_ offset:0 atIndex:3];
       [encoder setBuffer:loBuffer_ offset:0 atIndex:4];
 
-      const NSUInteger nblocks =
-          (static_cast<NSUInteger>(ni) + kThreadsPerGroup - 1) / kThreadsPerGroup;
-      const MTLSize threadgroups = MTLSizeMake(nblocks, 1, 1);
+      const MTLSize threadgroups = MTLSizeMake(nblocks, static_cast<NSUInteger>(nsplit), 1);
       const MTLSize threadsPerThreadgroup = MTLSizeMake(kThreadsPerGroup, 1, 1);
       [encoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threadsPerThreadgroup];
       [encoder endEncoding];
       [pendingCommandBuffer_ commit];
+    }
+  }
+
+  // Block steps with few active particles leave most of the GPU idle when
+  // each thread sums over every j.  As in SPHgrav_lib2 (PR #83), the j range
+  // is then split in nsplit chunks along the grid's y, enough to keep about
+  // residentGroups_ threadgroups running, with chunks of at least
+  // kMinTilesPerChunk tiles.  SPHGRAV_METAL_NSPLIT=n forces n (1: no split).
+  int chooseSplit(int nblocks, int ntiles) const {
+    if (forcedSplit_ > 0) {
+      return std::max(1, std::min(forcedSplit_, ntiles));
+    }
+    const int smax = std::max(1, std::min(kMaxSplit, ntiles / kMinTilesPerChunk));
+    double best = 1.0e30;
+    for (int s = 1; s <= smax; ++s) {
+      best = std::min(best, static_cast<double>((nblocks * s + residentGroups_ - 1) / residentGroups_) / s);
+    }
+    for (int s = 1; s <= smax; ++s) {
+      if (static_cast<double>((nblocks * s + residentGroups_ - 1) / residentGroups_) / s <= 1.01 * best) {
+        return s;
+      }
+    }
+    return 1;
+  }
+
+  void readSplitSettings() {
+    if (const char *v = std::getenv("SPHGRAV_METAL_NSPLIT")) {
+      forcedSplit_ = std::atoi(v);
+    }
+    if (const char *v = std::getenv("SPHGRAV_METAL_GROUPS")) {
+      residentGroups_ = std::max(1, std::atoi(v));
     }
   }
 
@@ -794,8 +868,11 @@ class SPHgravMetal {
   int pendingNi_ = 0;
   int pendingNibeg_ = 0;
   int pendingNrange_ = 0;
+  int pendingNsplit_ = 1;
   bool pendingUseList_ = false;
   bool hilo_ = false;
+  int forcedSplit_ = 0;
+  int residentGroups_ = kResidentGroups;
   std::vector<int> pendingList_;
   std::chrono::steady_clock::time_point lastStart_{};
 };

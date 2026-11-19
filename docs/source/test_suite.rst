@@ -41,7 +41,8 @@ something changed.  These tell you whether the answer is right.
    * - ``gravity_auto``
      - ``ngravtree = -1`` chooses the gravity from the number of particles (the
        direct sum below ``ngravtreeauto`` and the tree on the GPU from it up with
-       a GPU, the tree on the CPUs in the CPU build), writes the choice in
+       a GPU, the direct sum at any size in the Metal build, whose library cannot
+       walk the tree, the tree on the CPUs in the CPU build), writes the choice in
        ``log0.sph``, and gives exactly the energies of the value it chose, set by
        hand.
    * - ``guard_ngravprocs``

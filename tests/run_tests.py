@@ -498,11 +498,23 @@ def t_guard_periodic(ctx):
         raise Fail('expected the padding guard to stop the run\n' + text[-800:])
     return 'stopped with: search radius exceeds periodic padding'
 
+def metal_build(exe):
+    """True for the Metal (Apple GPU) build, which links Metal.framework.  Its gravity library cannot
+    walk the tree (gpu_tree_available says no), so ngravtree=-1 keeps the direct sum on the GPU."""
+    if sys.platform != 'darwin':
+        return False
+    try:
+        out = subprocess.run(['otool', '-L', exe], capture_output=True, text=True).stdout
+    except OSError:
+        return False
+    return 'Metal.framework' in out
+
 def t_gravity_auto(ctx):
     """ngravtree=-1 chooses the gravity from the number of particles and writes the choice in the log.
 
     The GPU build takes the direct sum (0) below ngravtreeauto and the tree walked on the GPU (2) from
-    it up; the CPU build takes the tree on the CPUs (1).  The star has n particles (read from the log,
+    it up; the CPU build takes the tree on the CPUs (1).  The Metal build, whose library cannot walk
+    the tree, keeps the direct sum (0) on both sides of the threshold.  The star has n particles (read from the log,
     a few less than POLY['n']): with ngravtreeauto=n+1 it is below the threshold, with ngravtreeauto=n
     at it.  Each run is compared, row by row and exactly, with the run that sets the chosen value by
     hand, so the choice gives the bits of the value it chose.
@@ -513,6 +525,7 @@ def t_gravity_auto(ctx):
         if not exe:
             continue
         cpu = exe.endswith('_cpu_sph')
+        metal = not cpu and metal_build(exe)
         if n is None:
             # the star has a few particles less than POLY['n'] (the lattice): read the number the
             # code reports
@@ -524,7 +537,7 @@ def t_gravity_auto(ctx):
             if not m0:
                 raise Fail('no "gravity: ngravtree=-1 (auto): N=..." line in log0.sph')
             n = int(m0.group(1))
-        for thr, want_gpu in ((n + 1, 0), (n, 2)):
+        for thr, want_gpu in ((n + 1, 0), (n, 0 if metal else 2)):
             want = 1 if cpu else want_gpu
             s = dict(POLY, tf=1, dtout=1)
             d = ctx.dir('auto_%s_%d' % (tag, thr))
