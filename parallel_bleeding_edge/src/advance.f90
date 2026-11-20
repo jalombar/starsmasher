@@ -89,7 +89,7 @@
 !*********************************************************
       subroutine advance
 !     implements second-order accurate leap-frog sph step
-      use gpusph_mod, only: gw_tree,gv_ok,gv_done,gw_enout
+      use gpusph_mod, only: gw_tree,gv_ok,gv_done,gw_enout,gw_vkept
       use enout_early_mod, only: eo_ready
       include 'starsmasher.h'
       include 'mpif.h'
@@ -222,7 +222,10 @@
 !     in the same case rho_and_h starts the gravity itself, as soon as the smoothing lengths are final (before it does the pressure)
       gv_ok=gw_tree
       gv_done=.false.
+!     nothing between this call and uvdots writes the velocities and u: the forces on the GPU may be sent them while it solves
+      gw_vkept=.true.
       call rho_and_h            ! evaluate rho and h at half-timestep
+      gw_vkept=.false.
       gw_tree=.false.
       gv_ok=.false.
 
