@@ -88,6 +88,12 @@ something changed.  These tell you whether the answer is right.
        ``ngpusph = 7`` those of ``ngpusph = 3``: the energies of every row, the
        bytes of every dump and the number of steps, on one rank and on several;
        the same run with the default ``cn2`` and ``cn4`` comes out different.
+   * - ``gpu_multidev``
+     - The SPH and the forces with several devices for the rank, tried on one GPU
+       with ``SPHGPU_NDEV`` (logical devices dealt out round the GPUs): with 1, 2
+       and 4 logical devices the run reaches the end, with ``ngpusphcheck = 2`` the
+       accelerations differ from the CPU's by less than 1e-12 and du/dt by less than
+       1e-10 of the largest, and the energies are those of one device to 1e-9.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.

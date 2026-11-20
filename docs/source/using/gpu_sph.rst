@@ -128,5 +128,9 @@ Checking and measuring
 * ``SPHGPU_PROF=1`` in the environment writes to the error output of every rank the time of the phases of
   each call (upload and tree, kernel and copies, particles left to the CPU); ``SPHGPU_PROF=2`` also the
   events between the kernels.  ``SPHGPU_CHUNK`` is the number of particles of a chunk (131072).
+* ``SPHGPU_NDEV=K`` (a test of the code, not for a run): the SPH and its forces use K logical devices, dealt out round the ``ngpuperrank`` physical devices of
+  the rank (logical device k is on physical device ``first + k % ngpuperrank``), each with its own stream and buffers; the gravity keeps the physical ones.  On one
+  GPU it gives the code paths, the division of the work and the bits of K devices, which is what the tests and the checks of the bits need; the times are not those
+  of K GPUs.
 * ``SPHGPU_FLAGMOD=K`` (a test of the code, not for a run): every Kth particle is left to the CPU as if it had too many candidates, to
   check that the particles solved by the CPU and by the GPU in the same step give the same bits as the CPU alone.

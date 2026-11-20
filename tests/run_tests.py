@@ -867,6 +867,57 @@ def t_vdotsm(ctx):
             out.append('%s np=%d: %d steps (%d with the default cn2, cn4)' % (tag, np_, res['7'][2], res['d'][2]))
     return 'with cn2 and cn4 finite ngpusph=1 gives the bits of 0 and 7 those of 3: ' + '; '.join(out)
 
+def t_gpu_multidev(ctx):
+    """The SPH and the forces with several devices for the rank (SPHGPU_NDEV: logical devices dealt out round the GPUs) run to the end and agree with one device.
+
+    SPHGPU_NDEV=K (a variable of the tests, see docs/source/using/gpu_sph.rst) makes the SPH use K logical devices on the GPU or GPUs of the rank, each with its own stream and buffers: one
+    GPU then gives the code paths and the sums of K devices (the times are not those of K GPUs).  The unrelaxed polytrope is run with ngpusph=3 and ngpusphcheck=2 with 1, 2 and 4 logical
+    devices: every run must finish, log0.sph must say that the forces are on the GPU, SPHGPU_PROF=1 must say that the devices were 1, 2 and 4, the differences that ngpusphcheck=2 writes
+    must be below 1e-12 of the acceleration of a particle and 1e-10 of du/dt, and the energies of every row must be those of one device to 1e-9.
+    """
+    out = []
+    if not ctx.exe:
+        raise Fail('no GPU executable')
+    res = {}
+    saved = {k: os.environ.get(k) for k in ('SPHGPU_NDEV', 'SPHGPU_PROF')}
+    try:
+        for nd in (1, 2, 4):
+            os.environ['SPHGPU_NDEV'] = str(nd)
+            os.environ['SPHGPU_PROF'] = '1'
+            d = ctx.dir('md_%d' % nd)
+            p, e = run(ctx.exe, d, np=1, **dict(POLY, nrelax=0, tf=1, dtout=0.5, ngpusph=3, ngpusphcheck=2))
+            log = open(os.path.join(d, 'log0.sph')).read() if os.path.exists(os.path.join(d, 'log0.sph')) else ''
+            if 'ngpusph: the pair sums (forces) on the GPU' not in log:
+                raise Fail('%d logical devices: log0.sph does not say that the forces are on the GPU\n%s' % (nd, (p.stdout + p.stderr)[-600:]))
+            if not re.search(r'%d devices' % nd, p.stderr):
+                raise Fail('%d logical devices: SPHGPU_PROF=1 does not report %d devices' % (nd, nd))
+            lines = [l for l in log.splitlines() if 'ngpusphcheck forces:' in l]
+            if not lines:
+                raise Fail('%d logical devices: ngpusphcheck=2 wrote no line of differences' % nd)
+            worst = worstdu = 0.0
+            for l in lines:
+                f = l.split()
+                a = float(f[f.index('a_rel_max') + 1])
+                du = float(f[f.index('du_max') + 1]) / max(float(f[f.index('du_ref') + 1]), 1e-300)
+                worst, worstdu = max(worst, a), max(worstdu, du)
+            if worst > 1e-12 or worstdu > 1e-10:
+                raise Fail('%d logical devices: the forces on the GPU differ from the CPU by %.2e of a (limit 1e-12) and %.2e of du/dt (limit 1e-10)' % (nd, worst, worstdu))
+            res[nd] = energies(e)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    for nd in (2, 4):
+        if len(res[nd]) != len(res[1]):
+            raise Fail('%d logical devices give another number of rows than one' % nd)
+        for r1, rk in zip(res[1], res[nd]):
+            for k, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
+                close(rk[k], r1[k], 1e-9, '%s with %d logical devices against 1' % (name, nd))
+        out.append('%d devices: %d rows' % (nd, len(res[nd])))
+    return 'logical devices run to the end, the check of the forces is clean and the energies are those of one device: ' + '; '.join(out)
+
 # --------------------------------------------------------------- HDF5 -----
 
 def t_hdf5_dump(ctx):
@@ -972,6 +1023,7 @@ TESTS = {
     'gpu_mixed':        t_gpu_mixed,
     'sph_auto':         t_sph_auto,
     'vdotsm':           t_vdotsm,
+    'gpu_multidev':     t_gpu_multidev,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

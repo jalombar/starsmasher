@@ -1047,7 +1047,7 @@ void upload_and_build(Dev &d, int n, int nlow, int nup, const double *x, const d
 {
   CK(cudaSetDevice(d.id));
   const int nown = nup - nlow;
-  const bool mk = (d.id == g_dev[0].id);
+  const bool mk = (&d == &g_dev[0]);
   if (mk) mark("start", d.st);
   CK(cudaMemsetAsync(d.cnt, 0, 4 * sizeof(int), d.st));
   CK(cudaMemcpyAsync(d.x, x, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
@@ -1960,11 +1960,16 @@ extern "C"
       if (nd <= 0) nd = std::max(1, ndevice / std::max(1, *ngravprocs));
       const int first = *localrank * nd;
       if (first + nd > ndevice) { *ierr = 1; return; }
-      g_dev.resize(nd);
-      for (int k = 0; k < nd; k++)
+      // SPHGPU_NDEV=K (a test of the code, not for a run): the SPH uses K logical devices, dealt out round the nd physical ones of the process
+      // (logical device k is on physical device first + k % nd), each with its own stream and buffers.  The gravity keeps the nd physical ones.
+      // It gives, on one GPU, the bits of K devices (the times are not those of K GPUs).
+      int nlog = nd;
+      if (getenv("SPHGPU_NDEV") && atoi(getenv("SPHGPU_NDEV")) > 0) nlog = std::min(atoi(getenv("SPHGPU_NDEV")), 64);
+      g_dev.resize(nlog);
+      for (int k = 0; k < nlog; k++)
       {
-        g_dev[k].id = first + k;
-        CK(cudaSetDevice(first + k));
+        g_dev[k].id = first + k % nd;
+        CK(cudaSetDevice(g_dev[k].id));
         CK(cudaStreamCreateWithFlags(&g_dev[k].st, cudaStreamNonBlocking));
       }
       CK(cudaSetDevice(first));   // the device the gravity of this process expects to be the current one of the thread
