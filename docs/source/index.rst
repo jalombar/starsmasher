@@ -46,6 +46,7 @@ skipped analytically instead of being integrated.
    using/index
    tutorials/index
    performance
+   benchmarks_2026_11
 
 .. toctree::
    :maxdepth: 2
