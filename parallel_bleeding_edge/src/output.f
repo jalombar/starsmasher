@@ -55,6 +55,9 @@ c     myrank=0 needs the rho, divv values to make the output file
          open(12,file='restartrad.sph',form='unformatted',err=100)
          call dump(12)
          close (12)
+c     a run starts from this file: the structure of the gravity tree is made again at the next step (ngravrebuild>1, gravtree.f90), as a run that starts from the
+c     file makes it at its first
+         call gt_dumped
          call wall_time(time2)
          seconds = time2-time1
          write (6,*) 'restartrad:',seconds,'s'

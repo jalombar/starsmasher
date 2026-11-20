@@ -39,6 +39,12 @@
 !     the particles and the nodes in the host buffers of the library (the nodes
 !     are numbered again without the holes between the subtrees), lists the
 !     leaves that have a particle to do, and calls the library.
+!
+!     ngravrebuild>1: the structure of the tree (the order of the particles and the nodes) is made in one step of every ngravrebuild, and the steps
+!     in between use it with the positions of their own time (make_tree_struct).  The moments, sizes and largest 2h of the nodes are made again in every
+!     step, so the nodes only get less compact: the criterion above uses the size of a node as it is, never the one it had when it was made.  A run
+!     that goes on and one that starts from its checkpoint make the structure at the same step (gt_step_begin_m), and the result does
+!     not depend on the number of threads, the gpus or ngravoverlap.
 !***********************************************************************
 module gravtree
 !$ use omp_lib
@@ -48,6 +54,7 @@ module gravtree
   implicit none
   private
   public :: gt_forces, gt_gpu, gt_start, gt_finish, gt_pend, gt_early, gt_int_mark_m, gt_int_ok_m, gt_int_early_ok_m
+  public :: gt_step_begin_m, gt_step_end_m, gt_dumped_m, gt_dumped_take_m, gt_report_m
   integer, parameter :: dp = kind(1.d0)
   integer, parameter :: lenf = 20
   ! node data: 1:3 centre of mass, 4 size, 5 hmax, 6 mass, 7:12 second moments (xx,xy,xz,yy,yz,zz)
@@ -70,6 +77,14 @@ module gravtree
   integer, save :: ps_n = 0, ps_ilow = 0, ps_ihigh = 0, ps_nwork = 0, ps_nnode = 0
   integer(c_signed_char), pointer, contiguous, save :: ps_needf(:) => null()
   real(c_double), pointer, contiguous, save :: ps_out(:,:) => null()
+
+  ! ngravrebuild>1: the structure of the tree (its nodes and gind) is made every ngravrebuild steps and the steps in between use it with the positions of
+  ! now.  gt_in_step: advance is making the forces of a step (gt_step_begin ... gt_step_end); gt_rebuild_now: this step makes the structure; gt_age: the
+  ! steps since it was made; gt_valid: the structure of gtw and gind was made inside a step (for gt_n particles and leaves of gt_nleaf) and nothing has
+  ! been written since; gt_dumped: the checkpoint was written (rank 0) since the last step
+  logical, save :: gt_in_step = .false., gt_rebuild_now = .true., gt_valid = .false., gt_dumped = .false.
+  integer, save :: gt_age = 0, gt_n = 0, gt_nleaf = 0, gt_rebuild = 1
+  integer, save :: gt_nbuilt = 0, gt_nreused = 0
 
   type(tbwork), save :: gtw
   integer :: nsave = 0
@@ -139,10 +154,43 @@ contains
   end subroutine make_tree
 
 !     The structure of the tree of the n particles: nodes, the order of the particles (gind) and their positions in that order.
+!
+!     ngravrebuild>1: in the steps between two constructions (see gt_step_begin_m) the structure of the last one is kept, and only the positions
+!     in tree order are read again, xt(i) = x(gind(i)) (the same doubles that the construction copies into gpos).  Everything else that the
+!     force reads is made again from the positions, masses and smoothing lengths of this step (the moments of the nodes, their sizes and
+!     the largest 2h in node_moments and visit_hfill, the buffers of the visit in gpu_visit_pack), so the nodes only get less compact, they are
+!     never wrong: gind is a permutation of 1..n whatever the particles do, a node is a set of consecutive places of it, and its size is the radius
+!     of a sphere about its centre of mass that holds all its particles of now.  What the construction alone made and the force does not read
+!     (the boxes and cut dimensions of gtw) goes stale.  With ngravrebuild=1 the branch is never taken and the code is the one without the option.
   subroutine make_tree_struct(n, x, y, z, nleaf)
     integer, intent(in) :: n, nleaf
     real(dp), intent(in) :: x(n), y(n), z(n)
-    integer :: i
+    integer :: i, j
+    logical :: reuse
+    reuse = gt_in_step .and. .not. gt_rebuild_now .and. gt_valid .and. n == gt_n .and. nleaf == gt_nleaf
+    if (reuse) then
+       gt_nreused = gt_nreused + 1
+!$omp parallel do simd schedule(static) private(j)
+       do i = 1, n
+          j = gind(i)
+          xt(i) = x(j)
+          yt(i) = y(j)
+          zt(i) = z(j)
+       end do
+       ! gind has not changed: ginv is the one of the structure; the library of the integration on the device forgets the address of gind at the end of every step
+       if (ginv_want) then
+          if (.not. ginv_ok) then
+!$omp parallel do schedule(static)
+             do i = 1, n
+                ginv(gind(i)) = i
+             end do
+             ginv_ok = .true.
+          end if
+          if (gt_ginv_send) call gpu_sph_int_gind(gind, int(n, c_int))
+       end if
+       return
+    end if
+    if (gt_in_step .and. .not. gt_rebuild_now) gt_age = 0
     call reserve(n, nleaf)
 !$omp parallel do simd schedule(static)
     do i = 1, n
@@ -173,7 +221,54 @@ contains
        ! the integration on the device adds the gravity to the accelerations itself and needs the order of the particles in the tree: it keeps the address of gind
        if (gt_ginv_send) call gpu_sph_int_gind(gind, int(n, c_int))
     end if
+    gt_valid = gt_in_step
+    gt_n = n
+    gt_nleaf = nleaf
+    gt_nbuilt = gt_nbuilt + 1
   end subroutine make_tree_struct
+
+!     advance, before the forces of a step: whether the structure of the tree is made in this step.  rebuild: ngravrebuild (1: every step).  dumped: the checkpoint
+!     restartrad.sph was written since the last step (all the ranks are told by the caller): a run that goes on and one that starts from it make the structure at the
+!     same step, the first one after the file.  A force that is asked outside advance (the first one of a run, eatem, a jump ahead) does not
+!     count as a step and makes the structure without keeping it.
+  subroutine gt_step_begin_m(rebuild, dumped)
+    integer, intent(in) :: rebuild
+    logical, intent(in) :: dumped
+    gt_rebuild = rebuild
+    gt_in_step = .true.
+    if (dumped) gt_valid = .false.
+    if (rebuild <= 1 .or. .not. gt_valid .or. gt_age + 1 >= rebuild) then
+       gt_rebuild_now = .true.
+       gt_age = 0
+    else
+       gt_rebuild_now = .false.
+       gt_age = gt_age + 1
+    end if
+  end subroutine gt_step_begin_m
+
+!     advance, after the gravity of the step is collected
+  subroutine gt_step_end_m()
+    gt_in_step = .false.
+  end subroutine gt_step_end_m
+
+!     output.f, the checkpoint restartrad.sph was written (on rank 0)
+  subroutine gt_dumped_m()
+    gt_dumped = .true.
+  end subroutine gt_dumped_m
+
+!     the file was written: the flag is given and cleared
+  subroutine gt_dumped_take_m(dumped)
+    logical, intent(out) :: dumped
+    dumped = gt_dumped
+    gt_dumped = .false.
+  end subroutine gt_dumped_take_m
+
+!     the counts of the constructions and of the steps that kept the structure, for the report at the end of a run
+  subroutine gt_report_m(nbuilt, nreused)
+    integer, intent(out) :: nbuilt, nreused
+    nbuilt = gt_nbuilt
+    nreused = gt_nreused
+  end subroutine gt_report_m
 
 !     The masses, 2h and the flag of a point particle in tree order, and the moments of the nodes (after make_tree_struct).
   subroutine make_tree_fill(n, am, hp, u)
@@ -1498,3 +1593,44 @@ subroutine gt_int_early_ok(n, ok)
   call gt_int_early_ok_m(n, ok)
   return
 end subroutine gt_int_early_ok
+
+!***********************************************************************
+!     ngravrebuild>1 (see make_tree_struct): the calls of the fixed-form code.  gt_step_begin: at the start of the forces of a step of advance
+!     (every rank: rank 0 knows whether the checkpoint was written, and tells the others); gt_step_end: when the gravity of the step is collected;
+!     gt_dumped: checkpt (output.f) wrote the checkpoint; gt_report: the counts, for the log at the end of a run.
+!***********************************************************************
+subroutine gt_step_begin
+  use gravtree
+  include 'starsmasher.h'
+  include 'mpif.h'
+  logical dumped
+  integer idump,ierr
+  call gt_dumped_take_m(dumped)
+  if (ngravrebuild.gt.1 .and. nprocs.gt.1) then
+     idump=0
+     if (dumped) idump=1
+     call mpi_bcast(idump,1,mpi_integer,0,mpi_comm_world,ierr)
+     dumped=(idump.ne.0)
+  end if
+  call gt_step_begin_m(ngravrebuild,dumped)
+  return
+end subroutine gt_step_begin
+
+subroutine gt_step_end
+  use gravtree
+  call gt_step_end_m()
+  return
+end subroutine gt_step_end
+
+subroutine gt_dumped
+  use gravtree
+  call gt_dumped_m()
+  return
+end subroutine gt_dumped
+
+subroutine gt_report(nbuilt,nreused)
+  use gravtree
+  integer nbuilt,nreused
+  call gt_report_m(nbuilt,nreused)
+  return
+end subroutine gt_report

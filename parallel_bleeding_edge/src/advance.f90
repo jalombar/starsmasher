@@ -276,6 +276,8 @@
       ! need the most up-to-date smoothing lengths for the integrator to achieve
       ! second order accuracy
       ! ngravoverlap=1: the gpu starts on the far tiles while the smoothing lengths are solved
+!     the gravity tree: this is a step (ngravrebuild>1 makes the structure of the tree only in some steps, gravtree.f90)
+      call gt_step_begin
       if(ngr.ne.0) call gravfar_start
 !     ngravtree=2 with ngravoverlap=1: gravforce makes the tree of the gravity, whose structure (it depends on the positions only) the
 !     CPUs can make while the GPUs solve the smoothing lengths
@@ -302,6 +304,7 @@
       gw_enout=nprocs.eq.1 .and. nrelax.eq.0
       call uvdots                ! evaluate udot and accelerations at half-timestep
       gw_enout=.false.
+      call gt_step_end
       if(myrank.eq.nprocs-1) then
          call wall_time(time2)
          write (6,'(a,f6.3,a,i4)')&
