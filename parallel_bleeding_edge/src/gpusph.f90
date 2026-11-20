@@ -323,10 +323,16 @@
       call gpusph_usable(why,2)
       if(why.ne.0) then
          call gpusph_say(what,why,2)
+!        (ngpusphcheck=2: the ranks that are not using their GPU still take part in the comparison, see gpusph_cmpidle)
+         if(gpusph_cmpidle(why)) then
+            call gpusph_fidle(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
+            done=.true.
+         endif
          return
       endif
       if(nloop.le.0) then
          done=.true.
+         if(gpusph_cmpidle(0)) call gpusph_fidle(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
          return
       endif
       blocks=0
@@ -383,6 +389,10 @@
          if(ierr.ne.0) then
             call gpusph_fail(7)
             call gpusph_say(what,7,2)
+            if(gpusph_cmpidle(7)) then
+               call gpusph_fidle(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
+               done=.true.
+            endif
             return
          endif
       else
@@ -441,6 +451,50 @@
       call uvpairs(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
       call gpusph_fcompare(mvx,mvy,mvz,mgx,mgy,mgz,sv,sudot,suij,sdiv)
       end subroutine gpusph_forces
+
+!     ngpusphcheck=2 compares the sums of all the ranks (gpusph_fcompare: collective calls), so every rank has to go through it
+!     in a step in which one does, also a rank that is not using its GPU: it has none of its own (more ranks than GPUs, reason
+!     6), CUDA failed on it (7), or it has no particles to do.  The reasons that every rank has (the build, a periodic box,
+!     dynhco, nav=4, nintvar=3: the GPU makes no forces anywhere) leave nobody comparing.
+      logical function gpusph_cmpidle(why)
+      include 'starsmasher.h'
+      integer why
+      gpusph_cmpidle=.false.
+      if(iand(ngpusphcheck,2).eq.0 .or. nprocs.le.1) return
+      if(why.ne.0 .and. why.ne.6 .and. why.ne.7) return
+      if(periodic .or. dynhco.ne.0 .or. hcolim .or. nav.eq.4 .or. nintvar.eq.3) return
+      gpusph_cmpidle=.true.
+      end function gpusph_cmpidle
+
+!     What a rank that is not using its GPU gives to the comparison: the CPU does its pair sums (uvpairs, as the caller would
+!     do) and they are taken for the sums of the GPU too, so that this rank adds the same to both sides.
+      subroutine gpusph_fidle(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
+      include 'starsmasher.h'
+      integer nloop
+      real*8 alpha1,beta1
+      real*8 mvx(*),mvy(*),mvz(*),mgx(*),mgy(*),mgz(*)
+      real*8 uijmax(nmax)
+      common/uijmax/ uijmax
+      double precision divv(nmax)
+      common/commdivv/divv
+      real*8, allocatable :: sv(:,:),sudot(:),suij(:),sdiv(:)
+      integer i
+      if(nloop.gt.0) call uvpairs(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
+      allocate(sv(6,n),sudot(n),suij(n),sdiv(n))
+      do i=1,n
+         sv(1,i)=mvx(i)
+         sv(2,i)=mvy(i)
+         sv(3,i)=mvz(i)
+         sv(4,i)=mgx(i)
+         sv(5,i)=mgy(i)
+         sv(6,i)=mgz(i)
+         sudot(i)=udot(i)
+         suij(i)=uijmax(i)
+         sdiv(i)=divv(i)
+      enddo
+      call gpusph_fcompare(mvx,mvy,mvz,mgx,mgy,mgz,sv,sudot,suij,sdiv)
+      deallocate(sv,sudot,suij,sdiv)
+      end subroutine gpusph_fidle
 
 !     ngpusphcheck=2: the sums of the CPU (the arguments, and udot, uijmax and divv) against those of the GPU (sv, sudot, suij,
 !     sdiv), over the active particles of the rank; one line in log0.sph with the largest and rms differences.  The

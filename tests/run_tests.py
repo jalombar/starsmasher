@@ -4,7 +4,7 @@
 Runs short calculations and checks them against expectations that must hold,
 rather than against stored output.  See tests/README.md.
 """
-import argparse, glob, math, os, random, re, shutil, struct, subprocess, sys, tempfile, time
+import argparse, glob, math, os, random, re, shutil, signal, struct, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC  = os.path.join(ROOT, 'parallel_bleeding_edge', 'src')
@@ -17,9 +17,21 @@ class Skip(Exception):
 
 # ---------------------------------------------------------------- helpers ---
 
-def sh(cmd, cwd=None, timeout=1800, check=True):
-    p = subprocess.run(cmd, cwd=cwd, shell=isinstance(cmd, str),
-                       capture_output=True, text=True, timeout=timeout)
+def sh(cmd, cwd=None, timeout=1800, check=True, kill_group=False):
+    if kill_group:
+        # a run that hangs (the ranks wait for each other) is killed with its ranks, not only mpirun, which would leave them spinning
+        q = subprocess.Popen(cmd, cwd=cwd, shell=isinstance(cmd, str), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                             text=True, start_new_session=True)
+        try:
+            out, err = q.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            os.killpg(q.pid, signal.SIGKILL)
+            q.communicate()
+            raise
+        p = subprocess.CompletedProcess(cmd, q.returncode, out, err)
+    else:
+        p = subprocess.run(cmd, cwd=cwd, shell=isinstance(cmd, str),
+                           capture_output=True, text=True, timeout=timeout)
     if check and p.returncode != 0:
         raise Fail('command failed: %s\n%s' % (cmd, (p.stderr or p.stdout)[-1500:]))
     return p
@@ -65,7 +77,7 @@ def run(exe, workdir, np=4, init="'1es'", timeout=1800, **settings):
     open(os.path.join(workdir, 'sph.input'), 'w').write(
         sph_input(cpu=exe.endswith('_cpu_sph'), **settings))
     p = sh(['mpirun', '--oversubscribe', '-np', str(np), './run_sph'],
-           cwd=workdir, timeout=timeout, check=False)
+           cwd=workdir, timeout=timeout, check=False, kill_group=True)
     return p, os.path.join(workdir, 'energy0.sph')
 
 def energies(path):
@@ -92,6 +104,29 @@ def close(a, b, tol, what):
         raise Fail('%s: got %.8g, expected %.8g (relative %.2e > %.2e)'
                    % (what, a, b, rel, tol))
     return rel
+
+def energy_words(path):
+    """The first five words of each row of energy0.sph as written (t, W, T, U, Etot), for the comparisons that are made in units of the last printed digit."""
+    rows = []
+    if os.path.exists(path):
+        for line in open(path):
+            f = line.split()
+            if len(f) >= 5:
+                rows.append(f[:5])
+    return rows
+
+def last_digit(word):
+    """The value of the last digit of a number as the Fortran of energy0.sph prints it (7 digits: -0.1714286, 0.8571429E-01): 1e-7 and 1e-8 there."""
+    mant, _, ex = word.upper().replace('D', 'E').partition('E')
+    dec = len(mant.split('.')[1]) if '.' in mant else 0
+    return 10.0 ** (int(ex or 0) - dec)
+
+def close_digits(a, b, units, what):
+    """a and b are numbers as written in energy0.sph: they must differ by at most `units` units of the last printed digit (of the larger one)."""
+    d = abs(float(a.upper().replace('D', 'E')) - float(b.upper().replace('D', 'E'))) / max(last_digit(a), last_digit(b))
+    if d > units * (1.0 + 1e-9):
+        raise Fail('%s: %s and %s differ by %.2f units of the last printed digit (limit %g)' % (what, a, b, d, units))
+    return d
 
 # ------------------------------------------------------------------ tests ---
 # A polytrope small enough to finish quickly but large enough to be meaningful.
@@ -589,7 +624,9 @@ def t_gpu_forces(ctx):
     Bit 2 of ngpusph puts div v, curl v, the accelerations and du/dt on the GPU, with the terms and the order of
     the sums of the CPU; they can differ from the CPU's in the last bit of a term (sqrt against pow in the
     viscosity).  An unrelaxed polytrope, whose particles approach each other and several time-step bins, is run
-    with shared and with block steps: the energies of every row must agree with ngpusph=1 to 1e-9, and a run
+    with shared and with block steps: the energies of every row must agree with ngpusph=1 to one unit of the last
+    digit that energy0.sph prints (7 digits: a rounding of a sum can change that digit, and 1e-9 asked for the
+    same digits), and a run
     with ngpusphcheck=2 (the CPUs make the sums too and the differences go to log0.sph) must report
     differences of the accelerations below 1e-12 of the particle's and of du/dt below 1e-10 of the largest.
     The CPU build says that it has no GPU code and gives the same bits.
@@ -600,7 +637,7 @@ def t_gpu_forces(ctx):
             continue
         for np_ in (1, ctx.np):
             for blk in (0, 1):
-                res = {}
+                res, txt = {}, {}
                 for mode, extra in (('1', dict(ngpusph=1)), ('3', dict(ngpusph=3)), ('3c', dict(ngpusph=3, ngpusphcheck=2))):
                     d = ctx.dir('gf_%s_%d_%d_%s' % (tag, np_, blk, mode))
                     p, e = run(exe, d, np=np_, **dict(POLY, nrelax=0, nblock=blk, tf=1, dtout=0.5, **extra))
@@ -612,6 +649,7 @@ def t_gpu_forces(ctx):
                             raise Fail('%s build, np=%d, nblock=%d, ngpusph mode %s: log0.sph does not say "%s"\n%s'
                                        % (tag, np_, blk, mode, want, (p.stdout + p.stderr)[-600:]))
                     res[mode] = energies(e)
+                    txt[mode] = energy_words(e)
                     if mode == '3c' and tag == 'gpu':
                         lines = [l for l in log.splitlines() if l.startswith(' ngpusphcheck forces:') or l.startswith('ngpusphcheck forces:')]
                         if not lines:
@@ -629,16 +667,62 @@ def t_gpu_forces(ctx):
                 for mode in ('3', '3c'):
                     if len(res['1']) != len(res[mode]):
                         raise Fail('%s build, np=%d, nblock=%d: ngpusph mode %s gives another number of rows' % (tag, np_, blk, mode))
-                    tol = 0.0 if tag == 'cpu' else 1e-9
-                    for r1, r3 in zip(res['1'], res[mode]):
+                    for r1, r3, w1, w3 in zip(res['1'], res[mode], txt['1'], txt[mode]):
                         for k, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
-                            if tol == 0.0:
+                            if tag == 'cpu':
                                 if r1[k] != r3[k]:
                                     raise Fail('%s build, np=%d, nblock=%d: ngpusph mode %s changes %s' % (tag, np_, blk, mode, name))
                             else:
-                                close(r3[k], r1[k], tol, '%s, np=%d, nblock=%d, ngpusph=%s against 1' % (name, np_, blk, mode))
+                                close_digits(w3[k], w1[k], 1, '%s, np=%d, nblock=%d, ngpusph=%s against 1' % (name, np_, blk, mode))
                 out.append('%s np=%d nblock=%d: %d rows' % (tag, np_, blk, len(res['1'])))
     return 'ngpusph=3 agrees with 1 (and the check of the forces is clean): ' + '; '.join(out)
+
+def t_gpu_ranks(ctx):
+    """ngpusphcheck=2 and 3 with more ranks than GPUs: a rank without a GPU of its own takes part in the comparison (it left the run hanging).
+
+    With ngpuperrank=1 rank r uses GPU r, and a rank beyond the GPUs of the node does the SPH on the CPUs.  The comparison of the forces
+    (ngpusphcheck=2) adds the sums of all the ranks with collective calls, which such a rank used to skip.  CUDA_VISIBLE_DEVICES=0 shows one GPU only, so
+    with 2 or 3 ranks one or two of them have none, on any node.  An unrelaxed polytrope is run with ngpusph=3 and ngpusphcheck=2 and 3 (and with
+    ngpusph=1): it must finish within 5 minutes, write the lines of the comparison and give the energies of ngpusph=1 to 1e-9 (the check goes on with the
+    forces of the CPUs).  The CPU build has no GPUs and is not run.
+    """
+    if not ctx.exe:
+        return 'no GPU executable'
+    out = []
+    old = os.environ.get('CUDA_VISIBLE_DEVICES')
+    os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+    try:
+        for np_ in (2, 3):
+            res = {}
+            for mode, extra in (('1', dict(ngpusph=1)), ('3c', dict(ngpusph=3, ngpusphcheck=2)), ('3cc', dict(ngpusph=3, ngpusphcheck=3))):
+                d = ctx.dir('gk_%d_%s' % (np_, mode))
+                try:
+                    p, e = run(ctx.exe, d, np=np_, timeout=300, **dict(POLY, nrelax=0, nblock=0, tf=1, dtout=0.5, **extra))
+                except subprocess.TimeoutExpired:
+                    raise Fail('np=%d, ngpusph mode %s: no end after 5 minutes (a rank waits for the others)' % (np_, mode))
+                res[mode] = energies(e)
+                if mode != '1':
+                    log = open(os.path.join(d, 'log0.sph')).read()
+                    lines = [l for l in log.splitlines() if 'ngpusphcheck forces:' in l]
+                    if not lines:
+                        raise Fail('np=%d, ngpusph mode %s: no line of differences in log0.sph\n%s' % (np_, mode, (p.stdout + p.stderr)[-600:]))
+                    for l in lines:
+                        f = l.split()
+                        if float(f[f.index('a_rel_max') + 1]) > 1e-12:
+                            raise Fail('np=%d, ngpusph mode %s: the forces on the GPU differ from the CPU: %s' % (np_, mode, l.strip()))
+            for mode in ('3c', '3cc'):
+                if len(res['1']) != len(res[mode]):
+                    raise Fail('np=%d, ngpusph mode %s gives another number of rows' % (np_, mode))
+                for r1, r3 in zip(res['1'], res[mode]):
+                    for k, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
+                        close(r3[k], r1[k], 1e-9, '%s, np=%d, ngpusph mode %s against 1' % (name, np_, mode))
+            out.append('np=%d: %d rows' % (np_, len(res['1'])))
+    finally:
+        if old is None:
+            os.environ.pop('CUDA_VISIBLE_DEVICES', None)
+        else:
+            os.environ['CUDA_VISIBLE_DEVICES'] = old
+    return 'ngpusphcheck with ranks that have no GPU of their own finishes and agrees with ngpusph=1: ' + '; '.join(out)
 
 # --------------------------------------------------------------- HDF5 -----
 
@@ -740,6 +824,7 @@ TESTS = {
     'gravity_auto':     t_gravity_auto,
     'gpu_sph':          t_gpu_sph,
     'gpu_forces':       t_gpu_forces,
+    'gpu_ranks':        t_gpu_ranks,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

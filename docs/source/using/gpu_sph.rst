@@ -74,7 +74,8 @@ Checking and measuring
 * ``ngpusphcheck = 2`` makes the CPUs also form the pair sums of the forces after the GPU, on the same data, and writes one
   line to ``log0.sph`` for each evaluation with the differences: the largest and rms difference of the acceleration relative
   to the particle's own, the largest difference and the reference of ``du/dt``, ``uijmax`` and ``div v``, and how many
-  particles have exactly the same bits.  The run goes on with the results of the CPUs.  ``ngpusphcheck = 3`` is both checks.
+  particles have exactly the same bits.  The run goes on with the results of the CPUs.  ``ngpusphcheck = 3`` is both checks.  A rank that has no GPU
+  of its own (more ranks than GPUs) or has lost it after an error of CUDA takes part in the comparison with the sums of its CPUs on both sides.
 * ``SPHGPU_PROF=1`` in the environment writes to the error output of every rank the time of the phases of
   each call (upload and tree, kernel and copies, particles left to the CPU); ``SPHGPU_PROF=2`` also the
   events between the kernels.  ``SPHGPU_CHUNK`` is the number of particles of a chunk (131072).
