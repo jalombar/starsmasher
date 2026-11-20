@@ -98,9 +98,10 @@ c     SPH on the GPU (ngpusph): the CUDA library has it, this build does not (gp
 
       subroutine gpu_sph_rhoh(n,nlow,nup,nmaxarr,x,y,z,am,u,hp,divv,
      $     rho,omega,om0,psi,wn,zeta,nn,first,sflag,list,listcap,ltot,
-     $     dt,hfloor,nnopt,nselfg,skin,skiplist,ierr)
+     $     dt,hfloor,nnopt,nselfg,skin,skiplist,work,ierr)
       integer n,nlow,nup,nmaxarr,nn(*),first(*),sflag(*),list(*)
       integer listcap,ltot,nnopt,nselfg,skiplist,ierr
+      integer*8 work
       real*8 x(*),y(*),z(*),am(*),u(*),hp(*),divv(*),rho(*),omega(*)
       real*8 om0(*),psi(*),wn(*),zeta(*),dt,hfloor,skin
       ltot=0

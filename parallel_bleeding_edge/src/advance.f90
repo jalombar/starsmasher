@@ -52,6 +52,7 @@
 !*********************************************************
       subroutine advance
 !     implements second-order accurate leap-frog sph step
+      use gpusph_mod, only: gw_tree
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
@@ -177,7 +178,11 @@
       ! second order accuracy
       ! ngravoverlap=1: the gpu starts on the far tiles while the smoothing lengths are solved
       if(ngr.ne.0) call gravfar_start
+!     ngravtree=2 with ngravoverlap=1: gravforce makes the tree of the gravity, whose structure (it depends on the positions only) the
+!     CPUs can make while the GPUs solve the smoothing lengths
+      gw_tree=ngr.ne.0 .and. nusegpus.ne.0 .and. ngravtree.eq.2 .and. ngravoverlap.eq.1
       call rho_and_h            ! evaluate rho and h at half-timestep
+      gw_tree=.false.
 
 !     get potential energy at half-timestep:
 !      if( ngr.ne.0 .and. mod(nit,nitpot).eq.0 ) call gravpot
