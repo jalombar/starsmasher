@@ -1232,6 +1232,32 @@ __global__ void __launch_bounds__(NTHR, NBLK) k_solve(View V)
 
 
 // ---------------------------------------------------------------------------------------------------- one device
+// What the CPU needs of the results of a call of the kernel, for the particles in the order of the particles (not in the order of the curve): hp, rho, nn and whether the GPU left
+// the particle to the CPU.  The rest of the records (omega, 0mega, psi, wn, the places of the lists) is read only by the pair sums of the CPU, which are not made in a run that keeps
+// the lists on the device; fetch_records brings it when the CPU needs it.
+struct HRec
+{
+  double hp, rho;
+  int nn, flag;
+};
+constexpr int FLCAP = 4096;   // the records left to the CPU that are listed on the device (the rest are found by a scan of the records)
+
+// the records of the call in the order of the particles; the records left to the CPU are listed (their place in out and their particle)
+__global__ void dev_unperm(int nown, int nlow, const SphOut *out, HRec *hrec, int *fcnt, int2 *flo)
+{
+  const int o = blockIdx.x * blockDim.x + threadIdx.x;
+  if (o >= nown) return;
+  const SphOut s = out[o];
+  HRec r;
+  r.hp = s.hp; r.rho = s.rho; r.nn = s.nn; r.flag = s.flag;
+  hrec[s.idx - nlow] = r;
+  if (s.flag)
+  {
+    const int q = atomicAdd(fcnt, 1);
+    if (q < FLCAP) flo[q] = make_int2(o, s.idx);
+  }
+}
+
 struct Dev
 {
   int id = -1;
@@ -1258,6 +1284,9 @@ struct Dev
   SphOut *hout = 0;            // pinned
   int *hcc = 0;                // pinned: the entries of the lists of each chunk
   int houtcap = 0;
+  HRec *hrecd = 0, *hrech = 0; // the results the CPU needs, in the order of the particles: on the device, and pinned
+  int *fcntd = 0, *fcnth = 0;  // how many records the kernel left to the CPU: on the device, and pinned
+  int2 *flod = 0, *floh = 0;   // the first FLCAP of them (place in out, particle): on the device, and pinned
   // Verlet lists (see View): the lists of the particles of the rank, where the positions were when they were built, the displacement since
   int *vl_len = 0, *vl_idx = 0, *vnfall = 0;
   double *vl_R = 0, *vxr = 0, *vyr = 0, *vzr = 0, *vdmax = 0, *vpart = 0;
@@ -1306,6 +1335,10 @@ void freedev(Dev &d)
   dfree(d.oflag); dfree(d.oscan); dfree(d.tgt); dfree(d.cnt); dfree(d.out); dfree(d.list); dfree(d.ccnt); dfree(d.tmp);
   if (d.hout) { cudaFreeHost(d.hout); d.hout = 0; }
   if (d.hcc) { cudaFreeHost(d.hcc); d.hcc = 0; }
+  dfree(d.hrecd); dfree(d.fcntd); dfree(d.flod);
+  if (d.hrech) { cudaFreeHost(d.hrech); d.hrech = 0; }
+  if (d.fcnth) { cudaFreeHost(d.fcnth); d.fcnth = 0; }
+  if (d.floh) { cudaFreeHost(d.floh); d.floh = 0; }
   d.ncap = d.nowncap = d.chcap = 0; d.tmpbytes = 0; d.houtcap = 0;
 }
 
@@ -1344,6 +1377,7 @@ void reserve(Dev &d, int n, int nown, int ch)
     dmalloc(d.box, 2 * ((size_t)ncap / LEAF * 4 / 3 + 4 * MAXLEV));
     dmalloc(d.oflag, ncap); dmalloc(d.oscan, ncap); dmalloc(d.tgt, ncap); dmalloc(d.cnt, 4);
     dmalloc(d.out, ocap);
+    dmalloc(d.hrecd, ocap); dmalloc(d.fcntd, 4); dmalloc(d.flod, FLCAP);
     dmalloc(d.list, ((size_t)ocap + chcap) * CAP);
     dmalloc(d.ccnt, 256);
     size_t b1 = 0, b2 = 0;
@@ -1353,6 +1387,9 @@ void reserve(Dev &d, int n, int nown, int ch)
     CK(cudaMalloc(&d.tmp, d.tmpbytes));
     CK(cudaMallocHost((void **)&d.hout, (size_t)ocap * sizeof(SphOut)));
     CK(cudaMallocHost((void **)&d.hcc, 256 * sizeof(int)));
+    CK(cudaMallocHost((void **)&d.hrech, (size_t)ocap * sizeof(HRec)));
+    CK(cudaMallocHost((void **)&d.fcnth, 4 * sizeof(int)));
+    CK(cudaMallocHost((void **)&d.floh, FLCAP * sizeof(int2)));
     d.houtcap = ocap;
     d.ncap = ncap; d.nowncap = ocap; d.chcap = chcap;
   }
@@ -1652,6 +1689,126 @@ void drain(int nown, int nlow, int ch, const Host &H, int *ltot, int *ierr, long
   if (nchmax > 0) spread(nchmax - 1);
   *ltot = (int)hb;
   if (nflagged) *nflagged = nfl;
+}
+
+
+// ---------------------------------------------------------------------------------------------------- the results, in the order of the particles (one device)
+// With one device and the lists kept on it (skiplist), the copies of the results are queued behind the kernels before the CPUs start their own work, with no call of the CPU in
+// between: a kernel puts the records in the order of the particles (dev_unperm), and what comes back is what the CPU reads, 24 bytes for each particle instead of 64, which the CPU
+// stores in order instead of one place for each record in a random order.  The rest of the records is what only the pair sums of the CPU read (omega, 0mega, psi, wn and the places
+// of the lists: nothing else on the CPU reads them, no dump writes them): the arrays of the CPU are not written with it, and fetch_records makes them as they were if the CPU needs
+// them (it needs them where it needs the lists: getlists, and the forces when they are not made from what the device holds).  The values the arrays get are the same as the ones drain gives.
+struct LazyRec
+{
+  bool pending = false;
+  Host H;
+  int nown = 0, nlow = 0, ch = 0;
+  std::vector<long long> base;   // where the lists of each chunk go in list()
+};
+LazyRec g_lazy;
+
+bool fast_drain_enabled()
+{
+  static const bool e = getenv("SPHGPU_SLOWDRAIN") == NULL;
+  return e;
+}
+
+void queue_results(Dev &d, int nown, int nlow, int nch)
+{
+  CK(cudaSetDevice(d.id));
+  for (int c = 0; c < nch; c++) CK(cudaStreamWaitEvent(d.st2, d.evS[c], 0));
+  CK(cudaMemcpyAsync(d.hcc, d.ccnt, (size_t)nch * sizeof(int), cudaMemcpyDeviceToHost, d.st2));
+  CK(cudaMemsetAsync(d.fcntd, 0, sizeof(int), d.st2));
+  dev_unperm<<<nblocks(nown, 256), 256, 0, d.st2>>>(nown, nlow, d.out, d.hrecd, d.fcntd, d.flod);
+  CK(cudaGetLastError());
+  CK(cudaMemcpyAsync(d.hrech, d.hrecd, (size_t)nown * sizeof(HRec), cudaMemcpyDeviceToHost, d.st2));
+  CK(cudaMemcpyAsync(d.fcnth, d.fcntd, sizeof(int), cudaMemcpyDeviceToHost, d.st2));
+  CK(cudaMemcpyAsync(d.floh, d.flod, (size_t)FLCAP * sizeof(int2), cudaMemcpyDeviceToHost, d.st2));
+  CK(cudaEventRecord(d.evC[0], d.st2));
+}
+
+// the same as drain for one device with the results queued by queue_results
+void drain_fast(Dev &d, int nown, int nlow, int ch, int nch, const Host &H, int *ltot, int *ierr, long *nflagged, std::vector<std::vector<int> > *flagrec)
+{
+  CK(cudaSetDevice(d.id));
+  CK(cudaEventSynchronize(d.evC[0]));
+  std::vector<std::vector<long long> > base(1, std::vector<long long>(nch + 1, 0)), tots(1, std::vector<long long>(nch + 1, 0));
+  long long hb = 0;
+  bool full = false;
+  for (int c = 0; c < nch; c++)
+  {
+    const long long tot = d.hcc[c];
+    base[0][c] = hb;
+    if ((size_t)(hb + tot) > H.listcap) full = true;
+    tots[0][c] = tot;
+    hb += tot;
+  }
+  CK(cudaStreamSynchronize(d.st2));
+  CK(cudaStreamSynchronize(d.st));
+  for (int q = 0; q < 4; q++) CK(cudaStreamSynchronize(d.sc[q]));
+  g_ls.valid = false;
+  g_lazy.pending = false;
+  if (full) { *ierr = 2; return; }
+  g_ls.valid = true; g_ls.ch = ch; g_ls.base = base; g_ls.tot = tots;
+  long nfl = 0;
+  const HRec *r = d.hrech;
+#pragma omp parallel for schedule(static) reduction(+ : nfl)
+  for (int q = 0; q < nown; q++)
+  {
+    const HRec s = r[q];
+    H.sflag[q] = s.flag;
+    nfl += s.flag;
+    if (s.flag) continue;
+    const int i = nlow + q;
+    H.hp[i] = s.hp;
+    H.rho[i] = s.rho;
+    H.zeta[i] = 0.0;
+    H.nn[i] = s.nn;
+  }
+  // the records left to the CPU: where they are in the order of the curve, and the particle of each (the forces read it from the pinned copy of the records)
+  const int fc = d.fcnth[0];
+  if (fc != nfl) throw SphError(3, "the number of particles left to the CPU is not what the results say");
+  if (fc <= FLCAP)
+  {
+    for (int j = 0; j < fc; j++)
+    {
+      if (flagrec) (*flagrec)[0].push_back(d.floh[j].x);
+      d.hout[d.floh[j].x].idx = d.floh[j].y;
+    }
+  }
+  else
+  {
+    CK(cudaMemcpy(d.hout, d.out, (size_t)nown * sizeof(SphOut), cudaMemcpyDeviceToHost));
+    for (int o = 0; o < nown; o++)
+      if (d.hout[o].flag && flagrec) (*flagrec)[0].push_back(o);
+  }
+  *ltot = (int)hb;
+  if (nflagged) *nflagged = nfl;
+  g_lazy.pending = true; g_lazy.H = H; g_lazy.nown = nown; g_lazy.nlow = nlow; g_lazy.ch = ch; g_lazy.base = base[0];
+}
+
+// The rest of the records of the last call, to the arrays of the CPU, as drain gives them (the particles left to the CPU are not touched).
+void fetch_records()
+{
+  if (!g_lazy.pending) return;
+  g_lazy.pending = false;
+  Dev &d = g_dev[0];
+  CK(cudaSetDevice(d.id));
+  const int nown = g_lazy.nown, ch = g_lazy.ch;
+  const Host &H = g_lazy.H;
+  CK(cudaMemcpy(d.hout, d.out, (size_t)nown * sizeof(SphOut), cudaMemcpyDeviceToHost));
+#pragma omp parallel for schedule(static)
+  for (int o = 0; o < nown; o++)
+  {
+    const SphOut s = d.hout[o];
+    if (s.flag) continue;
+    const int i = s.idx;
+    H.omega[i] = s.omega;
+    H.om0[i] = s.om0;
+    H.psi[i] = s.psi;
+    if (H.u[i] != 0.0) H.wn[i] = s.wn;
+    H.first[i] = (int)(g_lazy.base[o / ch] + s.first);
+  }
 }
 
 
@@ -2367,6 +2524,7 @@ void getlists(int *list, int *ierr)
   if (!g_ls.valid) { *ierr = 3; return; }
   try
   {
+    fetch_records();      // (the CPU that needs the lists needs the sums of the same particles)
     const int ndev = (int)g_dev.size();
     for (int k = 0; k < ndev; k++)
     {
@@ -2505,6 +2663,7 @@ extern "C"
     *ierr = 0;
     *ltot = 0;
     g_bs.valid = false;
+    g_lazy.pending = false;
     const int n = *n_, nlow = *nlow_ - 1, nup = *nup_, nown = nup - nlow;
     const size_t listcap = *listcap_;
     try
@@ -2599,8 +2758,13 @@ extern "C"
       std::vector<std::vector<int> > flagrec(ndev);
       // The work the caller has for its CPUs while the kernels run (the kernels are queued and the copies of the data are on their way: the
       // work must read the arrays of the particles only, and write nothing that the kernels or the copies after them read)
+      // one device, the lists kept on it: the copies of the results are queued now (see queue_results)
+      // (with more than 8 chunks the kernels end one after the other over many milliseconds, and drain copies and spreads each chunk while the next is computed: that is the better way)
+      const bool fastdrain = fast_drain_enabled() && ndev == 1 && H.skiplist && nown > 0 && keepres && (nown + ch - 1) / ch <= 8;
+      if (fastdrain) queue_results(g_dev[0], nown, nlow, (nown + ch - 1) / ch);
       if (work && *work) (*work)();
-      drain(nown, nlow, ch, H, ltot, ierr, &nfl, keepres ? &flagrec : 0);
+      if (fastdrain) drain_fast(g_dev[0], nown, nlow, ch, (nown + ch - 1) / ch, H, ltot, ierr, &nfl, &flagrec);
+      else drain(nown, nlow, ch, H, ltot, ierr, &nfl, keepres ? &flagrec : 0);
       // lists left on the device that the CPU needs after all (particles it has to solve itself): copy them now
       if (*ierr == 0 && *skiplist_ != 0 && nfl > 0 && !keepres) getlists(list, ierr);
       if (vmode)
@@ -2745,6 +2909,7 @@ extern "C"
       const int p0 = tp[0];
       // the data of the smoothing-length kernel on the devices can be used if it was just made for these particles
       bool useb = (*useb_ != 0) && contig && !blocks && g_bs.valid && g_bs.n == n && g_bs.nown == nt && g_bs.nlow == p0 - 1 && nloop == nt;
+      if (!useb) fetch_records();      // (the forces made from the arrays of the CPU need all of the results of the call before)
       // The particles the CPU solved (g_bs.nflag > 0): their records and lists go to the device that owns them, as the GPU would have left
       // them, and the step is summed as a step without such particles.  The lists are placed after the lists of the slice of the device; if they do not fit, the lists
       // come back to the CPU and the forces are made from the arrays of the CPU as before.
