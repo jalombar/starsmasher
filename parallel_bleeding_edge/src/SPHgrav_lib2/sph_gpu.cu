@@ -2498,6 +2498,7 @@ extern "C"
   // lengths and sums that rho_and_h left in the arrays of the CPU.  On return the arrays of the CPU named in the last line hold, for every
   // particle of 1..n, the sums mvx..mgz of getderivs/uvchunk (the "gather" and "scatter" parts, the same terms in the same order as the
   // CPU), and for each target udot (before the factor of nintvar=1 and 3), uijmax (only where act, or if blocks=0) and divv.
+  // work: a function (or NULL) that is called on the calling thread when the work of the devices is queued, before the call waits for them.
   // useb=1: the smoothing lengths and lists were just made by gpu_sph_rhoh_ for the same particles (shared steps, all of them on the
   // GPU): the positions, masses, smoothing lengths, sums and lists that are on the devices are used, and only the velocities, u and
   // the pressure term are sent.  ierr: 0 ok, 3 error of CUDA, 4 no memory; a return with ierr not 0 has changed none of the arrays of
@@ -2507,7 +2508,7 @@ extern "C"
                        double *om0, double *psi, int *nn, int *first, int *list, int *listcap_, int *act, int *blocks_, double *alpha1,
                        double *beta1, double *hfloor, double *gam, int *nav, int *nintvar, int *relaxnoheat, int *udotother, int *ngr,
                        int *useb_, int *prec_, double *mvx, double *mvy, double *mvz, double *mgx, double *mgy, double *mgz, double *udot,
-                       double *uijmax, double *divv, int *nlarge, int *ierr)
+                       double *uijmax, double *divv, int *nlarge, void (**work)(void), int *ierr)
   {
     *ierr = 0;
     *nlarge = 0;
@@ -2808,6 +2809,9 @@ extern "C"
           if (mk) mark("f d2h", st);
         }
       }
+      // The work the caller has for its CPUs while the devices are busy with phase B (work: a function or NULL).  It must read what the caller keeps
+      // in its arrays and write nothing that this call writes (mvx.. udot, uijmax, divv) or reads from the CPU's arrays after this point.
+      if (work && *work) (*work)();
       // with the data of the smoothing-length kernel only what a device touched comes back: the sums of those particles and the results of its targets
       if (cmp)
       {

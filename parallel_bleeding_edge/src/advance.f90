@@ -89,7 +89,8 @@
 !*********************************************************
       subroutine advance
 !     implements second-order accurate leap-frog sph step
-      use gpusph_mod, only: gw_tree,gv_ok,gv_done
+      use gpusph_mod, only: gw_tree,gv_ok,gv_done,gw_enout
+      use enout_early_mod, only: eo_ready
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
@@ -230,7 +231,12 @@
       if(ngr.ne.0 .and. .not.gv_done) call gravforce
 
       if(myrank.eq.nprocs-1) call wall_time(time1)
+!     one rank: the sums of enout that do not need the gravity are made while the GPUs do the pair sums of uvdots (nothing that enout
+!     reads is changed by uvdots: it writes accelerations, du/dt and div v)
+      eo_ready=.false.
+      gw_enout=nprocs.eq.1 .and. nrelax.eq.0
       call uvdots                ! evaluate udot and accelerations at half-timestep
+      gw_enout=.false.
       if(myrank.eq.nprocs-1) then
          call wall_time(time2)
          write (6,'(a,f6.3,a,i4)')&

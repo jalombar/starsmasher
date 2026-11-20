@@ -121,7 +121,9 @@ The forces (``ngpusph = 3``)
 Bit 2 makes ``div v`` and ``curl v`` (``getderivs``), the accelerations and ``du/dt`` (the pair loop of ``uvdots`` with
 Balsara's viscosity) and ``uijmax`` on the GPU, for every particle that takes part in the step: all of them with shared
 steps, the active ones and the ones refreshed for them with block steps (``nblock = 1``), the same particles as the CPU.
-The pressure, the gravity, the integrator and the sums between the ranks stay where they were.
+The pressure, the gravity, the integrator and the sums between the ranks stay where they were.  With one rank the CPUs make, while the
+GPUs do the pair sums, the sums of the energy line of the log that do not need the potential (the box, the extremes of the neighbour numbers,
+density, u, h and pressure, the internal and kinetic energies); the sum of the potential is made when the gravity is collected.
 
 One thread for each particle forms the terms of its pairs with the operations, tables and order of the CPU
 (double precision, no fused multiply-add) and keeps them; the terms are then sorted by the particle they act on and

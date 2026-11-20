@@ -62,6 +62,8 @@
 !     gw_kd: the kd tree over all the particles too (rhoh_early_kd in advance.f90); gs_kdneed: the last call left particles to the CPUs, so that
 !     it is likely to be needed again
       logical, save :: gw_kd=.false., gs_kdneed=.true.
+!     gw_enout: the sums of enout that do not need the gravity (enout_early in output.f) are made while the devices do the pair sums
+      logical, save :: gw_enout=.false.
 !     0: the library has not been asked yet, 1: ready, 2: not usable (gs_why says why)
       integer, save :: gs_state=0, gs_why=0
 !     the reason written last, for the smoothing lengths (1) and the forces (2)
@@ -86,6 +88,11 @@
       if(gw_kd) call rhoh_early_kd
       if(gw_tree) call tree_early_struct
       end subroutine gpusph_work
+
+!     What the CPUs do while the devices do the pair sums of the forces (called from gpu_sph_forces_, on the thread that calls it)
+      subroutine gpusph_fwork() bind(C, name='gpusph_fwork_cb')
+      if(gw_enout) call enout_early
+      end subroutine gpusph_fwork
 
 !     one line in log0.sph when the reason why the CPU does the work changes (0: the GPU does it)
       subroutine gpusph_say(what,why,part)
@@ -368,6 +375,7 @@
       real*8, allocatable, save :: sv(:,:),sudot(:),suij(:),sdiv(:)
       integer why,ierr,nt,iw,i,k,ncontig,nlarge,blocks,relaxnoheat,udotother,listcap,useb
       logical allact
+      type(c_funptr) :: workfn
       character(len=32) what
       what='the pair sums (forces)'
       done=.false.
@@ -433,10 +441,12 @@
       useb=0
       if(gs_fresh .and. ncontig.eq.1 .and. blocks.eq.0) useb=1
       gs_fresh=.false.
+      workfn=c_null_funptr
+      if(gw_enout) workfn=c_funloc(gpusph_fwork)
       if(nt.gt.0) then
          call gpu_sph_forces(n,nmax,nt,nloop,ncontig,gtp,gtiw,x,y,z,vx,vy,vz,am,u,hp,rho,por2,bonet_omega,bonet_0mega,bonet_psi,&
               nn,first,list,listcap,actblk,blocks,alpha1,beta1,hfloor,gam,nav,nintvar,relaxnoheat,udotother,ngr,useb,ngpusphprec,&
-              mvx,mvy,mvz,mgx,mgy,mgz,udot,uijmax,divv,nlarge,ierr)
+              mvx,mvy,mvz,mgx,mgy,mgz,udot,uijmax,divv,nlarge,workfn,ierr)
          if(ierr.ne.0) then
             call gpusph_fail(7)
             call gpusph_say(what,7,2)

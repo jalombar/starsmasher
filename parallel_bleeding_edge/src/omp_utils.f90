@@ -149,6 +149,19 @@
 
       end module omp_utils
 
+      module enout_early_mod
+      implicit none
+!     What enout_early (output.f) leaves for enout: the sums over the particles that do not need the gravitational potential.  eo_ready says
+!     that it has run for this step.
+      logical, save :: eo_ready=.false.
+      real*8, save :: eo_xmin=0.d0,eo_ymin=0.d0,eo_zmin=0.d0,eo_xmax=0.d0,eo_ymax=0.d0,eo_zmax=0.d0,eo_vcm=0.d0,eo_ajtot=0.d0
+      integer, save :: eo_nnemin(2)=0,eo_nnemax(2)=0
+      real*8, save :: eo_rhomin(2)=0.d0,eo_rhomax(2)=0.d0,eo_umin(2)=0.d0,eo_umax(2)=0.d0
+      real*8, save :: eo_hpmin(2)=0.d0,eo_hpmax(2)=0.d0,eo_pmin(2)=0.d0,eo_pmax(2)=0.d0
+      double precision, save :: eo_nneavr=0.d0,eo_nnesig=0.d0,eo_eint=0.d0,eo_stot=0.d0,eo_ekin=0.d0
+      end module enout_early_mod
+
+
 !***********************************************************************
       subroutine wall_time(t)
 !     wall-clock seconds from an arbitrary origin, in double precision.
