@@ -1604,6 +1604,94 @@ void launch_chunks(Dev &d, const View &V0, int slice, int ch, std::vector<cudaEv
   }
 }
 
+// ---------------------------------------------------------------------------------------------------- the Verlet lists and the launch of the kernels of a call
+// Verlet lists: what a call decides and queues for them: built by this call (2), or used (1), or not at all (0)
+int verlet_prep(int ndev, int n, int nlow, int nown, double skin)
+{
+  int vmode = 0;
+  if (skin > 0.0 && ndev == 1 && nown > 0 && g_dev[0].voff > 0)
+  {
+    // the lists were built again too soon (see below): they are not used for a number of calls, counted, and then tried again
+    g_dev[0].voff--;
+    g_dev[0].vvalid = false;
+  }
+  else if (skin > 0.0 && ndev == 1 && nown > 0 && vl_reserve(g_dev[0], n, nown))
+  {
+    Dev &d = g_dev[0];
+    CK(cudaSetDevice(d.id));
+    const bool same = d.vvalid && d.vbn == n && d.vbnlow == nlow && d.vbnown == nown && !d.vforce;
+    vmode = same ? 1 : 2;
+    if (vmode == 2)
+    {
+      CK(cudaMemsetAsync(d.vl_len, 0xff, (size_t)nown * sizeof(int), d.st));
+      CK(cudaMemcpyAsync(d.vxr, d.x, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
+      CK(cudaMemcpyAsync(d.vyr, d.y, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
+      CK(cudaMemcpyAsync(d.vzr, d.z, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
+      CK(cudaMemsetAsync(d.vdmax, 0, sizeof(double), d.st));
+    }
+    else
+    {
+      const int nbm = std::min(256, nblocks(n, 256));
+      k_vdmax<<<nbm, 256, 0, d.st>>>(n, d.x, d.y, d.z, d.vxr, d.vyr, d.vzr, d.vpart);
+      k_vdmax_final<<<1, 256, 0, d.st>>>(nbm, d.vpart, d.vdmax);
+    }
+    CK(cudaMemsetAsync(d.vnfall, 0, sizeof(int), d.st));
+    d.vforce = false;
+  }
+  return vmode;
+}
+
+// what the kernel needs to read the Verlet lists
+inline void verlet_view(View &V, const Dev &d, int vmode, double skin)
+{
+  if (!vmode) return;
+  V.vmode = vmode; V.px = d.x; V.py = d.y; V.pz = d.z; V.pu = d.u; V.vl_len = d.vl_len; V.vl_idx = d.vl_idx; V.vl_R = d.vl_R;
+  V.dmaxp = d.vdmax; V.vskin = skin; V.nfall = d.vnfall;
+}
+
+// the kernels of the smoothing lengths of the devices (ev: with SPHGPU_PROF=2 the events between them, on the first device)
+void launch_all(int ndev, int n, int nlow, int nup, const Phys &ph, int vmode, double skin, int nown, int ch, std::vector<cudaEvent_t> *ev)
+{
+  for (int k = 0; k < ndev; k++)
+  {
+    Dev &d = g_dev[k];
+    CK(cudaSetDevice(d.id));
+    View V = makeview(d, ndev, k, n, nlow, nup, ph);
+    verlet_view(V, d, vmode, skin);
+    const int ns = slice_of(nown, ndev, k);
+    if (k == 0) mark("(before the kernels)", d.st);
+    if (ns > 0) launch_chunks(d, V, ns, ch, k == 0 ? ev : 0);
+  }
+}
+
+// after the results of a call have been collected: what the Verlet lists learn from it
+void verlet_post(int vmode, int n, int nlow, int nown, double skin, int ierr, int plev)
+{
+  if (!vmode) return;
+  Dev &d = g_dev[0];
+  CK(cudaSetDevice(d.id));
+  if (ierr == 0)
+  {
+    int nf = 0;
+    double dm = 0.0;
+    CK(cudaMemcpy(&nf, d.vnfall, sizeof nf, cudaMemcpyDeviceToHost));
+    CK(cudaMemcpy(&dm, d.vdmax, sizeof dm, cudaMemcpyDeviceToHost));
+    if (vmode == 2) { d.vvalid = true; d.vbn = n; d.vbnlow = nlow; d.vbnown = nown; d.vused = 0; }
+    // the lists are built again when more than 2% of the particles have a list that no longer reaches the radius they need: a geometric criterion
+    d.vforce = (vmode == 1) && ((long long)nf * 50 > (long long)nown);
+    if (vmode == 1) d.vused++;
+    // A list set that served fewer than VMINLIFE calls (counted, not timed) costs more than it saves, because building it is dearer than a plain search: the lists are
+    // then left alone for vofflen calls, which doubles each time up to 384 and goes back to 24 when a set lasts; after them they are built again and judged again
+    if (d.vforce)
+    {
+      if (d.vused + 1 < VMINLIFE) { d.voff = d.vofflen; d.vofflen = std::min(2 * d.vofflen, 384); d.vvalid = false; }
+      else d.vofflen = 24;
+    }
+    if (plev) fprintf(stderr, "SPHGPU verlet: %s, largest displacement %.3e, %d of %d lists did not reach%s%s\n", vmode == 2 ? "built" : "used", dm, nf, nown, d.vforce ? " (built again next call)" : "", d.voff > 0 ? " (off)" : "");
+  }
+  else d.vvalid = false;
+}
+
 // The results, chunk by chunk as the kernels finish them: the number of entries of the lists of the chunk is read, the records and the
 // lists are copied to the caller (the lists one after the other in list(1:), whatever the device), and the records of the chunk before
 // are spread over the arrays of the caller while the copies and the kernels go on.  The arrays of the caller change as the records are
@@ -2869,54 +2957,12 @@ extern "C"
       }
       for (int k = 0; k < ndev; k++) upload_and_build(g_dev[k], n, nlow, nup, x, y, z, am, u, hp + nlow, divv + nlow);
       // Verlet lists: built by this call (2), or used (1), or not at all (0)
-      int vmode = 0;
       const double skin = *skin_;
-      if (skin > 0.0 && ndev == 1 && nown > 0 && g_dev[0].voff > 0)
-      {
-        // the lists were built again too soon (see below): they are not used for a number of calls, counted, and then tried again
-        g_dev[0].voff--;
-        g_dev[0].vvalid = false;
-      }
-      else if (skin > 0.0 && ndev == 1 && nown > 0 && vl_reserve(g_dev[0], n, nown))
-      {
-        Dev &d = g_dev[0];
-        CK(cudaSetDevice(d.id));
-        const bool same = d.vvalid && d.vbn == n && d.vbnlow == nlow && d.vbnown == nown && !d.vforce;
-        vmode = same ? 1 : 2;
-        if (vmode == 2)
-        {
-          CK(cudaMemsetAsync(d.vl_len, 0xff, (size_t)nown * sizeof(int), d.st));
-          CK(cudaMemcpyAsync(d.vxr, d.x, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
-          CK(cudaMemcpyAsync(d.vyr, d.y, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
-          CK(cudaMemcpyAsync(d.vzr, d.z, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
-          CK(cudaMemsetAsync(d.vdmax, 0, sizeof(double), d.st));
-        }
-        else
-        {
-          const int nbm = std::min(256, nblocks(n, 256));
-          k_vdmax<<<nbm, 256, 0, d.st>>>(n, d.x, d.y, d.z, d.vxr, d.vyr, d.vzr, d.vpart);
-          k_vdmax_final<<<1, 256, 0, d.st>>>(nbm, d.vpart, d.vdmax);
-        }
-        CK(cudaMemsetAsync(d.vnfall, 0, sizeof(int), d.st));
-        d.vforce = false;
-      }
+      const int vmode = verlet_prep(ndev, n, nlow, nown, skin);
       double t1 = 0;
       if (plev) { for (int k = 0; k < ndev; k++) { CK(cudaSetDevice(g_dev[k].id)); CK(cudaStreamSynchronize(g_dev[k].st)); } t1 = now_ms(); }
       std::vector<cudaEvent_t> ev;
-      for (int k = 0; k < ndev; k++)
-      {
-        Dev &d = g_dev[k];
-        CK(cudaSetDevice(d.id));
-        View V = makeview(d, ndev, k, n, nlow, nup, ph);
-        if (vmode)
-        {
-          V.vmode = vmode; V.px = d.x; V.py = d.y; V.pz = d.z; V.pu = d.u; V.vl_len = d.vl_len; V.vl_idx = d.vl_idx; V.vl_R = d.vl_R;
-          V.dmaxp = d.vdmax; V.vskin = skin; V.nfall = d.vnfall;
-        }
-        const int ns = slice_of(nown, ndev, k);
-        if (k == 0) mark("(before the kernels)", d.st);
-        if (ns > 0) launch_chunks(d, V, ns, ch, (k == 0 && plev >= 2) ? &ev : 0);
-      }
+      launch_all(ndev, n, nlow, nup, ph, vmode, skin, nown, ch, plev >= 2 ? &ev : 0);
       Host H;
       H.hp = hp; H.rho = rho; H.omega = omega; H.om0 = om0; H.psi = psi; H.wn = wn; H.zeta = zeta; H.u = u;
       H.nn = nn; H.first = first; H.sflag = sflag; H.list = list; H.listcap = listcap; H.skiplist = (*skiplist_ != 0);
@@ -2939,31 +2985,7 @@ extern "C"
       else drain(nown, nlow, ch, H, ltot, ierr, &nfl, keepres ? &flagrec : 0);
       // lists left on the device that the CPU needs after all (particles it has to solve itself): copy them now
       if (*ierr == 0 && *skiplist_ != 0 && nfl > 0 && !keepres) getlists(list, ierr);
-      if (vmode)
-      {
-        Dev &d = g_dev[0];
-        CK(cudaSetDevice(d.id));
-        if (*ierr == 0)
-        {
-          int nf = 0;
-          double dm = 0.0;
-          CK(cudaMemcpy(&nf, d.vnfall, sizeof nf, cudaMemcpyDeviceToHost));
-          CK(cudaMemcpy(&dm, d.vdmax, sizeof dm, cudaMemcpyDeviceToHost));
-          if (vmode == 2) { d.vvalid = true; d.vbn = n; d.vbnlow = nlow; d.vbnown = nown; d.vused = 0; }
-          // the lists are built again when more than 2% of the particles have a list that no longer reaches the radius they need: a geometric criterion
-          d.vforce = (vmode == 1) && ((long long)nf * 50 > (long long)nown);
-          if (vmode == 1) d.vused++;
-          // A list set that served fewer than VMINLIFE calls (counted, not timed) costs more than it saves, because building it is dearer than a plain search: the lists are
-          // then left alone for vofflen calls, which doubles each time up to 384 and goes back to 24 when a set lasts; after them they are built again and judged again
-          if (d.vforce)
-          {
-            if (d.vused + 1 < VMINLIFE) { d.voff = d.vofflen; d.vofflen = std::min(2 * d.vofflen, 384); d.vvalid = false; }
-            else d.vofflen = 24;
-          }
-          if (plev) fprintf(stderr, "SPHGPU verlet: %s, largest displacement %.3e, %d of %d lists did not reach%s%s\n", vmode == 2 ? "built" : "used", dm, nf, nown, d.vforce ? " (built again next call)" : "", d.voff > 0 ? " (off)" : "");
-        }
-        else d.vvalid = false;
-      }
+      verlet_post(vmode, n, nlow, nown, skin, *ierr, plev);
       if (*ierr == 0 && (nfl == 0 || keepres))
       {
         g_bs.valid = true; g_bs.n = n; g_bs.nlow = nlow; g_bs.nown = nown; g_bs.ch = ch;
