@@ -1984,6 +1984,9 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair(FView V)
   const double h2t = hpt * hpt;
   const double invh = 1.0 / hpi, invh2 = 1.0 / h2, invh2t = 1.0 / h2t, invh5 = 1.0 / h5;
   const bool gasp = pv.w != 0.0;
+  // the factor of the viscosity that depends on the particle only: the expression of uvchunk, made once here and not for each entry that has divin < 0 (the same operations on the
+  // same numbers, so the same bits)
+  const double fi = fabs(dvv) / ((fabs(dvv) + abscurl) + (0.00001 * ci) * invh);
   double gx = 0.0, gy = 0.0, gz = 0.0, ggx = 0.0, ggy = 0.0, ggz = 0.0, ud = 0.0, um = 0.0;
   for (int k = 0; k < nn; k++)
   {
@@ -2021,7 +2024,6 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair(FView V)
       double pijin = 0.0;
       if (divin < 0.0)
       {
-        const double fi = fabs(dvv) / ((fabs(dvv) + abscurl) + (0.00001 * ci) * invh);
         double udbij = 0.0;
         if (r2 > 0.0)
         {
@@ -2146,6 +2148,7 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair_mix(FView V)
   const float por2f = (float)por2i, cif = (float)ci, advf = (float)fabs(dvv), abscf = (float)abscurl, omf = (float)omi, om0f = (float)om0i, psif = (float)psii;
   const float a1f = (float)P.alpha1, b1f = (float)P.beta1, rhof = (float)rhoi;
   const bool gasp = pv.w != 0.0;
+  const float fi = advf / ((advf + abscf) + (0.00001f * cif) * invhf);      // (made once: see k_fpair)
   double gx = 0.0, gy = 0.0, gz = 0.0, ggx = 0.0, ggy = 0.0, ggz = 0.0, ud = 0.0, um = 0.0;
   for (int k = 0; k < nn; k++)
   {
@@ -2185,7 +2188,6 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair_mix(FView V)
       float pijin = 0.0f;
       if (divin < 0.0f)
       {
-        const float fi = advf / ((advf + abscf) + (0.00001f * cif) * invhf);
         float udbij = 0.0f;
         if (r2 > 0.0f)
         {
