@@ -6,6 +6,7 @@ Using StarSmasher
 
    running
    gravity
+   gpu_sph
    input
    output
    hdf5

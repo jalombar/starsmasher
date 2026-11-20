@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **110** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **112** settings.
 
 
 .. _sph-input-time-and-output:
@@ -474,6 +474,14 @@ Parallelism and GPUs
      - ``1``
      - every run
      - set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes, or 2 for G=(1-q^3)^2 with q=r/2h, which decreases strictly with r so that the h solution has no flat stretches. It gives about 3\*nnopt neighbours within 2h, so it needs about half the nnopt of gflag=1 for the same neighbour count
+   * - ``ngpusph``
+     - ``0``
+     - every run
+     - SPH work done on the GPUs, a bit mask.  0: all on the CPUs.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, block steps, the first step of a run); a particle with more than 128 candidates is solved by the CPU
+   * - ``ngpusphcheck``
+     - ``0``
+     - every run
+     - 1: whatever ngpusph puts on the GPU is also done on the CPUs and compared, and the run stops at the first particle that differs.  A diagnostic, slower than either alone
 
 .. _sph-input-units:
 

@@ -412,6 +412,7 @@
       use omp_utils
       use hscratch_mod
       use hgroup_mod
+      use gpusph_mod
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 divv(nmax)
@@ -479,8 +480,24 @@
       integer ngl,ngrp,ig
       integer, allocatable, save :: gord(:)
       integer(1), allocatable :: gsel(:)
+!     The smoothing lengths, densities and neighbour lists solved on the GPU (ngpusph, gpusph.f90): gpudone says that they are in
+!     the arrays, except for the gnflag particles flagged in gs_flag, which the CPU solves below; they take gltot entries of list().
+!     gcheck: ngpusphcheck, the CPU solves everything and compares with what the GPU made.
+      logical gpudone,gcheck
+      integer gnflag,gltot
 
       if(myrank.eq.nprocs-1) call wall_time(time1)
+      gpudone=.false.
+      gcheck=.false.
+      gnflag=0
+      gltot=0
+!     ownall is what useown says below (the tree over own particles), in terms that are the same on every rank
+!     (build_own_tree can turn useown off on one rank): every rank has to reach the collective at 7000, also the one for
+!     which the GPU did everything
+      nfb=0
+      ownall=nprocs.gt.1 .and. .not.periodic .and. .not.blkdist .and. (nblock.eq.0 .or. nblockfull.ne.0)
+      if(iand(ngpusph,1).ne.0) call gpusph_rhoh(divv,gpudone,gnflag,gltot,gcheck)
+      if(gpudone .and. gnflag.eq.0) go to 7000
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !      call linkedlists
 !     is being replaced with the creation of a kd tree...
@@ -537,8 +554,6 @@
 !     over a part of them relies on
       useown=usecache .and. nprocs.gt.1 .and. .not.blkdist .and.&
            (nblock.eq.0 .or. nblockfull.ne.0)
-!     the same on every rank (build_own_tree can turn useown off on one rank)
-      ownall=useown
       nsub=0
       nfb=0
       if(useown) call build_own_tree
@@ -561,7 +576,7 @@
       ngl=0
       ngrp=0
 !     (dt is zero at the first call of a run, when the guess of h can be far off)
-      if(usecache .and. .not.blkdist .and. dynhco.eq.0 .and. .not.hcolim .and. dt.gt.0.d0) then
+      if(usecache .and. .not.blkdist .and. dynhco.eq.0 .and. .not.hcolim .and. dt.gt.0.d0 .and. .not.gpudone) then
          if(hgroup.gt.0 .and. hg_cpu_ok(myrank)) then
             call hg_tune(hgroup)
             usegroup=hg_on
@@ -645,7 +660,7 @@
          hsc(it)%ncand=0
          hsc(it)%r2last=-1.d30
       enddo
-      listtop=0
+      listtop=gltot
       listfail=0
       failfirst=0
       failneed=0
@@ -673,6 +688,10 @@
 !$omp do schedule(dynamic,hchunk)
          do iw=1,nloop
             if(listfailed()) cycle
+!           (the GPU did the others)
+            if(gpudone) then
+               if(gs_flag(iw).eq.0) cycle
+            endif
             call solve_particle(iw,hsc(it))
          enddo
 !$omp end do
@@ -690,19 +709,22 @@
          nn(listfail)=failneed
          call check_neighbor_capacity(listfail)
       endif
-!     searches that went beyond the tree over own particles: in the log only
-!     when there were some
-      if(ownall) then
-         call mpi_reduce(nfb,nfbsum,1,mpi_integer,mpi_sum,0,mpi_comm_world,ierr)
-         if(myrank.eq.0 .and. nfbsum.gt.0) write(69,*)'rho_and_h: ',nfbsum,&
-              ' searches went beyond the trees over own particles at t=',t
-      endif
+!     ngpusphcheck: what the GPU made against what the CPU has just made (gpusph.f90)
+      if(gcheck) call gpusph_compare
       if(associated(tree2)) call kdtree2_destroy(tree2)
       if(associated(treeown)) call kdtree2_destroy(treeown)
       if(allocated(sub2glob)) deallocate(sub2glob,rb2,sub_array)
       deallocate(my_array)
       if(periodic) deallocate(ximg,imgmap)
 
+ 7000 continue
+!     searches that went beyond the tree over own particles: in the log only
+!     when there were some.  Every rank gets here, also the one for which the GPU did everything (go to 7000): it is a collective
+      if(ownall) then
+         call mpi_reduce(nfb,nfbsum,1,mpi_integer,mpi_sum,0,mpi_comm_world,ierr)
+         if(myrank.eq.0 .and. nfbsum.gt.0) write(69,*)'rho_and_h: ',nfbsum,&
+              ' searches went beyond the trees over own particles at t=',t
+      endif
 ! make mpi call to insure all processors doing gravity have the same
 ! hp values (only nodes doing gravity need the hp values):
       mylength=n_upper-n_lower+1

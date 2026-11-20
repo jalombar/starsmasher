@@ -474,3 +474,36 @@ c     gpu_tree_available first
       integer ierr
       stop 'ngravtree=2 needs the CUDA (NVIDIA GPU) build'
       end
+
+c     SPH on the GPU (ngpusph): the CUDA library has it, this build does not (gpusph.f90 asks gpu_sph_available first)
+      subroutine gpu_sph_available(ok)
+      integer ok
+      ok=0
+      return
+      end
+
+      subroutine gpu_sph_setup(localrank,ngpuperrank,ngravprocs,ierr)
+      integer localrank,ngpuperrank,ngravprocs,ierr
+      ierr=1
+      return
+      end
+
+      subroutine gpu_sph_tables(ntab,gtab,dgdhtab,wtab,dwdhtab,
+     $     dphidhtab,ctab,ierr)
+      integer ntab,ierr
+      real*8 gtab(*),dgdhtab(*),wtab(*),dwdhtab(*),dphidhtab(*),ctab
+      ierr=1
+      return
+      end
+
+      subroutine gpu_sph_rhoh(n,nlow,nup,nmaxarr,x,y,z,am,u,hp,divv,
+     $     rho,omega,om0,psi,wn,zeta,nn,first,sflag,list,listcap,ltot,
+     $     dt,hfloor,nnopt,nselfg,ierr)
+      integer n,nlow,nup,nmaxarr,nn(*),first(*),sflag(*),list(*)
+      integer listcap,ltot,nnopt,nselfg,ierr
+      real*8 x(*),y(*),z(*),am(*),u(*),hp(*),divv(*),rho(*),omega(*)
+      real*8 om0(*),psi(*),wn(*),zeta(*),dt,hfloor
+      ltot=0
+      ierr=1
+      return
+      end
