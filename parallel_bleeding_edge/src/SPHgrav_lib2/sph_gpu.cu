@@ -17,7 +17,9 @@
 // A particle with more than CAP candidates is left to the CPU (flag), by a rule that depends on the particles only.
 //
 // The particles are done in chunks (SPHGPU_CHUNK, 131072 by default): while the kernel of a chunk runs, the results of the chunk before
-// are copied to the CPU, the lists one after the other into list(), and spread over the arrays of the CPU.
+// are copied to the CPU, the lists one after the other into list(), and spread over the arrays of the CPU.  With one device that keeps the lists
+// (ngpusph=7) and up to 8 chunks the copies are queued behind the kernels instead, in the order of the particles and only what the CPU reads
+// (drain_fast), and the CPU does its own work (the tree of the gravity, the velocities for the forces) while they run.
 //
 // The smoothing length.  The thread then solves the smoothing length of its particle with the candidates in its hands: the same
 // sequence of trial values, bracketing, Newton and bisection steps, limits, tolerance and sums as solve_particle, bfun,

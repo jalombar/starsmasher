@@ -1394,6 +1394,49 @@ def t_gpu_multidev(ctx):
     out.append('SPHGPU_FLAGMOD 7 and 2 give the bits of none')
     return 'logical devices run to the end, the check of the forces is clean, the energies are those of one device, and the particles solved by the CPU do not change the sums: ' + '; '.join(out)
 
+def t_gpu_hostpath(ctx):
+    """With one device the host side of a step (how the results of the smoothing lengths come back, when the velocities go to the device) does not change a bit.
+
+    An unrelaxed polytrope is run with ngpusph=7 on one device: by default, with the results copied one chunk at a time (SPHGPU_SLOWDRAIN), with the velocities sent in the forces (SPHGPU_NOEARLY),
+    with the check that the velocities the CPU holds are those that were sent early (SPHGPU_FECHECK: the run stops if they are not), and with every 7th and every 2nd particle left to the CPU
+    (SPHGPU_FLAGMOD: 1400 and 5000 of them, the second more than the device lists by itself) with and without the one-chunk copy.  The energies of every row and the bytes of every dump must be those of
+    the default.  The runs with SPHGPU_SLOWDRAIN and SPHGPU_NOEARLY are the code as it was before the host side was changed.
+    """
+    out = []
+    if not ctx.exe:
+        raise Fail('no GPU executable')
+    modes = (('default', {}), ('slow', {'SPHGPU_SLOWDRAIN': '1'}), ('noearly', {'SPHGPU_NOEARLY': '1'}), ('check', {'SPHGPU_FECHECK': '1'}),
+             ('fm7', {'SPHGPU_FLAGMOD': '7', 'SPHGPU_FECHECK': '1'}), ('fm7slow', {'SPHGPU_FLAGMOD': '7', 'SPHGPU_SLOWDRAIN': '1'}),
+             ('fm2', {'SPHGPU_FLAGMOD': '2', 'SPHGPU_FECHECK': '1'}), ('fm2slow', {'SPHGPU_FLAGMOD': '2', 'SPHGPU_SLOWDRAIN': '1'}))
+    names_env = sorted(set(k for _, env in modes for k in env))
+    saved = {k: os.environ.get(k) for k in names_env}
+    ref = None
+    try:
+        for mode, env in modes:
+            for k in names_env:
+                os.environ.pop(k, None)
+            os.environ.update(env)
+            d = ctx.dir('hp_%s' % mode)
+            p, e = run(ctx.exe, d, np=1, **dict(POLY, nrelax=0, tf=1, dtout=1, ngpusph=7))
+            names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+            if not names:
+                raise Fail('ngpusph=7, mode %s: no dump was written\n%s' % (mode, (p.stdout + p.stderr)[-800:]))
+            got = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names])
+            if ref is None:
+                ref = got
+            elif got[0] != ref[0]:
+                raise Fail('ngpusph=7, mode %s changes the energies of the default' % mode)
+            elif got[1] != ref[1]:
+                raise Fail('ngpusph=7, mode %s changes a dump of the default' % mode)
+            out.append('%s: %d rows, %d dumps' % (mode, len(got[0]), len(got[1])))
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    return 'one device, ngpusph=7: the results copied in one piece or by chunks, the velocities sent early or in the forces, and particles left to the CPU give the same bits: ' + '; '.join(out)
+
 # --------------------------------------------------------------- HDF5 -----
 
 def t_hdf5_dump(ctx):
@@ -1501,6 +1544,7 @@ TESTS = {
     'vdotsm':           t_vdotsm,
     'autotune':         t_autotune,
     'gpu_multidev':     t_gpu_multidev,
+    'gpu_hostpath':     t_gpu_hostpath,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

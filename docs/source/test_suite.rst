@@ -111,6 +111,14 @@ something changed.  These tell you whether the answer is right.
        1e-10 of the largest, and the energies are those of one device to 1e-9; with
        3 logical devices the dump and the energies do not depend on
        ``SPHGPU_FLAGMOD``.
+   * - ``gpu_hostpath``
+     - With one device and ``ngpusph = 7`` the host side of a step does not change a
+       bit: the results of the smoothing lengths copied in one piece or by chunks
+       (``SPHGPU_SLOWDRAIN``), the velocities sent while the device solves or in the
+       forces (``SPHGPU_NOEARLY``), the check that the CPU still holds what was sent
+       (``SPHGPU_FECHECK``), and particles left to the CPU (``SPHGPU_FLAGMOD`` 7 and
+       2): the energies of every row and the bytes of every dump are those of the
+       default.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
