@@ -1630,7 +1630,7 @@ def t_gpu_rebuild(ctx):
             raise Fail('k=4 with %s does not give the bytes of k=4 with the defaults' % tag)
     out.append('k=4: the same bytes with 4 threads and with ngravoverlap 0 and 1')
     d16, e16, f16 = go('k16', ngravrebuild=16)
-    da, ea, fa = go('auto', ngravrebuild=-1)
+    da, ea, fa = go('auto', threads=4, ngravrebuild=-1)      # 4 threads: under the limit of the automatic value whatever OMP_NUM_THREADS is here
     if fa != f16 or 'ngravrebuild=-1 (auto)' not in open(os.path.join(da, 'log0.sph'), errors='replace').read():
         raise Fail('ngravrebuild=-1 with the tree on the GPU does not give the bytes of 16, or log0.sph does not say what was chosen')
     out.append('-1: the choice is 16 for the tree on the GPU, written in log0.sph')

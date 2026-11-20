@@ -243,7 +243,8 @@ c     ngpusph=-1: chosen here too, from the gravity just chosen, the threads and
 c     ngravrebuild=-1 (automatic): 16 for the tree on the gpus (ngravtree=2) with at most rebuildthr threads of the gravity process for each gpu, 1 otherwise.  With 8 and 16 threads on
 c     an H100 and 8 on an L40S the step was shorter by 14% to 25% in every window of the collision (the intervals of the repetitions apart), with 32 at the pericentre by 7.5%; with 63
 c     threads the change was between -9% and +1% and the intervals touched in one of the two jobs (see the user guide).  The choice is a function of the threads, the gpus and the
-c     options only, never of a time measured, so a run and its restart choose the same
+c     options only, never of a time measured, so a run and its restart choose the same.  The default is ngravrebuild=1 (off): this rule acts only when -1 is written in sph.input,
+c     because the option is faster only with few threads for each gpu and changes the last digits
       if(ngravrebuild.lt.0) then
          nthrgr=1
 !$       nthrgr=omp_get_max_threads()
