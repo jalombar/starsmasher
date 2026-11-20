@@ -158,6 +158,29 @@ solves itself, an error of CUDA in the forces, or a time step that uses the smoo
 ``1d29``, the default is ``1d30``, which makes ``tstep`` sum the accelerations over the lists on the CPU).  A particle whose list would hold more than 128
 candidates has none.  ``SPHGPU_PROF=1`` writes whether the lists were built or used, the largest displacement and the number of lists that did not reach.
 
+The host side of a step (one device)
+------------------------------------
+
+The step of the collision of two Suns (199908 particles) on an H100 with 63 threads takes 9 to 12 ms, and the GPU was idle for 2.1 to 2.7 ms of it: the CPU makes the arrays the next kernel needs, and the results
+of one kernel make their way back before the next can start.  The code now shortens that path, without changing a bit of any result (``tests/run_tests.py gpu_hostpath``):
+
+* With one device and the lists kept on it (``ngpusph = 7``, up to 8 chunks, that is up to about a million particles) the copies of the results of the smoothing-length kernel are queued behind the kernels before the CPUs start their own work
+  (the tree of the gravity), and a kernel puts the records in the order of the particles first, so that what comes back is what the CPU reads (hp, rho, the number of neighbours and whether the particle was left to the CPU:
+  24 bytes for each particle instead of 64) and the CPU stores it in order.  The rest of the records (omega, 0mega, psi, wn and where the lists are) is read only by the pair sums of the CPU, which are not made in such a run; it is
+  brought and put in the arrays of the CPU if they are needed (``gpu_sph_getlists``, or forces made from the arrays of the CPU).  ``SPHGPU_SLOWDRAIN=1`` gives the earlier way (a test of the code, with the same bits).
+* The velocities and u, which the predictor made, are sent to the device and packed with the positions while it solves the smoothing lengths, and the forces send only the pressure term (in the steps of the integration, with shared steps and ``nrelax = 0``;
+  ``SPHGPU_NOEARLY=1`` gives the earlier way;
+  ``SPHGPU_FECHECK=1`` makes the forces compare the arrays of the CPU with what was sent and stop at a difference, a test of the code).
+* The positions are copied first and the masses, u, h and div v on a second stream while the box and the sort are made.
+* The particles left to the CPU (more than 128 candidates) are listed once, by the threads, and only those are solved on the CPU; the count and the list take one parallel region, and the loop that used to scan all the particles with chunks of 64 is gone.
+* The sums that come back from the forces, the results of the gravity of the tree, and the accelerations are copied and added in fewer passes and regions, each addition as it was.
+
+Measured on the H100 of the DGX with 63 threads and one device (mean step, 5 repetitions alternated with the code before the change): the collision of two Suns at its start 9.49 -> 8.34 ms (-12.1%), at t=8 12.01 -> 10.42 (-13.2%),
+at the pericentre 11.05 -> 9.57 (-13.3%) and late 11.48 -> 10.18 (-11.3%), the star of 500000 particles 23.04 -> 20.19 (-12.4%) and that of 2 million particles 95.74 -> 91.70 (-4.2%), which has 16 chunks and keeps the earlier copies of the results.
+The GPU was idle 2.1 to 2.7 ms of a step of the collision, and is now idle 1.2 to 1.7 ms.  Variables of the environment
+(not in the code): ``OMP_WAIT_POLICY=active`` or a large ``GOMP_SPINCOUNT`` keep the threads awake during the waits for the GPU and gave 1.4 to 1.7% on the same cells;
+``OMP_WAIT_POLICY=passive`` costs 36 to 79%.
+
 Single precision for the forces (``ngpusphprec = 1``)
 -----------------------------------------------------
 
