@@ -128,6 +128,13 @@ something changed.  These tell you whether the answer is right.
        compared with the CPU's at every step) and with particles left to the CPU
        (``SPHGPU_FLAGMOD``): the energies of every row and the bytes of every dump are those of the
        step as it was, and ``log0.sph`` says that the device went on and was collected.
+   * - ``gpu_rebuild``
+     - ``ngravrebuild = k`` makes the structure of the gravity tree every ``k`` steps: an
+       unrelaxed polytrope with the tree on the GPU gives the bytes of the default with
+       ``k = 1``; with ``k = 4`` the energy stays close to that of ``k = 1``, the bytes are the
+       same with 4 threads and with ``ngravoverlap`` 0 and 1, ``log0.sph`` counts the steps that
+       kept the structure, a run that starts from the checkpoint of step 1000 gives the last dump
+       of the run that went on (``k`` 1 and 3), ``-1`` gives the bytes of 16 and says so in ``log0.sph``, and 0 and 17 are refused.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
