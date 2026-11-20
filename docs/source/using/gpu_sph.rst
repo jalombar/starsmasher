@@ -135,7 +135,11 @@ One thread for each particle forms the terms of its pairs with the operations, t
 (double precision, no fused multiply-add) and keeps them; the terms are then sorted by the particle they act on and
 added to it in the order the CPU adds them (the part from its own list first, then the part from the other particles
 chunk by chunk, as ``pairbuf.f90`` does).  There is no atomic operation on floating-point numbers, so a run gives the same
-bits every time, with any number of devices.  The results are the bits of the CPU, with one exception: the CPU takes
+bits every time, with any number of devices.  The results go back to the host while the sums are still being made (the results of the
+particles as soon as the pair terms are done, the sums in four slices of the particles as the scatter finishes each of them), and on a
+GPU that makes double precision at least an eighth as fast as single (the A100, the H100 and the like, not the GeForce and RTX cards)
+the sort by the particle runs beside the kernel of the pair terms, the keys being written by a light kernel before it; none of this
+changes a number.  The results are the bits of the CPU, with one exception: the CPU takes
 the root of the viscosity term with ``r2**0.5d0``, which the compiler turns into a call to ``pow``, and the GPU with the
 exactly rounded ``sqrt``; the two differ in the last bit of some terms, so that where particles approach each other the
 accelerations differ from the CPU's at the level of the rounding (about 1e-16 of the particle's), and the bits of a run
