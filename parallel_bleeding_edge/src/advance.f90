@@ -19,6 +19,43 @@
       integer*8 :: nrebuild = 0, ncalls = 0
       end module stale_tree_mod
 !*********************************************************
+!     The kd tree over all the particles that rho_and_h needs when the GPUs leave it particles to solve, made while the GPUs solve the
+!     others (rhoh_early_kd, called by the library of the GPUs between the launch of the kernels and the collection of their results).
+!     It is the tree that rho_and_h makes itself from the same positions, by the same builder: only the moment at which it is made differs.
+!     ek_array holds the positions the tree refers to; ek_tree is the tree, kept until rho_and_h takes it (ek_valid) or discards it.
+      module kdearly_mod
+      use kdtree2_module
+      implicit none
+      real(kdkind), allocatable, target, save :: ek_array(:,:)
+      type(kdtree2), pointer, save :: ek_tree => null()
+      logical, save :: ek_valid = .false.
+      contains
+      subroutine ek_discard
+      if(ek_valid) call kdtree2_destroy(ek_tree)
+      nullify(ek_tree)
+      ek_valid=.false.
+      end subroutine ek_discard
+      end module kdearly_mod
+
+      subroutine rhoh_early_kd
+      use kdearly_mod
+      include 'starsmasher.h'
+      integer k
+      call ek_discard
+      if(allocated(ek_array)) then
+         if(size(ek_array,2).ne.n) deallocate(ek_array)
+      endif
+      if(.not.allocated(ek_array)) allocate(ek_array(3,n))
+!$omp parallel do simd schedule(static)
+      do k=1,n
+         ek_array(1,k)=x(k)
+         ek_array(2,k)=y(k)
+         ek_array(3,k)=z(k)
+      enddo
+      ek_tree => kdtree2_create(ek_array,sort=.false.,rearrange=.true.)
+      ek_valid=.true.
+      end subroutine rhoh_early_kd
+!*********************************************************
 !     What a thread of rho_and_h needs for the particle it is solving: the
 !     candidate neighbours (res(1:ncand), every particle within sqrt(r2last)
 !     of it, with its squared distance) and its current block of the
@@ -422,6 +459,7 @@
       use hscratch_mod
       use hgroup_mod
       use gpusph_mod
+      use kdearly_mod
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 divv(nmax)
@@ -505,7 +543,13 @@
 !     which the GPU did everything
       nfb=0
       ownall=nprocs.gt.1 .and. .not.periodic .and. .not.blkdist .and. (nblock.eq.0 .or. nblockfull.ne.0)
+!     the kd tree over all the particles is made while the GPUs solve if the last call left some particles to the CPUs (one rank, shared
+!     steps: the case in which rho_and_h would make it over the positions it has now)
+      call ek_discard
+      gw_kd=gs_kdneed .and. nprocs.eq.1 .and. .not.periodic .and. nblock.eq.0
       if(iand(ngpusph,1).ne.0) call gpusph_rhoh(divv,gpudone,gnflag,gltot,gcheck)
+      gw_kd=.false.
+      gs_kdneed=gnflag.gt.0 .or. .not.gpudone
       if(gpudone .and. gnflag.eq.0) go to 7000
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !      call linkedlists
@@ -531,6 +575,9 @@
          call pbcimages(pad,.true.,nimg,ximg,imgmap)
       endif
       ntree=n+nimg
+!     the kd tree made while the GPUs solved (the positions are the ones it was made for)
+      if(ek_valid .and. (nimg.ne.0 .or. nprocs.gt.1 .or. nblock.ne.0)) call ek_discard
+      if(.not.ek_valid) then
       allocate(my_array(3,ntree))
 !$omp parallel do simd schedule(static)
       do k=1,n
@@ -542,6 +589,7 @@
       do k=1,nimg
          my_array(:,n+k)=ximg(:,k)
       enddo
+      endif
 !     block steps: when few particles on this rank need a neighbour search,
 !     search directly instead of building the tree over all particles (not
 !     in a periodic box, whose images only the full tree holds)
@@ -567,7 +615,15 @@
       nfb=0
       if(useown) call build_own_tree
 ! this is how you create a tree.
-      if(.not.usebrute .and. .not.useown) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.)
+      if(.not.usebrute .and. .not.useown) then
+         if(ek_valid) then
+            tree2 => ek_tree
+            nullify(ek_tree)
+            ek_valid=.false.
+         else
+            tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.)
+         endif
+      endif
       if(usebrute) then
          hsmall=1.d30
          if(blkdist) then
@@ -723,10 +779,12 @@
       if(associated(tree2)) call kdtree2_destroy(tree2)
       if(associated(treeown)) call kdtree2_destroy(treeown)
       if(allocated(sub2glob)) deallocate(sub2glob,rb2,sub_array)
-      deallocate(my_array)
+      if(allocated(my_array)) deallocate(my_array)
       if(periodic) deallocate(ximg,imgmap)
 
  7000 continue
+!     a tree that was made in case it was needed and was not
+      call ek_discard
 !     searches that went beyond the tree over own particles: in the log only
 !     when there were some.  Every rank gets here, also the one for which the GPU did everything (go to 7000): it is a collective
       if(ownall) then
