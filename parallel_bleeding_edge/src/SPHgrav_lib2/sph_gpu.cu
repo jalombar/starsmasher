@@ -25,6 +25,8 @@
 // order of the index).  The candidates are searched again, further out, when a trial radius goes past what was searched.  The
 // tables of the kernel are those of the CPU (kernels.f), read with the same linear interpolation.
 // The tests of non-negative squared distances are made on the integer bits of the doubles (dlt, dle): the same answers, and the double precision unit, which is slow on most GPUs, does less.
+// The solve makes one evaluation of the function at a time (SolveSt); when only a few threads of a warp are not done after their first evaluations, the 32 threads of the warp make the
+// evaluations of each of them together (coop_run), adding the terms of the sums in the order of the index.
 //
 // Nothing here changes the values of any array of the CPU but the ones the caller names; a call that does not return 0 has
 // changed nothing, and the caller does the work on the CPU.
@@ -80,6 +82,14 @@ constexpr int MAXLEV = 24;
 constexpr int NTHR = 128;     // threads of a block of the solve kernel
 constexpr int NBLK = 4;
 constexpr double GROW = 1.04;      // the first search reaches this factor past the radius asked for (the next ones too)
+#ifndef SPH_RESCUEK
+#define SPH_RESCUEK 3
+#endif
+#ifndef SPH_RESCUEMAX
+#define SPH_RESCUEMAX 3
+#endif
+constexpr int RESCUEK = SPH_RESCUEK;      // evaluations of the solve a thread makes by itself before the warp looks at who is not done
+constexpr int RESCUEMAX = SPH_RESCUEMAX;  // the most threads of a warp that the warp solves by working together
 constexpr int MAXEVAL = 4000;      // evaluations of the function of the solve after which the particle is left to the CPU
 constexpr int LSH = 26;       // a stack entry is level << LSH | index
 constexpr int LMASK = (1 << LSH) - 1;
@@ -745,7 +755,7 @@ __device__ bool bfun(const View &V, double xi, double yi, double zi, Cand &C, do
 // The root of the function of the solve, starting from the guess of the CPU code, with the steps of solve_particle: the bracketing
 // by drifting (label 10), then Newton steps kept inside the bracket by bisection (label 12).  It is written as a machine that makes one
 // evaluation of the function at a time (SolveSt: where it stands between two evaluations), with the same operations in the same order
-// as the loops of solve_particle, so that a solve can be stopped after any evaluation and go on elsewhere with the same results.
+// as the loops of solve_particle, so that it can be stopped after any evaluation and go on elsewhere with the same results (the warp that makes it together, below).
 // bfun is called from one place only, so the threads of a warp that are at different stages of their solves evaluate together: with a call in each of the three
 // loops a warp paid the first evaluation, the most trips of the loop of label 10 and the most trips of the loop of label 12 one after the other.
 struct SolveSt
@@ -1029,6 +1039,135 @@ __device__ __forceinline__ void emit_particle(const View &V, typename WarpScanI:
   }
 }
 
+// The evaluations of the function of the solve of one thread (lane s) made by the 32 lanes of the warp together.  Lane j has the candidates j, j+32, ... in cka and cda (their places and
+// squared distances).  The terms of the sums are made by the lanes at once and then added in the order of the index through the shuffles (every lane adds the terms of the candidates 0, 1, 2, ...
+// in turn), so the sums are added term by term in the order bfun adds them, and the terms are the same numbers: the same bits.  A thread alone makes an evaluation with some hundreds of
+// double precision instructions (on the GPUs of the RTX line and on the L40S a warp does one of them in 64 cycles of its scheduler), the warp together with some tens, and the slowest solves
+// of a call take hundreds of evaluations one after the other: they are the longest chain of the kernel.  Every lane of the warp calls it with the same T (the state of the solve, copied from lane s)
+// and it ends with the solve done.  When a trial radius goes past the candidates they are searched again from the root by lane s alone (in its own arrays and Cand C), and the lanes take them from there.
+// False if that failed.
+__device__ __forceinline__ bool coop_run(const View &V, int lane, int s, const D4 &r, Cand &C, SolveSt &T, unsigned (&cka)[CAP / 32], double (&cda)[CAP / 32], int &m, double &Rc2)
+{
+  const unsigned full = 0xffffffffu;
+  while (T.phase < 3)
+  {
+    const double h = T.h;
+    const double r2 = 4.0 * (h * h);
+    if (r2 > Rc2)
+    {
+      bool okc = true;
+      if (lane == s) okc = recollect(V, r.x, r.y, r.z, r2, C);
+      okc = __shfl_sync(full, (int)okc, s) != 0;
+      if (!okc) { T.phase = 4; return false; }
+      m = __shfl_sync(full, C.m, s);
+      Rc2 = __shfl_sync(full, C.Rc2, s);
+#pragma unroll
+      for (int q = 0; q < CAP / 32; q++) { cka[q] = 0u; cda[q] = 0.0; }
+      for (int k = 0; k < m; k++)
+      {
+        const unsigned w = __shfl_sync(full, C.ck[k], s);
+        const double v = __shfl_sync(full, C.cd[k], s);
+        if ((k & 31) == lane)
+        {
+#pragma unroll
+          for (int q = 0; q < CAP / 32; q++) if ((k >> 5) == q) { cka[q] = w; cda[q] = v; }
+        }
+      }
+    }
+    const double h2 = h * h;
+    const double ctoh2 = V.ctab / h2;
+    double tw[CAP / 32], to[CAP / 32];
+    unsigned pm[CAP / 32];
+#pragma unroll
+    for (int q = 0; q < CAP / 32; q++)
+    {
+      const int k = lane + 32 * q;
+      const double d2 = cda[q];
+      const bool pass = (k < m) && dlt(d2, r2) && (cka[q] & 1u);
+      double a = 0.0, b = 0.0;
+      if (pass)
+      {
+        double xq = ctoh2 * d2;
+        xq = dlt(xq, V.c4) ? xq : V.c4;
+        const int it = (int)xq;
+        const double fq = xq - (double)it;
+        const double2 g0 = V.gd[it], g1 = V.gd[it + 1];
+        a = g0.x + fq * (g1.x - g0.x);
+        b = g0.y + fq * (g1.y - g0.y);
+      }
+      tw[q] = a; to[q] = b;
+      pm[q] = __ballot_sync(full, pass);
+    }
+    double wn = 0.0, om0 = 0.0;
+#pragma unroll
+    for (int q = 0; q < CAP / 32; q++)
+    {
+      if (32 * q < m)
+      {
+        const int nk = min(32, m - 32 * q);
+#pragma unroll 1   // (not unrolled: with the 32 shuffles of doubles written out four times ptxas of CUDA 13.1 refuses the kernel for sm_120)
+        for (int kk = 0; kk < nk; kk++)
+        {
+          const double ta = __shfl_sync(full, tw[q], kk), tb = __shfl_sync(full, to[q], kk);
+          if ((pm[q] >> kk) & 1u) { wn = wn + ta; om0 = om0 - tb; }
+        }
+      }
+    }
+    om0 = om0 / h;
+    solve_post(T, wn - V.nnopt, om0);
+  }
+  return T.phase == 3;
+}
+
+// The threads of a warp that are not done after their first RESCUEK evaluations: when there are at most RESCUEMAX of them the warp solves them one after the other, all its lanes working on one
+// (coop_run); with more, each goes on by itself, one evaluation at a time, until there are few.  Every lane of the warp calls it (want: this lane has a solve that is not done).
+// Measured on dumps of the code (the kernel alone, bits equal to the version before): with the rescue the time of k_solve falls by 2 to 52% on an L40S and by 3 to 48% on an H100.
+// Tried and not kept: the threads not done after RESCUEK evaluations handed over to a second kernel after k_solve, with their state and candidates in a buffer: one thread each was
+// slower than without it at the collision (the longest solves then run after the main kernel instead of during it), one warp each took 47% off the kernel instead of 58%.
+__device__ __forceinline__ void rescue_solve(const View &V, int lane, bool want, const D4 &r, Cand &C, SolveSt &S, bool &ok)
+{
+  const unsigned full = 0xffffffffu;
+  for (;;)
+  {
+    const unsigned um = __ballot_sync(full, want && S.phase < 3);
+    if (!um) break;
+    if (__popc(um) > RESCUEMAX)
+    {
+      if (want && S.phase < 3) { solve_step(V, r.x, r.y, r.z, C, S); if (S.phase == 4) ok = false; }
+      continue;
+    }
+    const int s = __ffs(um) - 1;
+    SolveSt T;
+    T.xl = __shfl_sync(full, S.xl, s); T.xh = __shfl_sync(full, S.xh, s); T.fl = __shfl_sync(full, S.fl, s); T.dx = __shfl_sync(full, S.dx, s);
+    T.ezr = __shfl_sync(full, S.ezr, s); T.xacc = __shfl_sync(full, S.xacc, s); T.dxmax = __shfl_sync(full, S.dxmax, s); T.h = __shfl_sync(full, S.h, s);
+    T.hsol = 0.0;
+    T.neval = __shfl_sync(full, S.neval, s); T.j = __shfl_sync(full, S.j, s); T.phase = __shfl_sync(full, S.phase, s);
+    int m = __shfl_sync(full, C.m, s);
+    double Rc2 = __shfl_sync(full, C.Rc2, s);
+    unsigned cka[CAP / 32];
+    double cda[CAP / 32];
+#pragma unroll
+    for (int q = 0; q < CAP / 32; q++) { cka[q] = 0u; cda[q] = 0.0; }
+    for (int k = 0; k < m; k++)
+    {
+      const unsigned w = __shfl_sync(full, C.ck[k], s);
+      const double v = __shfl_sync(full, C.cd[k], s);
+      if ((k & 31) == lane)
+      {
+#pragma unroll
+        for (int q = 0; q < CAP / 32; q++) if ((k >> 5) == q) { cka[q] = w; cda[q] = v; }
+      }
+    }
+    const bool good = coop_run(V, lane, s, r, C, T, cka, cda, m, Rc2);
+    if (lane == s)
+    {
+      S = T;
+      C.m = m; C.Rc2 = Rc2;
+      if (!good) ok = false;
+    }
+  }
+}
+
 // The smoothing length of every particle of the rank, its density and the other sums over the neighbours (bonetsumwithphi), and its
 // neighbour list, as solve_particle makes them.  A point particle (u=0, dynhco=0) keeps its smoothing
 // length and gets the list and the density.
@@ -1040,6 +1179,7 @@ __global__ void __launch_bounds__(NTHR, NBLK) k_solve(View V)
   const int tl = blockIdx.x * NTHR + threadIdx.x;      // the particle in the chunk
   const int tid = t0 + V.tbase + tl;
   const bool valid = tl < V.cn;
+  const int lane = threadIdx.x & 31;
   int i = -1;
   // the candidates of the thread (local memory: the compiler lays it out so that the threads of a warp read neighbouring words)
   unsigned ck[CAP];
@@ -1077,11 +1217,13 @@ __global__ void __launch_bounds__(NTHR, NBLK) k_solve(View V)
       if (ok)
       {
         solve_init(V, hin, divvi, S);
-        while (S.phase < 3) solve_step(V, r.x, r.y, r.z, C, S);
-        ok = S.phase == 3;
+        for (int t = 0; t < RESCUEK && S.phase < 3; t++) solve_step(V, r.x, r.y, r.z, C, S);
       }
     }
   }
+  // the threads that are not done: when there are few of them in the warp the whole warp solves them, one after the other (every thread of the warp is here)
+  rescue_solve(V, lane, valid && gas && ok, r, C, S, ok);
+  if (valid && gas && ok) ok = S.phase == 3;
   Fin F;
   F.hfin = hin; F.r2f = 0.0; F.rho = 0.0; F.omg = 0.0; F.om0 = 0.0; F.psi = 0.0; F.wn = 0.0; F.nn = 0; F.flag = 0;
   if (valid) finish_particle(V, C, ok, gas, hin, S.hsol, r, F);

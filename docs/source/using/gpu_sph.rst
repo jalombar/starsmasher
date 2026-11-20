@@ -29,6 +29,12 @@ walks it with one thread for each particle of the rank, tests the points in sing
 then tests them in double precision, in that order, so that the candidates are in the order of the index.  A rank with several GPUs (``ngpuperrank``) divides its particles among them in fixed parts.  The
 particles are done in chunks and the results of a chunk are copied to the CPU while the next one is computed.
 
+The smoothing length of a particle is found by a root finder that evaluates a sum over the candidates (a function of the trial length) once for each trial.  Most
+particles need two evaluations; the few that a shock has heated need tens or hundreds, one after the other, and a warp is as slow as its slowest thread.  At the collision
+of two stars the few threads that make more than 8 evaluations (one in 200) took a third to a half of the time of the kernel on a GPU with slow double precision (the RTX cards, the L40S).  A thread therefore makes its first three
+evaluations by itself, and when at most three threads of its warp are not done the 32 threads of the warp make the evaluations of each of them together: every thread has some of the candidates,
+the terms of the sum are made at once and added in the order of the index, so the sums and the results are the same bits.  On an L40S the kernel takes 28 to 65% less time on dumps of the code (29% at the 500000-particle star, 55% at the pericentre of the collision), on an H100 9 to 49% less (33% at the pericentre).
+
 A particle with more than 128 candidates is left to the CPU, which solves it with the code that always did
 it; the CPU tree is then made, for those particles only.  With one rank the CPUs make that tree while the GPU solves the other
 particles, if the step before left some to them (the tree is the one they would make afterwards from the same positions).  With several devices for the rank (``ngpuperrank``) the
