@@ -25,8 +25,8 @@ How it works
 
 For each call the GPU makes a tree of boxes over all the particles (a Morton curve, leaves of 8 particles),
 walks it with one thread for each particle of the rank, tests the points in single precision with a margin
-(it can only let too many pass) and then in double precision, and keeps the candidates in the order of the
-index.  A rank with several GPUs (``ngpuperrank``) divides its particles among them in fixed parts.  The
+(it can only let too many pass), puts those that pass in the order of the index (a merge sort in the thread) and
+then tests them in double precision, in that order, so that the candidates are in the order of the index.  A rank with several GPUs (``ngpuperrank``) divides its particles among them in fixed parts.  The
 particles are done in chunks and the results of a chunk are copied to the CPU while the next one is computed.
 
 A particle with more than 128 candidates is left to the CPU, which solves it with the code that always did

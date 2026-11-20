@@ -11,9 +11,9 @@
 // (it is not the tree of the CPU, which is not built when the GPU does the work):
 //   1. the particles are sorted along a Morton curve (a radix sort of 63-bit keys: exact and the same on every run),
 //   2. the leaves hold LEAF consecutive particles of that order, a node holds the boxes of BR nodes of the level below,
-//   3. a thread takes a particle of the rank, walks the tree with a test of the boxes and of the points in single precision
-//      with a margin (it can only let too many through, never drop one), and tests what is left with the exact double
-//      precision arithmetic.  The candidates are put in the order of their index (a sort in the thread).
+//   3. a thread takes a particle of the rank and walks the tree with a test of the boxes and of the points in single precision
+//      with a margin (it can only let too many through, never drop one).  The places that pass are put in the order of the
+//      index (a merge sort in the thread) and then tested, in that order, with the exact double precision arithmetic.
 // A particle with more than CAP candidates is left to the CPU (flag), by a rule that depends on the particles only.
 //
 // The particles are done in chunks (SPHGPU_CHUNK, 131072 by default): while the kernel of a chunk runs, the results of the chunk before
@@ -391,7 +391,122 @@ __global__ void k_vdmax_final(int nb, const double *part, double *dmax)
 // The candidates of the particle at (xi,yi,zi) found from the root of the tree: every particle at a squared distance not above Rc2,
 // with the squared distance of the CPU.  They go to ck (the index of the particle times 2, plus 1 for a gas particle) and cd, element
 // k at [k*st], in the order of the index.  Returns their number, or -1 if there are more than CAP.
-__device__ int collect(const View &V, double xi, double yi, double zi, double Rc2, unsigned *ck, double *cd, int st)
+//
+// The visit of the tree makes the tests in single precision only and queues one 64-bit entry for each place that passes, (key << 32) | place in the
+// tree, where key is what goes to ck (2*index + gas).  The keys are all different, so any sort of the entries as numbers gives the order of the
+// index.  The entries are sorted, and then one loop in that order makes the test in double precision, from the place of the entry, and keeps the
+// candidates where they are: the same set, in the same order, with the same squared distance as the test inside the visit gave.
+//
+// Why: the lanes of a warp are in different leaves, so the test in double precision inside the visit was run by the warp for almost every place
+// of a leaf (about 5 times the number of candidates), while in a loop of its own all the lanes run it together, and the double precision of these
+// GPUs is 1/64 of the single.  The sort by insertion of two vectors (the keys and the squared distances) had a loop whose length depends on the
+// data, and a warp waits for its lane that moves most.  Measured on an RTX PRO 6000 Blackwell (one device, ngpusph = 7, time of k_solve on the wall
+// for a call without Verlet lists): 8.9 -> 5.9 ms at 500k particles, 64.7 -> 56.8 ms at 2M, and in the collision of two stars 5.7 -> 4.5 (start),
+// 6.7 -> 5.3 (t = 8), 7.2 -> 6.3 (periastron), 8.3 -> 7.2 ms (late); the call that builds the Verlet lists, where the sort is half of the time,
+// 17.9 -> 9.7 ms at 500k.  The dense test alone, with an insertion sort of the vector of entries, gives 6.5 ms at 500k; Batcher's sorting network
+// instead of the merge sort 6.2 ms; leaves of 16 places and 8 nodes under a node did not help.  Tried before and not kept: the rank of each key by
+// comparison with all the others, and a walk of the tree by the 32 threads of a warp together for a group of particles, the places sorted once.
+typedef unsigned long long u64;
+static_assert(CAP <= 128, "the merge sort of collect has four passes (runs of 8 to 128)");
+
+// the entries are held in cd, as the bits of a double (no floating-point operation touches them)
+__device__ __forceinline__ u64 ent_ld(const double *v, int a) { return (u64)__double_as_longlong(v[a]); }
+__device__ __forceinline__ void ent_st(double *v, int a, u64 e) { v[a] = __longlong_as_double((long long)e); }
+
+// compare-exchange of two entries (a minimum and a maximum, no branch)
+__device__ __forceinline__ void cex(u64 &a, u64 &b)
+{
+  const u64 lo = a < b ? a : b, hi = a < b ? b : a;
+  a = lo;
+  b = hi;
+}
+
+// the sort of 8 entries by a network of 19 compare-exchanges
+__device__ __forceinline__ void sort8(u64 *v)
+{
+  cex(v[0], v[2]); cex(v[1], v[3]); cex(v[4], v[6]); cex(v[5], v[7]);
+  cex(v[0], v[4]); cex(v[1], v[5]); cex(v[2], v[6]); cex(v[3], v[7]);
+  cex(v[0], v[1]); cex(v[2], v[3]); cex(v[4], v[5]); cex(v[6], v[7]);
+  cex(v[2], v[4]); cex(v[3], v[5]);
+  cex(v[1], v[4]); cex(v[3], v[6]);
+  cex(v[1], v[2]); cex(v[3], v[4]); cex(v[5], v[6]);
+}
+
+// one pass of the merge sort: the runs of w entries of src (element k at [k*sst]), two by two, merged into dst (element k at [k*dst_st]).  The loop is over the
+// index of the output and the choice of the run it is taken from is made without a branch (an entry past the end of a run reads as the largest value), so the
+// lanes of a warp go together
+__device__ __forceinline__ void merge_pass(const double *src, int sst, double *dst, int dst_st, int n, int w)
+{
+  for (int lo = 0; lo < n; lo += 2 * w)
+  {
+    const int mid = min(lo + w, n), hi = min(lo + 2 * w, n);
+    int i = lo, j = mid;
+    u64 a = ent_ld(src, i * sst);
+    u64 b = j < hi ? ent_ld(src, j * sst) : ~0ull;
+    for (int k = lo; k < hi; k++)
+    {
+      const bool ta = a <= b;
+      ent_st(dst, k * dst_st, ta ? a : b);
+      i += ta ? 1 : 0;
+      j += ta ? 0 : 1;
+      const int idx = ta ? i : j, lim = ta ? mid : hi;
+      const u64 v = ent_ld(src, min(idx, n - 1) * sst);
+      const u64 nv = idx < lim ? v : ~0ull;
+      a = ta ? nv : a;
+      b = ta ? b : nv;
+    }
+  }
+}
+
+// The np entries in cd (element k at [k*st]) sorted: runs of 8 (the last one filled with the largest value) by the network, from cd to tmp, then merge passes that
+// double the runs, from tmp to cd and back.  tmp is a vector of its own, element k at [k]: the stride st is that of cd and ck, the vectors of the caller.
+// Returns the number of passes: the sorted entries are in cd if it is odd, in tmp if it is even.
+__device__ __forceinline__ int sort_entries(double *cd, double *tmp, int np, int st)
+{
+  const int n = (np + 7) & ~7;
+  for (int r = 0; r < n; r += 8)
+  {
+    u64 v[8];
+#pragma unroll
+    for (int q = 0; q < 8; q++) v[q] = (r + q < np) ? ent_ld(cd, (r + q) * st) : ~0ull;
+    sort8(v);
+#pragma unroll
+    for (int q = 0; q < 8; q++) ent_st(tmp, r + q, v[q]);
+  }
+  int passes = 0;
+  if (8 < n) { merge_pass(tmp, 1, cd, st, n, 8); passes = 1; }
+  if (16 < n) { merge_pass(cd, st, tmp, 1, n, 16); passes = 2; }
+  if (32 < n) { merge_pass(tmp, 1, cd, st, n, 32); passes = 3; }
+  if (64 < n) { merge_pass(cd, st, tmp, 1, n, 64); passes = 4; }
+  return passes;
+}
+
+// the test in double precision of the entries in src (element k at [k*sst]), in order: the place read from each, the squared distance of the CPU, the candidates
+// kept in the order they are in, in ck and cd (element k at [k*st]).  The index written never passes the index read, so src may be cd itself (with sst = st).
+// Returns the number of candidates.
+__device__ __forceinline__ int dense_exact(const View &V, double xi, double yi, double zi, double Rc2, const double *src, int sst, unsigned *ck, double *cd, int np, int st)
+{
+  int m = 0;
+  for (int a = 0; a < np; a++)
+  {
+    const u64 e = ent_ld(src, a * sst);
+    const D4 r = V.rec[(unsigned)(e & 0xffffffffull)];
+    const double ex = xi - r.x, ey = yi - r.y, ez = zi - r.z;
+    const double d2 = (ex * ex + ey * ey) + ez * ez;
+    if (d2 <= Rc2)
+    {
+      ck[m * st] = (unsigned)(e >> 32);
+      cd[m * st] = d2;
+      m++;
+    }
+  }
+  return m;
+}
+
+// The search as it was before: the test in double precision inside the visit and an insertion sort of the candidates.  It is the way of a search with more
+// than CAP places through the single precision test, which finds out whether the candidates are more than CAP (a place that passes is not always a
+// candidate) and gives them when they are not.
+__device__ int collect_by_insertion(const View &V, double xi, double yi, double zi, double Rc2, unsigned *ck, double *cd, int st)
 {
   if (!(Rc2 < 1e300)) return -1;
   const double R = sqrt(Rc2);
@@ -456,6 +571,60 @@ __device__ int collect(const View &V, double xi, double yi, double zi, double Rc
     cd[(b + 1) * st] = d;
   }
   return m;
+}
+
+
+__device__ int collect(const View &V, double xi, double yi, double zi, double Rc2, unsigned *ck, double *cd, int st)
+{
+  if (!(Rc2 < 1e300)) return -1;
+  const double R = sqrt(Rc2);
+  // the single precision tests can only let too many through: the radius has a margin for the rounding of the positions
+  // (relative to the largest side of the box) and of the arithmetic
+  const float Rf = (float)(R * (1.0 + 2.0e-4) + 1.0e-6 * V.bb[6]);
+  const float Rf2 = Rf * Rf;
+  const float qx = (float)(xi - V.bb[0]), qy = (float)(yi - V.bb[1]), qz = (float)(zi - V.bb[2]);
+  int stk[3 * MAXLEV + 4];
+  int sp = 0, np = 0;
+  stk[sp++] = (V.nlev - 1) << LSH;
+  while (sp > 0)
+  {
+    const int e = stk[--sp];
+    const int l = e >> LSH, i = e & LMASK;
+    if (l == 0)
+    {
+      const int p0 = i * LEAF, p1 = min(p0 + LEAF, V.n);
+      for (int p = p0; p < p1; p++)
+      {
+        const float4 f = V.frec[p];
+        const float dx = f.x - qx, dy = f.y - qy, dz = f.z - qz;
+        if ((dx * dx + dy * dy) + dz * dz <= Rf2)
+        {
+          if (np == CAP) return collect_by_insertion(V, xi, yi, zi, Rc2, ck, cd, st);
+          const unsigned key = ((unsigned)V.perm[p] << 1) | (f.w > 0.5f ? 1u : 0u);
+          ent_st(cd, np * st, ((u64)key << 32) | (unsigned)p);
+          np++;
+        }
+      }
+    }
+    else
+    {
+      const int c0 = BR * i, c1 = min(c0 + BR, V.lcnt[l - 1]);
+      for (int c = c0; c < c1; c++)
+      {
+        const int nd = V.loff[l - 1] + c;
+        const float4 lo = V.box[2 * nd], hi = V.box[2 * nd + 1];
+        const float gx = fmaxf(fmaxf(lo.x - qx, qx - hi.x), 0.0f);
+        const float gy = fmaxf(fmaxf(lo.y - qy, qy - hi.y), 0.0f);
+        const float gz = fmaxf(fmaxf(lo.z - qz, qz - hi.z), 0.0f);
+        if ((gx * gx + gy * gy) + gz * gz <= Rf2) stk[sp++] = ((l - 1) << LSH) | c;
+      }
+    }
+  }
+  double tmp[CAP];
+  const int passes = sort_entries(cd, tmp, np, st);
+  // (the exact test is written twice so that each call reads a vector the compiler knows)
+  if (passes & 1) return dense_exact(V, xi, yi, zi, Rc2, cd, st, ck, cd, np, st);
+  return dense_exact(V, xi, yi, zi, Rc2, tmp, 1, ck, cd, np, st);
 }
 
 // ---------------------------------------------------------------------------------------------------- the smoothing length
