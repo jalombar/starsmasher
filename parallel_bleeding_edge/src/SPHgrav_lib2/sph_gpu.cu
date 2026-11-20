@@ -3332,16 +3332,39 @@ extern "C"
         if (used[k]) { first_used = k; break; }
       if (!cmp)
       {
-        for (int a = 0; a < 6; a++)
+        // one region of the threads for the six sums and for the results of the targets (none of these loops reads what another writes, and each takes the same share of its
+        // index range for every thread, so no thread waits for another between them): a region costs the threads about 15 microseconds, ten times in the step it was 0.1 ms
+        for (int k = 0; k < ndev; k++)
+          if (used[k]) *nlarge += *g_fdev[k].hnlarge;
+#pragma omp parallel
         {
-          double *dst = outs[a];
-#pragma omp parallel for schedule(static)
-          for (int q = 0; q < n; q++)
+          for (int a = 0; a < 6; a++)
           {
-            double s = g_fdev[first_used].hacc[(size_t)a * n + q];
-            for (int k = first_used + 1; k < ndev; k++)
-              if (used[k]) s = s + g_fdev[k].hacc[(size_t)a * n + q];
-            dst[q] = s;
+            double *dst = outs[a];
+#pragma omp for schedule(static) nowait
+            for (int q = 0; q < n; q++)
+            {
+              double s = g_fdev[first_used].hacc[(size_t)a * n + q];
+              for (int k = first_used + 1; k < ndev; k++)
+                if (used[k]) s = s + g_fdev[k].hacc[(size_t)a * n + q];
+              dst[q] = s;
+            }
+          }
+          // (the devices one after the other, as before: a particle is the target of one device only, but nothing here depends on that)
+          for (int k = 0; k < ndev; k++)
+          {
+            if (!used[k]) continue;
+            const FDev &f = g_fdev[k];
+            const int nres = nts[k];
+#pragma omp for schedule(static)
+            for (int o = 0; o < nres; o++)
+            {
+              const FOut s = f.hout[o];
+              if (s.p < 0) continue;
+              udot[s.p] = s.udot;
+              divv[s.p] = s.divv;
+              if (!blocks || act[s.p]) uijmax[s.p] = s.uij;
+            }
           }
         }
       }
@@ -3377,12 +3400,12 @@ extern "C"
           }
         }
       }
-      for (int k = 0; k < ndev; k++)
+      for (int k = 0; k < ndev && cmp; k++)      // (without cmp the loops above did this)
       {
         if (!used[k]) continue;
         const FDev &f = g_fdev[k];
         *nlarge += *f.hnlarge;
-        const int nres = cmp ? slice_of(nt, ndev, k) : nts[k];   // (with the data of the smoothing-length kernel only the targets of the device, in the order of its records)
+        const int nres = slice_of(nt, ndev, k);   // (with the data of the smoothing-length kernel only the targets of the device, in the order of its records)
 #pragma omp parallel for schedule(static)
         for (int o = 0; o < nres; o++)
         {
