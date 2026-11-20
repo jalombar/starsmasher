@@ -62,9 +62,9 @@ The automatic choice (``ngpusph = -1``)
 
 ``ngpusph = -1`` chooses 0, 1 or 7 once, at the start of the run (and of every restart), from the configuration alone and never from a time measured, and writes
 the choice and the reason to ``log0.sph`` (as ``ngravtree = -1`` does), as the fastest.  The rules come from measurements of the step time with ``ngpusph`` 0, 1 and 7 for
-the direct sum on a GPU, the tree on a GPU and the tree on the CPUs (``e_classi.csv`` of the phase 8 results: 1, 4, 16 and 63 threads, 100000 and 500000 particles, 4 and 8 ranks and 8 GPUs;
-``g_regola.csv`` of the phase 10: relaxed Suns of 9966 to 499860 particles, 7, 16, 32 and 63 threads per rank, one rank and one GPU, on a Threadripper 7980X with a RTX 4070 Ti SUPER and on
-an EPYC 9335 with a RTX PRO 6000; ``ho_celle.csv``, a check on a third node, a Xeon 8480C with a H100: 19938 to 499860 particles, 16, 32, 48 and 63 threads, mean step).  A choice is taken as the fastest if it is the fastest of the cells measured or lies within the noise of the measurement (the spread of the repetitions).
+the direct sum on a GPU, the tree on a GPU and the tree on the CPUs (1, 4, 16 and 63 threads, 100000 and 500000 particles, 4 and 8 ranks and 8 GPUs;
+relaxed Suns of 9966 to 499860 particles, 7, 16, 32 and 63 threads per rank, one rank and one GPU, on a Threadripper 7980X with a RTX 4070 Ti SUPER and on
+an EPYC 9335 with a RTX PRO 6000; and, as a check, on a third node, a Xeon 8480C with a H100: 19938 to 499860 particles, 16, 32, 48 and 63 threads, mean step).  A choice is taken as the fastest if it is the fastest of the cells measured or lies within the noise of the measurement (the spread of the repetitions).
 
 * No GPU code (CPU build, no GPU on the node), a build whose CPU code fuses multiplications and additions (``MARCH``), a periodic box, ``dynhco`` above 0: 0.
 * ``nav = 4`` or ``nintvar = 3`` (their forces stay on the CPUs): 1.
@@ -72,23 +72,42 @@ an EPYC 9335 with a RTX PRO 6000; ``ho_celle.csv``, a check on a third node, a X
   against 1457; tree on the CPUs, 63 threads: 60 against 75).
 * The direct sum on two GPUs (two ranks, or one rank with ``ngpuperrank = 2``): 7 below 450000 particles (the collision of two Suns, 199908 particles, 2 ranks of 8 threads:
   17.9 ms a step with 7, 26.1 with 1, 53.6 with 0) and 1 from there (500000 particles, one rank of 16 threads: 56.8 ms with 1, 62.9 with 7, 110.7 with 0).
-* The direct sum on more GPUs (several ranks, or ``ngpuperrank`` not 1, not measured in the phase 10): 1.  For 500000 particles, 8 ranks of 7 threads: 26 ms a step against 41 with 0
+* The direct sum on more GPUs (several ranks, or ``ngpuperrank`` not 1, not measured for the limits above): 1.  For 500000 particles, 8 ranks of 7 threads: 26 ms a step against 41 with 0
   and 27 with 7; 4 ranks of 15 threads: 37, 56 and 39; one rank with 8 GPUs: 28, 41 and 29.
-* The direct sum on one GPU, which the kernels of the gravity keep busy, depends on the threads per rank and on the particles: with at most 8 threads 7 (7 threads, 100000 particles: 25 ms against 60 with 0;
+* The direct sum on one GPU, which the kernels of the gravity keep busy, depends on the threads per rank and on the particles, and with 32 threads or more on the class of the GPU: with at most 8 threads 7 (7 threads, 100000 particles: 25 ms against 60 with 0;
   1 thread, 500000 particles: 180 ms against 1425); with 9 to 31 threads 7 below 450000 particles (16 threads, 100000 particles: 24 ms against 30 on the Threadripper, 11 against 24 on the EPYC; 399816 particles: 70.7 ms against 91.3 on the EPYC)
-  and 0 from there (499860 particles: 100 ms against 105); with 32 to 47 threads 7 below 150000 particles and 0 from there (100000 particles: 10.6 ms with 7 against 14.3 with 0 on the EPYC and
-  16.1 against 20.1 on the H100, but 17.6 with 0 against 22.8 with 7 on the Threadripper: the nodes disagree, and the number that loses least in the worst of them is taken; 200000 particles: 37.4 ms with 0 against 42.0
-  with 7 on the H100; 500000 particles, 157.6 against 171.0 on the H100: 0); with 48 threads or more 7 below 75000 particles and 0 from there (63 threads, 30090 particles: 4.3 ms with 7 against 4.6 with 0 on the
-  Threadripper; 50160 particles: 6.8 with 0 against 8.0 with 7 on the Threadripper, but 5.4 against 8.0 on the H100, and with 48 threads 5.3 against 9.2; 100000 particles: 16.6 against 22.2 on the Threadripper, 15.8
-  against 15.9 on the H100).  Below 9966 particles, the smallest star measured, the choice stays what it was in the earlier versions
+  and 0 from there (499860 particles: 100 ms against 105); with 32 threads or more the limits are in the table below.  Below 9966 particles, the smallest star measured, the choice stays what it was in the earlier versions
   (at most 8 threads 7, 32 or more 0, in between 7).
+
+**The class of the GPU.**  With 32 threads or more the CPUs take the SPH from the GPU earlier when the GPU is not a strong one, so the limits of the direct sum on one GPU depend on its class.  The class is read from the GPU: the number of multiprocessors
+it says it has (``multiProcessorCount`` of CUDA; the smallest of the GPUs the process sees; rank 0 reads it and its choice is the one of every rank).  Below 100 the class is *mid*, from 100 up, or if the number cannot be
+read (the CPU build, the Metal build, an error of CUDA), *strong*.  The number of multiprocessors is a coarse hint of the speed of the GPU: a RTX 4070 Ti SUPER has 66, a H100 132, a RTX PRO 6000 Blackwell 188.
+``ngpuclass`` in ``sph.input`` writes the class by hand: 1 mid, 2 strong, -1 (the default) from the GPU; it serves to get the same choice on machines of different kinds, or to try the other class.  Any other value stops the run.
+When the class decides the choice, the line of ``log0.sph`` says it and the number read, for example ``SPH on the GPU: ngpusph=-1 (auto): direct sum, 63 threads per rank and N=83000 >= 40000 on one GPU of class mid (66 SMs) -> ngpusph=0``,
+or ``(class strong, written in ngpuclass)``.  ``ngpusph`` 7 is chosen below the number of particles of the table and 0 from there:
+
+=================  ===================  ==============
+threads per rank   strong class         mid class
+=================  ===================  ==============
+32 to 47           150000               75000
+48 or more         75000                40000
+=================  ===================  ==============
+
+The cells that decide (step times, ms; the H100 ones are the mean step, the others the median of the repetitions).  Strong class, 32 to 47 threads: 99954 particles 10.6 with 7 against 14.3 with 0 on the EPYC, 16.1 against 20.1 on the H100;
+199908 particles 37.4 with 0 against 42.0 with 7 on the H100; 499860 particles 157.6 against 171.0 on the H100 (0); any limit from 99955 to 199908 loses nothing in these cells.  Strong, 48 threads or more: 50160 particles 5.4 with 7
+against 8.0 with 0 on the H100 with 63 threads, 5.35 against 9.2 with 48; 99954 particles 9.6 with 0 against 10.8 with 7 on the EPYC, 15.8 against 15.9 with 63 threads and 16.6 against 15.6 with 48 on the H100: from 50161 to 99954 the worst
+cell is the H100 at 48 threads (0 chosen, 6.2% slower than 7), from 99955 on the EPYC loses 12.5%.  Mid class (the Threadripper with the RTX 4070 Ti SUPER, the only machine of this class that was measured), 32 threads: 50160 particles 7.9 with 7
+against 9.3 with 0, 99954 particles 17.6 with 0 against 22.8 with 7, 199908 particles 45.8 against 65.6; 63 threads: 30090 particles 4.3 with 7 against 4.6 with 0, 50160 particles 6.8 with 0 against 8.0 with 7, 99954 particles 16.6 against 22.2;
+48 threads (the mean of three repetitions): 19938 particles 3.3 with 7 against 3.7 with 0, 50160 particles 7.5 with 0 against 8.2 with 7, 99954 particles 15.9 against 23.0.  The limits of the two classes
+are the numbers that lose least in the worst cell of the machines of the class, in the middle of the interval between the last cell where 7 wins and the first where 0 wins.
 
 With ``ngravtree = -1`` as well (the default of ``ngravtreeauto`` is -1) the gravity and the SPH are chosen together, as the fastest pair: the tree walked on the GPU with the SPH on the GPU (7) from 9966 particles
 on (see :doc:`gravity`).
 
 Where the choice is 3 or 7 the results differ from the CPU's at the rounding level (the forces are formed once on the GPU, the root of the viscosity term differs), as
 in the paragraph below; ``ngpusph = 0`` gives back the CPU code of earlier versions.  The measurements are for three kinds of node (a Threadripper with a RTX 4070 Ti SUPER,
-an EPYC with RTX PRO 6000 Blackwell GPUs, a Xeon 8480C with a H100, on which the limits of the direct sum on one GPU were checked and moved): other hardware may need other rules.
+an EPYC with RTX PRO 6000 Blackwell GPUs, a Xeon 8480C with a H100, on which the limits of the direct sum on one GPU were checked and moved): one is of the mid class and two of the strong one,
+and the number of multiprocessors says only roughly how fast a GPU is against the CPUs of its node, so other hardware may need other rules (``ngpuclass`` to try the other class).
 
 The forces (``ngpusph = 3``)
 ----------------------------

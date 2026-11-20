@@ -396,6 +396,14 @@ c     nkernel=2 is the Wendland C4 kernel
       return
       end
 
+c     the number of multiprocessors of the GPU: 0, not known (no GPU here)
+      subroutine get_gpu_sm_count(nsm,myrank_in)
+      implicit none
+      integer nsm,myrank_in
+      nsm=0
+      return
+      end
+
       subroutine firsthalf_grav_forces(ntot, ngrav_lower, mygravlength,
      $     x, y, z, am, range, q, nkernel)
       integer ntot,ngrav_lower,mygravlength,q,nkernel

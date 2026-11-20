@@ -19,6 +19,14 @@
       return
       end
 
+c     the number of multiprocessors of the GPU: 0, not known (the Metal library does not say it)
+      subroutine get_gpu_sm_count(nsm,myrank_in)
+      implicit none
+      integer nsm,myrank_in
+      nsm=0
+      return
+      end
+
       subroutine gpu_set_ndev(i,n,np)
       integer i,n,np
       return

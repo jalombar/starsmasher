@@ -84,8 +84,12 @@ something changed.  These tell you whether the answer is right.
        with the tree 7, with the direct sum by threads per rank, particles and
        ranks), and gives exactly the bits of a run with the value it chose set by
        hand, on one rank and on several; each limit of the rule is tried with a
-       star below it and a star above it (in a build without OpenMP the cases that need more
-       than one thread per rank are skipped).
+       star below it and a star above it, for the mid and the strong class of the
+       GPU (``ngpuclass``) where the limit depends on it; with ``ngpuclass = -1``
+       the class that ``log0.sph`` says must agree with the number of
+       multiprocessors it says it read, and ``ngpuclass = 3`` must be refused
+       (in a build without OpenMP the cases that need more than one thread per rank
+       are skipped).
    * - ``vdotsm``
      - With ``cn2`` and ``cn4`` finite (so that ``tstep`` uses the smoothed
        accelerations of ``vdotsm``, which sums over the neighbour lists on the

@@ -537,13 +537,14 @@ def t_guard_periodic(ctx):
         raise Fail('expected the padding guard to stop the run\n' + text[-800:])
     return 'stopped with: search radius exceeds periodic padding'
 
-# The automatic values (ngravtree=-1, ngpusph=-1).  The rule is in init.f (auto_limits, gravtree_auto, sph_auto) and in docs/source/using/gravity.rst; the limits, from results/g_regola.csv of the phase 10
-# (relaxed Suns of 9966 to 499860 particles, 7 to 63 threads per rank, one rank with one GPU): the smallest star measured is 9966 particles, below it the choice of the phases 7 and 8 stays (the direct
+# The automatic values (ngravtree=-1, ngpusph=-1).  The rule is in init.f (auto_limits, gravtree_auto, sph_auto) and in docs/source/using/gravity.rst; the limits, from the step times measured
+# (relaxed Suns of 9966 to 499860 particles, 7 to 63 threads per rank, one rank with one GPU): the smallest star measured is 9966 particles, below it the choice of the earlier versions stays (the direct
 # sum; ngpusph 7 with at most 8 threads per rank, 0 with 32 or more, in between 7 below 300000).  From there up, with one rank and one GPU:
 #   ngravtree=-1 (ngravtreeauto=-1): the tree on the GPU from 9966 particles with ngpusph=-1 (the pair of the tree and ngpusph=7 is the fastest) or 3 or 7 written, from 25000 with ngpusph=1, from 75000 with ngpusph=0 and
 #   48 threads or more (450000 with fewer); two GPUs (2 ranks): from 15000 with the SPH on the GPU, from 450000 with ngpusph 0 or 1; more GPUs (4 ranks here): from 299000
-#   ngpusph=-1: with the tree 7; the direct sum on one GPU 7 with at most 8 threads, with 9 to 31 threads below 450000 particles, with 32 to 47 below 150000 and with 48 or more below 75000 (0 from there); on two GPUs
-#   7 (1 from 450000); on more 1
+#   ngpusph=-1: with the tree 7; the direct sum on one GPU 7 with at most 8 threads, with 9 to 31 threads below 450000 particles, with 32 to 47 below 150000 and with 48 or more below 75000 (0 from there) for a GPU
+#   of the strong class (100 multiprocessors or more, or not known), below 75000 and 40000 for one of the mid class (1 to 99; ngpuclass in sph.input writes the class, -1 reads it from the GPU, and the cases that
+#   depend on it write it, so that they hold on any machine); on two GPUs 7 (1 from 450000); on more 1
 # (the rank counts of the cases do not depend on the --np of the suite.)  Each case is run with the automatic values, the pair that was chosen is read from log0.sph (and compared with the rule above), and the run is made again with that pair written by hand: the energies of
 # every row and the bytes of every dump must be those of the automatic run.  The stars are polytropes of n particles (a few less come out of the lattice), a factor of 1.1 or more from the limit.
 AUTO_CASES_GRAVITY = [   # (label, ranks, threads, n, written, wanted (ngravtree, ngpusph))
@@ -575,10 +576,14 @@ AUTO_CASES_SPH = [       # (label, ranks, threads, n, written, wanted ngpusph)
     ('direct_16t',        1, 16, 14000, dict(ngravtree=0), 7),
     ('direct_32t_small',  1, 32, 5000, dict(ngravtree=0), 0),
     ('direct_32t',        1, 32, 14000, dict(ngravtree=0), 7),
-    ('direct_32t_below',  1, 32, 136000, dict(ngravtree=0), 7),
-    ('direct_32t_above',  1, 32, 166000, dict(ngravtree=0), 0),
-    ('direct_63t_below',  1, 63, 68000, dict(ngravtree=0), 7),
-    ('direct_63t_above',  1, 63, 83000, dict(ngravtree=0), 0),
+    ('direct_32t_below',  1, 32, 136000, dict(ngravtree=0, ngpuclass=2), 7),
+    ('direct_32t_above',  1, 32, 166000, dict(ngravtree=0, ngpuclass=2), 0),
+    ('direct_32t_mid_below', 1, 32, 68000, dict(ngravtree=0, ngpuclass=1), 7),
+    ('direct_32t_mid_above', 1, 32, 83000, dict(ngravtree=0, ngpuclass=1), 0),
+    ('direct_63t_below',  1, 63, 68000, dict(ngravtree=0, ngpuclass=2), 7),
+    ('direct_63t_above',  1, 63, 83000, dict(ngravtree=0, ngpuclass=2), 0),
+    ('direct_63t_mid_below', 1, 63, 36000, dict(ngravtree=0, ngpuclass=1), 7),
+    ('direct_63t_mid_above', 1, 63, 44500, dict(ngravtree=0, ngpuclass=1), 0),
     ('direct_63t_small',  1, 63, 5000, dict(ngravtree=0), 0),
     ('direct_2_ranks',    2, 1, 14000, dict(ngravtree=0), 7),
     ('direct_2_ranks_small', 2, 1, 5000, dict(ngravtree=0), 1),
@@ -925,7 +930,8 @@ def t_sph_auto(ctx):
 
     The line "SPH on the GPU: ngpusph=-1 (auto): <why> -> ngpusph=N" must be in log0.sph; the energies of every row and the bytes of every dump must be those of a run with ngpusph=N.  The CPU build must
     choose 0.  With a GPU build and a tree on the GPU or on the CPUs the choice is 7; with the direct sum it depends on the threads per rank, the particles (a star below and one above each limit) and the ranks
-    (several ranks: 1).
+    (several ranks: 1).  With the direct sum on one GPU and 32 threads or more the limits depend on the class of the GPU (ngpuclass: 1 mid, 2 strong, -1 from the GPU): the cases write the class, each limit has a star below
+    and one above for both classes, and with ngpuclass=-1 the line of log0.sph must say a class that agrees with the number of multiprocessors it says it read.
     """
     out = []
     for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
@@ -944,6 +950,32 @@ def t_sph_auto(ctx):
                 out.append('%s skipped (no OpenMP)' % label)
                 continue
             out.append('%s -> %d' % (label, chosen[1]))
+        # ngpuclass=-1 (the default): the class is read from the number of multiprocessors of the GPU; the line of log0.sph says both, and the choice must be the one of that class (a star at which the two classes differ:
+        # 63 threads 68000 particles, 7 for the strong class and 0 for the mid one; 32 threads 83000 particles, 0 for the mid one and 7 for the strong one)
+        for label, threads, nn, want_mid, want_strong in (('class_read_63t', 63, 68000, 0, 7), ('class_read_32t', 32, 83000, 0, 7)):
+            chosen = auto_case(ctx, exe, 'sa_' + label, 1, threads, nn, dict(ngravtree=0), (None, None))
+            if chosen is None:
+                out.append('%s skipped (no OpenMP)' % label)
+                continue
+            text = open(os.path.join(ctx.base, 'au_sa_%s_auto' % label, 'log0.sph')).read()      # (ctx.dir would empty the folder)
+            m = re.search(r'on one GPU of class (mid|strong) \((?:(\d+) SMs|SMs not known)\)', text)
+            if not m:
+                raise Fail('%s: the line of log0.sph does not say the class of the GPU and the number of multiprocessors\n%s'
+                           % (label, '\n'.join(l for l in text.split('\n') if 'ngpusph=-1' in l)))
+            sm = int(m.group(2)) if m.group(2) else 0
+            cls = 'mid' if 1 <= sm < 100 else 'strong'
+            if m.group(1) != cls:
+                raise Fail('%s: the log says class %s for %d multiprocessors, which is %s' % (label, m.group(1), sm, cls))
+            want = want_mid if cls == 'mid' else want_strong
+            if chosen[1] != want:
+                raise Fail('%s: class %s (%d SMs) and %d threads, N=%d: chose ngpusph=%d, the rule says %d' % (label, cls, sm, threads, nn, chosen[1], want))
+            out.append('%s -> %d (%s, %d SMs)' % (label, chosen[1], cls, sm))
+        # a class that is not -1, 1 or 2 stops the run with a message
+        d = ctx.dir('sa_class_bad')
+        p, _ = run(exe, d, np=1, ngravtree=0, ngpuclass=3, **dict(POLY, n=2000, tf=0.1, dtout=1))
+        if 'ngpuclass must be -1, 1 or 2' not in p.stdout + p.stderr:
+            raise Fail('ngpuclass=3 was not refused with a message\n' + (p.stdout + p.stderr)[-600:])
+        out.append('ngpuclass=3 refused')
     return 'ngpusph=-1 chooses as the rule says, says so, and gives the bits of its choice: ' + '; '.join(out)
 
 def t_vdotsm(ctx):

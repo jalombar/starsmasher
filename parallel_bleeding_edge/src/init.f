@@ -649,7 +649,7 @@ c      end
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
      $     bbh_longitude,rp,rjump,rjumpfactor,rjumppercent,ndtoutafter,
      $     reentryfactor,
-     $     hgroup,ngpusph,ngpusphcheck,ngpusphskin,ngpusphprec,
+     $     hgroup,ngpusph,ngpusphcheck,ngpusphskin,ngpusphprec,ngpuclass,
      $     boxx,boxy,boxz,nhdf5
       
       character*9 slurm_gpu_count_str
@@ -744,7 +744,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       nkernel=2 ! smoothing kernel: 0=cubic spline, 1=Wendland 3,3, 2=Wendland C4
       ngravhilo=1 ! GPU gravity only: 1 sends each position to the card as a float plus the float's remainder, so separations keep single precision however far the pair is from the reference point (the gas centre of mass), and with block timesteps the rounding of a pair's force cancels between its two particles.  0 sends the float alone, at the same cost for the whole system and about 15% less for the active particles of block steps, but a star far from that point loses digits in its close separations, and with nblock=1 momentum and angular momentum drift
       ngravtree=0 ! gravity solver.  0: direct sum, on the gpus if there are any.  1: tree on the cpus, O(N log N), using the threads of every rank and no gpu.  2: the same tree walked on the gpus (CUDA build, nleafgrav<=32).  -1: chosen once, from the number of particles, the threads, the ranks and the gpus, as the fastest: see ngravtreeauto.  The tree needs nselfgravity=1 (set when it is used) and does not conserve momentum and angular momentum to machine precision
-      ngravtreeauto=-1 ! ngravtree=-1 only.  -1 (the default): with a gpu, the tree walked on the gpu (2) from the number of particles at which it is faster than the direct sum (0), a limit measured for the SPH that goes with the gravity (ngpusph as written, or the one the direct sum would have with ngpusph=-1; it depends on the threads per rank: see the line in log0.sph, and the user guide); below the smallest star measured (9966 particles) and with more than two gpus the limits of the phases 7 and 8 (the direct sum below 299000).  A value of 0 or more: the direct sum is used below this number of particles and the tree walked on the gpu from it up, whatever the SPH.  With no gpu, the tree on the cpus (1).  0 is used for ngr=0, no self-gravity or an invalid tree setting.  The choice and why are written in log0.sph.  Measured on two kinds of node (a Threadripper with a RTX 4070 Ti SUPER, an EPYC with RTX PRO 6000 Blackwell): other hardware may need another value
+      ngravtreeauto=-1 ! ngravtree=-1 only.  -1 (the default): with a gpu, the tree walked on the gpu (2) from the number of particles at which it is faster than the direct sum (0), a limit measured for the SPH that goes with the gravity (ngpusph as written, or the one the direct sum would have with ngpusph=-1; it depends on the threads per rank: see the line in log0.sph, and the user guide); below the smallest star measured (9966 particles) and with more than two gpus the limits of the earlier versions (the direct sum below 299000).  A value of 0 or more: the direct sum is used below this number of particles and the tree walked on the gpu from it up, whatever the SPH.  With no gpu, the tree on the cpus (1).  0 is used for ngr=0, no self-gravity or an invalid tree setting.  The choice and why are written in log0.sph.  Measured on two kinds of node (a Threadripper with a RTX 4070 Ti SUPER, an EPYC with RTX PRO 6000 Blackwell): other hardware may need another value
       treeacc=0.45d0 ! opening angle theta of the tree (ngravtree=1 or 2): a node is used as a whole if theta^2 r^2 > (size_A + size_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
       nleafgrav=24 ! most particles in a leaf of the gravity tree (ngravtree=1 or 2; at most 32 for 2, a leaf being one warp of the gpu); the particles of a leaf share one Taylor series of the far field
       ngravoverlap=-1 ! 1 lets the gpus work while the cpus do something else, 0 does not; -1: 1, except for the direct sum on more than one gpu (ngravprocs>1 or ngpuperrank not 1), where it costs a little.  ngravtree=0: the far tiles start on the gpus before the smoothing lengths are solved; the result differs from 0 in the last bits of the force.  ngravtree=2: the visit of the tree is queued when the tree is made and collected after the pair loop; the same bits as 0.  Not used with nblock=1 for ngravtree=0, or with ngravtree=1
@@ -775,10 +775,11 @@ c     set some default values, so that they don't necessarily have to be set in 
       hgroup=32 ! neighbour search of the smoothing-length solve.  N>0: one search of the tree for each group of N particles that are consecutive in the tree (N at most 256), which is faster; 0: one search for each particle.  The results are the same bits for any N and any number of threads, but a build that fuses multiplications and additions (MARCH, aarch64) can differ in the last bit of a sum.  Not used in periodic boxes, with dynhco>0 or with block steps that divide the particles between the ranks
       nhdf5=0 ! snapshot format: 0 writes out*.sph only, 1 writes out*.h5 (HDF5) as well, 2 writes out*.h5 only.  1 and 2 need a build made with make HDF5=1.  2 leaves no out*.sph, which startfile1 and splash read, so use it only to analyse a run.  restartrad.sph is always written in the native format
 
-      ngpusph=0 ! SPH work done on the GPUs, a bit mask: 0, 1, 3 or 7; or -1.  0 (the default): all on the CPUs, the code as it was.  -1 chooses from the configuration (see below); it is off unless asked for, and with a CUDA build it is the value recommended for speed, together with ngravtree=-1.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  Bit 4 (value 4, ngpusph=7): the candidate lists of the smoothing-length search are kept on the GPU between steps (Verlet lists, the margin is ngpusphskin) and the results are the bits of ngpusph=3.  Bit 2 (value 2, always with bit 1, so ngpusph=3): the pair sums of the forces (div v and curl v, the accelerations, du/dt, with Balsara's viscosity) are made on the GPU too, with the terms and the order of the sums of the CPU, so that the bits are those of the CPU except where a pair approaches and the root of its viscosity term is taken (sqrt on the GPU, pow on the CPU).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, nav=4 or nintvar=3 for the forces, block steps and the first step of a run for bit 1); a particle with more than 128 candidates is solved by the CPU  -1: chosen once, when the number of particles is known, from nothing but the configuration (never a time), as the fastest: no GPU, MARCH, a periodic box or dynhco>0: 0; nav=4 or nintvar=3: 1; the tree on the GPU or on the CPUs, or no gravity: 7; the direct sum on two GPUs (ranks x ngpuperrank = 2): 7 below 450000 particles and 1 from there; on more GPUs (or ngpuperrank=0): 1; the direct sum on one GPU: 7 with at most 8 threads per rank (and below the smallest star measured, 9966 particles, 0 with 32 threads or more); with 9 to 31 threads 7 below 450000 particles and 0 from there; with 32 to 47 threads 7 below 150000 particles and 0 from there; with 48 threads or more 7 below 75000 particles and 0 from there.  With ngravtree=-1 too (and ngravtreeauto=-1) the two are chosen together, as the fastest pair (see ngravtree).  The choice and why are written in log0.sph.  Measured on two kinds of node (a Threadripper with a RTX 4070 Ti SUPER, an EPYC with RTX PRO 6000 Blackwell), the limits of the direct sum on one GPU then moved after a check on a third (a Xeon 8480C with a H100): other hardware may need other rules
+      ngpusph=0 ! SPH work done on the GPUs, a bit mask: 0, 1, 3 or 7; or -1.  0 (the default): all on the CPUs, the code as it was.  -1 chooses from the configuration (see below); it is off unless asked for, and with a CUDA build it is the value recommended for speed, together with ngravtree=-1.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  Bit 4 (value 4, ngpusph=7): the candidate lists of the smoothing-length search are kept on the GPU between steps (Verlet lists, the margin is ngpusphskin) and the results are the bits of ngpusph=3.  Bit 2 (value 2, always with bit 1, so ngpusph=3): the pair sums of the forces (div v and curl v, the accelerations, du/dt, with Balsara's viscosity) are made on the GPU too, with the terms and the order of the sums of the CPU, so that the bits are those of the CPU except where a pair approaches and the root of its viscosity term is taken (sqrt on the GPU, pow on the CPU).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, nav=4 or nintvar=3 for the forces, block steps and the first step of a run for bit 1); a particle with more than 128 candidates is solved by the CPU  -1: chosen once, when the number of particles is known, from nothing but the configuration (never a time), as the fastest: no GPU, MARCH, a periodic box or dynhco>0: 0; nav=4 or nintvar=3: 1; the tree on the GPU or on the CPUs, or no gravity: 7; the direct sum on two GPUs (ranks x ngpuperrank = 2): 7 below 450000 particles and 1 from there; on more GPUs (or ngpuperrank=0): 1; the direct sum on one GPU: 7 with at most 8 threads per rank (and below the smallest star measured, 9966 particles, 0 with 32 threads or more); with 9 to 31 threads 7 below 450000 particles and 0 from there; with 32 to 47 threads 7 below 150000 particles and 0 from there; with 48 threads or more 7 below 75000 particles and 0 from there; these two limits are for a GPU of the strong class, and for one of the mid class (ngpuclass) they are 75000 and 40000.  With ngravtree=-1 too (and ngravtreeauto=-1) the two are chosen together, as the fastest pair (see ngravtree).  The choice and why are written in log0.sph.  Measured on two kinds of node (a Threadripper with a RTX 4070 Ti SUPER, an EPYC with RTX PRO 6000 Blackwell), the limits of the direct sum on one GPU then moved after a check on a third (a Xeon 8480C with a H100) and were made to depend on the class of the GPU (the number of its multiprocessors, ngpuclass; the Threadripper is the only mid one): other hardware may need other rules
       ngpusphcheck=0 ! 0, 1, 2 or 3 (a bit mask).  Bit 1 (value 1): whatever ngpusph=1 puts on the GPU is also done on the CPUs and compared, and the run stops at the first particle that differs.  Bit 2 (value 2): the forces of ngpusph=3 are also made by the CPUs, on the same data, and the differences are written to log0.sph at each step (the run goes on with the CPU results).  A diagnostic, slower than either alone
       ngpusphskin=0.3d0 ! margin of the Verlet lists of bit 4 of ngpusph (ngpusph=7), as a fraction of the search radius: the candidates of the smoothing-length search are kept this much further out and used while they are complete (a larger margin makes them last longer and the lists longer).  The results do not depend on it
       ngpusphprec=0 ! 1: the terms of the pairs of the forces on the GPU (ngpusph=3 or 7) are made in single precision (the differences of positions and velocities in double precision, rounded to float; the sums in double precision); div v, curl v, the smoothing lengths and the densities stay in double precision.  About 1e-6 of the acceleration of a particle is lost, and the results are not the bits of ngpusphprec=0.  Never the default: qualified with the tolerances (accelerations 1e-4, du/dt 1e-3 of the largest, energy, momentum and angular momentum drifts within 2 times the CPU's)
+      ngpuclass=-1 ! the class of the GPU for the limits of the automatic ngpusph=-1 with the direct sum on one GPU and 32 or more threads per rank (see ngpusph).  -1 (the default): from the number of multiprocessors that the GPU says it has (rank 0 reads it; the smallest of the GPUs it sees): mid (1) below 100, strong (2) from 100 up or when the number cannot be read (a RTX 4070 Ti SUPER has 66, a H100 132, a RTX PRO 6000 Blackwell 188).  1 or 2: the class written by hand, so that the choice is the same on machines of different kinds, or to try the other one.  The number of multiprocessors is a coarse hint of the speed of the GPU, and the limits of the two classes were measured on three machines only (one mid, two strong): other hardware may need other limits.  When the class decides, the line of log0.sph of the choice says the class and the number read
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
@@ -860,6 +861,7 @@ c     self-gravity, every rank (up to ngravprocsmax of them) does the gravity of
 c     own range of particles
       if(ngravtree.lt.-1 .or. ngravtree.gt.2) stop 'init: ngravtree must be -1, 0, 1 or 2'
       if(ngravtreeauto.lt.-1) stop 'init: ngravtreeauto must be -1 or not negative'
+      if(ngpuclass.ne.-1 .and. ngpuclass.ne.1 .and. ngpuclass.ne.2) stop 'init: ngpuclass must be -1, 1 or 2'
       if(ngpuperrank.lt.0) stop 'init: ngpuperrank must not be negative'
       if(ngravhilo.ne.0 .and. ngravhilo.ne.1) stop 'init: ngravhilo must be 0 or 1'
       if(ngravoverlap.lt.-1 .or. ngravoverlap.gt.1) stop 'init: ngravoverlap must be -1, 0 or 1'
@@ -990,25 +992,27 @@ c     energy*.sph and log*.sph
 
       end
 ************************************************************************
-      subroutine auto_limits(nmeas,ntree,nsph7)
-c     The measured limits of the automatic choices, in numbers of particles.  Source: results/g_regola.csv (tools/ga_fit.py): the step time of ngravtree 0
-c     and 2 x ngpusph 0, 1 and 7 for relaxed Suns of 9966, 19938, 30090, 50160 and 99954 particles (and the stars and collisions of 199908 to 499860 particles
-c     of the phase 9) with 7, 16, 32 and 63 threads per rank, on a RTX 4070 Ti SUPER with a Threadripper 7980X and on a RTX PRO 6000 with an EPYC 9335; the limits of
-c     the direct sum on one GPU (nsph7) were then moved after a check on a third machine, a H100 with a Xeon 8480C (results/ho_celle.csv: 20 cells of 19938 to 499860
+      subroutine auto_limits(nmeas,ntree,nsph7,gcls)
+c     The measured limits of the automatic choices, in numbers of particles.  Source: the step time of ngravtree 0
+c     and 2 x ngpusph 0, 1 and 7 for relaxed Suns of 9966, 19938, 30090, 50160 and 99954 particles (and the stars and collisions of 199908 to 499860 particles)
+c     with 7, 16, 32 and 63 threads per rank, on a RTX 4070 Ti SUPER with a Threadripper 7980X and on a RTX PRO 6000 with an EPYC 9335; the limits of
+c     the direct sum on one GPU (nsph7) were then moved after a check on a third machine, a H100 with a Xeon 8480C (20 cells of 19938 to 499860
 c     particles with 16, 32, 48 and 63 threads, the four pairs of ngravtree 0 or 2 and ngpusph 0 or 7).
-c     The rule does not know how fast the GPU is: each limit is a number that gives the smallest loss in the worst cell of the three machines.
+c     The rule knows how fast the GPU is only by its class (auto_gpuclass: mid or strong, from the number of multiprocessors), and only for the limits of the direct sum on one GPU with 32 threads or more (nsph7(3,1) and nsph7(4,1)):
+c     each limit is a number that gives the smallest loss in the worst cell of the machines of its class (the mid class has one machine, the strong one two).
 c     c: the class of the threads per rank: 1: at most 8, 2: 9 to 31, 3: 32 to 47, 4: 48 or more.  g: the GPUs the gravity processes use (ranks x
-c     ngpuperrank): 1: one GPU, 2: two GPUs (2 ranks of 8 threads, or one rank of 16 with ngpuperrank=2), 3: more (or ngpuperrank=0): not measured in this phase,
-c     the limits that the phases 7 and 8 gave (tree from 299000, ngpusph=1 for the direct sum).
-c       nmeas: the smallest star measured; below it the choice stays what the phases 7 and 8 gave
+c     ngpuperrank): 1: one GPU, 2: two GPUs (2 ranks of 8 threads, or one rank of 16 with ngpuperrank=2), 3: more (or ngpuperrank=0): not measured:
+c     the limits of the earlier versions (tree from 299000, ngpusph=1 for the direct sum).
+c       nmeas: the smallest star measured; below it the choice stays what the earlier versions gave
 c       ntree(r,c,g): the tree walked on the GPU is faster than the direct sum from this number of particles up, when the SPH is done as in row r:
 c         r=1 ngpusph=-1 as well (the pair is the fastest together: the tree with the SPH on the GPU, 7), r=2 ngpusph=0, r=3 ngpusph=1, r=4 ngpusph=3 or 7
 c       nsph7(c,g): the direct sum: ngpusph=7 below this number of particles, from it up 0 (the SPH on the CPUs) with one GPU, 1 with two
-      integer nmeas,ntree(4,4,3),nsph7(4,3)
+c       gcls: the class of the GPU (auto_gpuclass): 1 mid, 2 strong.  Only nsph7(3,1) and nsph7(4,1) depend on it (the SPH on the CPUs against the SPH on the GPU, one GPU, 32 threads or more)
+      integer nmeas,ntree(4,4,3),nsph7(4,3),gcls
       integer i,j
       nmeas=9966
 c     one GPU: with the SPH on the GPU (rows 1 and 4) the tree wins from the smallest star measured, up to 16% (7 threads); with ngpusph=1 from 25000; with
-c     the SPH on the CPUs (row 2) the tree wins only from 75000 with 48 or more threads (n100, 63 threads: 13.8 against 16.6 ms on the WS) and not before
+c     the SPH on the CPUs (row 2) the tree wins only from 75000 with 48 or more threads (n100, 63 threads: 13.8 against 16.6 ms on the Threadripper 7980X) and not before
 c     450000 with fewer (the direct sum is 1 to 7% faster up to 399816 particles)
       do j=1,4
          ntree(1,j,1)=9966
@@ -1025,21 +1029,29 @@ c     sum is 7% faster with 2x8 threads and the same with 1x16), from 450000 wit
          ntree(3,j,2)=450000
          ntree(4,j,2)=15000
       enddo
-c     more GPUs: the phases 7 and 8
+c     more GPUs: the limits of the earlier versions
       do j=1,4
          do i=1,4
             ntree(i,j,3)=299000
          enddo
       enddo
 c     the direct sum on one GPU: ngpusph=7 below the limit and 0 (the SPH on the CPUs) from it up, and always 7 with at most 8 threads.  With 9 to 31 threads the limit is
-c     450000 (399816, 16 threads: 70.7 ms with 7, 91.3 with 0; 499860: 105.0 and 100.0).  With 32 to 47 threads it is 150000 (99954 particles: Threadripper 17.6 ms with 0
-c     and 22.8 with 7, EPYC 14.3 and 10.6, H100 20.1 and 16.1; 199908: H100 37.4 with 0 and 42.0 with 7; 499860: 0 wherever it was measured).  With 48 or more threads it is
-c     75000 (50160 particles: Threadripper 63 threads 6.8 with 0 and 8.0 with 7; H100 63 threads 8.0 and 5.4, 48 threads 9.2 and 5.3).  The H100 times are the mean step, the
-c     others the median of the repetitions
+c     450000 (399816, 16 threads: 70.7 ms with 7, 91.3 with 0; 499860: 105.0 and 100.0).  With 32 threads or more it depends on how fast the GPU is against the CPUs: it is lower for
+c     the mid class (the RTX 4070 Ti SUPER, 66 multiprocessors, with a Threadripper 7980X) than for the strong one (the RTX PRO 6000 Blackwell, 188, with an EPYC 9335, and the H100, 132,
+c     with a Xeon 8480C); the class is the number of multiprocessors (auto_gpuclass).  Strong class, 32 to 47 threads: 150000 (99954 particles: EPYC 14.3 ms with 0 and 10.6 with 7,
+c     H100 20.1 and 16.1; 199908: H100 37.4 and 42.0; 499860: 0 wherever it was measured; any limit from 99955 to 199908 loses nothing in these cells).  Strong, 48 threads or more: 75000
+c     (50160 particles: H100 63 threads 8.0 and 5.4, 48 threads 9.2 and 5.35; 99954: EPYC 63 threads 9.6 and 10.8, H100 63 threads 15.8 and 15.9 and 48 threads 16.6 and 15.6: from 50161 to 99954
+c     the worst cell is the H100 at 48 threads, 6.2%, from 99955 up the EPYC loses 12.5%).  Mid class: 32 to 47 threads 75000 (50160 particles: Threadripper 9.3 and 7.9; 99954: 17.6 and 22.8),
+c     48 threads or more 40000 (30090 particles, 63 threads: 4.6 and 4.3; 50160: 6.8 and 8.0; at 48 threads, the mean of three repetitions: 19938 particles 3.7 and 3.3, 50160 7.5 and 8.2, 99954 15.9 and 23.0;
+c     199908 particles at 32 threads: 45.8 and 65.6).  The H100 times are the mean step, the others the median of the repetitions
       nsph7(1,1)=2000000000
       nsph7(2,1)=450000
       nsph7(3,1)=150000
       nsph7(4,1)=75000
+      if(gcls.eq.1) then
+         nsph7(3,1)=75000
+         nsph7(4,1)=40000
+      endif
 c     two GPUs: 7 up to 450000, 1 from there (the CPUs never: 500000 particles, 1 rank of 16 threads: 56.8 ms with 1, 62.9 with 7, 110.7 with 0)
       do j=1,4
          nsph7(j,2)=450000
@@ -1067,6 +1079,40 @@ c     the classes of the limits of auto_limits: threads per rank, and the GPUs o
       if(ngpuperrank.ge.1) then
          if(nprocs*ngpuperrank.eq.1) gcl=1
          if(nprocs*ngpuperrank.eq.2) gcl=2
+      endif
+      return
+      end
+************************************************************************
+      subroutine auto_gpuclass(gcls,nsm,desc)
+c     the class of the GPU for the limits of auto_limits: 1 mid, 2 strong.  ngpuclass=1 or 2 (sph.input) says it; -1, the default, reads the number of multiprocessors of the GPU (get_gpu_sm_count:
+c     the smallest of the GPUs the process sees): mid below nsmstrong=100 (1 to 99), strong from there up and when the number cannot be read (0).  Only rank 0 reads it, as init asks it for the number of GPUs;
+c     the choice of rank 0 is the one all the ranks take (sph_auto broadcasts it), the other ranks take the strong class and their choice is overwritten.  nsm: the number read (0 if it was written or
+c     could not be read); desc: what the log line says (blank if it is not rank 0)
+      include 'starsmasher.h'
+      integer gcls,nsm,nsmstrong
+      parameter(nsmstrong=100)
+      character*(*) desc
+      character*24 ssm
+      character*8 scl
+      nsm=0
+      gcls=2
+      desc=' '
+      if(ngpuclass.eq.1 .or. ngpuclass.eq.2) then
+         gcls=ngpuclass
+         scl='strong'
+         if(gcls.eq.1) scl='mid'
+         desc='(class '//trim(scl)//', written in ngpuclass)'
+      else if(myrank.eq.0) then
+         call get_gpu_sm_count(nsm,myrank)
+         if(nsm.ge.1 .and. nsm.lt.nsmstrong) gcls=1
+         scl='strong'
+         if(gcls.eq.1) scl='mid'
+         if(nsm.ge.1) then
+            write(ssm,'(i0)') nsm
+            desc='of class '//trim(scl)//' ('//trim(ssm)//' SMs)'
+         else
+            desc='of class strong (SMs not known)'
+         endif
       endif
       return
       end
@@ -1151,7 +1197,8 @@ c         (nmeas) the direct sum, as before
          endif
       else
 c     the limit measured for the SPH that goes with the gravity: row 1 ngpusph=-1 as well, 2 ngpusph=0, 3 ngpusph=1, 4 ngpusph=3 or 7
-         call auto_limits(nmeas,ntree,nsph7)
+c     (ntree does not depend on the class of the GPU: the strong one is passed)
+         call auto_limits(nmeas,ntree,nsph7,2)
          call auto_class(nthr,tcl,gcl)
          call sph_forced(sforce,swhy)
          row=1
@@ -1199,16 +1246,18 @@ c     the limit measured for the SPH that goes with the gravity: row 1 ngpusph=-
 c     ngpusph=-1: chooses the SPH work done on the GPUs once, when the number of particles ntot and the gravity are known (the first gravquant),
 c     from nothing but the configuration, so that the choice is the same in every run and every restart (never from a time measured).  The choice
 c     of rank 0 is the one all the ranks take; it is written to log0.sph.  What the build and the physics fix is in sph_forced (0: no GPU code, no GPU,
-c     MARCH, a periodic box, dynhco>0; 1: nav=4 or nintvar=3).  Otherwise, from the measurements of auto_limits (results/g_regola.csv):
+c     MARCH, a periodic box, dynhco>0; 1: nav=4 or nintvar=3).  Otherwise, from the measurements of auto_limits:
 c       the tree on the GPU or on the CPUs, or no gravity: 7
 c       the direct sum on several GPUs (several ranks, or ngpuperrank not 1): 1
-c       the direct sum on one GPU: by threads per rank and number of particles (nsph7 of auto_limits): 7 below the limit, 0 from it up
-c       (the choice that the phases 7 and 8 made stays below the smallest star measured, nmeas)
+c       the direct sum on one GPU: by threads per rank and number of particles (nsph7 of auto_limits): 7 below the limit, 0 from it up; with 32 threads or more the limits depend on the class of the GPU
+c       (auto_gpuclass, ngpuclass), which the log line then says
+c       (the choice of the earlier versions stays below the smallest star measured, nmeas)
       include 'starsmasher.h'
       include 'mpif.h'
-      integer choice,ierr,sforce,nthr,tcl,gcl,nmeas,lim,slow,shigh,ntree(4,4,3),nsph7(4,3)
+      integer choice,ierr,sforce,nthr,tcl,gcl,nmeas,lim,slow,shigh,ntree(4,4,3),nsph7(4,3),gcls,nsm
 !$    integer omp_get_max_threads
       character*160 why
+      character*64 cdesc
       character*24 snum,sthr,slim
       character*420 msg
       nthr=1
@@ -1218,8 +1267,15 @@ c       (the choice that the phases 7 and 8 made stays below the smallest star m
       call sph_forced(sforce,why)
       choice=sforce
       if(sforce.lt.0) then
-         call auto_limits(nmeas,ntree,nsph7)
          call auto_class(nthr,tcl,gcl)
+c     the class of the GPU matters only for the direct sum on one GPU, from the smallest star measured, with 32 threads or more (nsph7(3,1) and nsph7(4,1)): it is read only then
+         gcls=2
+         cdesc=' '
+         call auto_limits(nmeas,ntree,nsph7,gcls)
+         if(ngravtree.eq.0 .and. ngr.ne.0 .and. gcl.eq.1 .and. tcl.ge.3 .and. ntot.ge.nmeas) then
+            call auto_gpuclass(gcls,nsm,cdesc)
+            call auto_limits(nmeas,ntree,nsph7,gcls)
+         endif
          if(ngravtree.eq.0 .and. ngr.ne.0) then
 c     the direct sum: ngpusph=slow below the limit, shigh from it up
             lim=nsph7(tcl,gcl)
@@ -1231,7 +1287,7 @@ c     the direct sum: ngpusph=slow below the limit, shigh from it up
                shigh=1
             endif
             if(ntot.lt.nmeas) then
-c     below the smallest star measured the choice stays what the phases 7 and 8 gave: with one GPU 7 with at most 8 threads, 0 with 32 or more, in between 7
+c     below the smallest star measured the choice stays what the earlier versions gave: with one GPU 7 with at most 8 threads, 0 with 32 or more, in between 7
 c     below 300000; with several 1
                slow=7
                shigh=0
@@ -1255,6 +1311,7 @@ c     below 300000; with several 1
                why='direct sum, '//trim(sthr)//' threads per rank and N='//trim(snum)//' >= '//trim(slim)
             endif
             if(gcl.eq.1) why=trim(why)//' on one GPU'
+            if(gcl.eq.1 .and. cdesc.ne.' ') why=trim(why)//' '//trim(cdesc)
             if(gcl.eq.2) why=trim(why)//' on two GPUs'
             if(gcl.eq.3) why=trim(why)//' on several GPUs'
          else if(ngravtree.eq.2) then

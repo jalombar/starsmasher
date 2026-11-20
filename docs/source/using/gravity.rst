@@ -163,14 +163,16 @@ The rule is:
 
   With ``ngpusph = -1`` as well the two are chosen together, as the fastest pair: the tree on the GPU with the SPH on the GPU (``ngpusph = 7``) wins from 9966 particles on, with
   7 to 63 threads per rank, by 5% to 16% at 9966 particles, 12% to 58% at 99954 and 2.9 to 4.7 times at 499860 (the best direct sum against the tree with the SPH on the GPU).  With two GPUs (two ranks, or one rank with ``ngpuperrank = 2``) the tree
-  wins from about 15000 particles with the SPH on the GPU (10% at 19938, 2 ranks of 8 threads) and from 450000 with ``ngpusph`` 0 or 1; with more GPUs (not measured
-  in this phase) the limit stays 299000.  Below 9966 particles, the smallest star measured, the choice stays what it was in the earlier versions: the direct sum.
+  wins from about 15000 particles with the SPH on the GPU (10% at 19938, 2 ranks of 8 threads) and from 450000 with ``ngpusph`` 0 or 1; with more GPUs (not measured)
+  the limit stays 299000.  Below 9966 particles, the smallest star measured, the choice stays what it was in the earlier versions: the direct sum.
 
 The limits come from the step times of the direct sum and of the tree on a GPU, with ``ngpusph`` 0, 1 and 7, for relaxed Suns of 9966 to 499860 particles, 7, 16, 32 and 63 threads
-per rank, one rank and one GPU, measured on two kinds of node (``results/g_regola.csv`` of the phase 10): a Threadripper 7980X with a RTX 4070 Ti SUPER, and an EPYC 9335 with a RTX PRO 6000; the limits
-of the SPH with the direct sum were then moved after a check on a third node, a Xeon 8480C with a H100 (``results/ho_celle.csv``, see :doc:`gpu_sph`).  The rule does not know how fast the GPU is
-(the nodes do not always agree: with 32 threads and 100000 particles the direct sum and the CPUs for the SPH win on the first, the GPU for the SPH on the second and the third); each limit is
-the number that gives the smallest loss in the worst cell of the three.  On other hardware another value may be better: write ``ngravtreeauto`` then.
+per rank, one rank and one GPU, measured on two kinds of node: a Threadripper 7980X with a RTX 4070 Ti SUPER, and an EPYC 9335 with a RTX PRO 6000; the limits
+of the SPH with the direct sum were then moved after a check on a third node, a Xeon 8480C with a H100 (see :doc:`gpu_sph`).  The limits of the tree above do not depend on how
+fast the GPU is; the limits of the SPH with the direct sum on one GPU, with 32 threads or more, do, through the class of the GPU (mid or strong, from its number of multiprocessors, ``ngpuclass``: see :doc:`gpu_sph`),
+because the nodes do not agree (with 32 threads and 100000 particles the direct sum and the CPUs for the SPH win on the first, the GPU for the SPH on the second and the third).  Each limit is
+the number that gives the smallest loss in the worst cell of the machines it was measured on, and the number of multiprocessors is only a coarse hint of the speed of a GPU.  On other hardware another value may be better:
+write ``ngravtreeauto`` then (and ``ngpuclass``, or ``ngpusph``, for the SPH).
 
 The choice depends on nothing but N, the threads per rank, the ranks, the GPUs and the options, never on a time measured during the run, so a run and its restart choose the same, and the
 results are bit for bit those of the value chosen, set by hand.  The part of the SPH done on the GPUs is chosen the same way by ``ngpusph = -1`` from the gravity chosen here and the

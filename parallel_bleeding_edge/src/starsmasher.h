@@ -67,9 +67,10 @@
       common/gravtreepars/treeacc,ngravtree,nleafgrav,ngravoverlap
 !     ngravtree=-1: chosen by gravtree_auto (init.f) when the number of particles is known: ngravtreeauto=-1 takes the limits measured
 !     (auto_limits), 0 or more is the number of particles from which the tree walked on the gpus is taken; ngravgpuok: 0 no gpu,
-!     1 a gpu that can walk the tree, 2 a gpu that cannot
-      integer ngravtreeauto,ngravgpuok
-      common/gravautopars/ngravtreeauto,ngravgpuok
+!     1 a gpu that can walk the tree, 2 a gpu that cannot.  ngpuclass (input): the class of the GPU for the limits of the automatic
+!     SPH with the direct sum on one GPU (auto_limits, init.f): -1 from the multiprocessors of the GPU (get_gpu_sm_count), 1 mid, 2 strong
+      integer ngravtreeauto,ngravgpuok,ngpuclass
+      common/gravautopars/ngravtreeauto,ngravgpuok,ngpuclass
       real*8 vxdotsm(nmax),vydotsm(nmax),vzdotsm(nmax)
       integer n,nnopt,ntot,nout,nit,nitpot,ngr,nrelax,nav,nintvar
       common/mine/vxdotsm,vydotsm,vzdotsm
