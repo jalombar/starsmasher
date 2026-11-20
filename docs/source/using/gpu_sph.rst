@@ -30,7 +30,16 @@ index.  A rank with several GPUs (``ngpuperrank``) divides its particles among t
 particles are done in chunks and the results of a chunk are copied to the CPU while the next one is computed.
 
 A particle with more than 128 candidates is left to the CPU, which solves it with the code that always did
-it; the CPU tree is then made, for those particles only.
+it; the CPU tree is then made, for those particles only.  With several devices for the rank (``ngpuperrank``) the
+neighbour lists stay on the devices in such a step too: the forces take the smoothing length, the sums and the list that the CPU made of
+each of those particles to the device that owns it, so that the pair sums of a step with such particles are divided among the devices and added
+in the same way as in a step without them.  A run with several devices therefore gives the same bits whichever steps have such particles
+(``SPHGPU_FLAGMOD`` below changes nothing); with one device nothing changed.  The last digits of a run with several devices and such steps are not those of the
+versions before this change: the sums are added in another grouping, so that they differ at the level of the rounding and the difference
+grows as the run goes on.  In 200 steps of the collision of two Suns at 2 or 4 devices the dump of the new version differs from the old one by 1e-10 to 6e-9
+(largest, positions) and 1e-6 to 1e-5 (largest, velocities), 3e-10 to 1e-9 in the median of the positions at the epoch with the most such steps,
+and one or two of the 200 rows of ``energy0.sph`` change in the seventh digit.  Runs without such steps (no particle with more than 128 candidates:
+the models of the tests, the stars at rest) and runs with one device have the bits of the old version.
 
 When the CPU does the step
 --------------------------

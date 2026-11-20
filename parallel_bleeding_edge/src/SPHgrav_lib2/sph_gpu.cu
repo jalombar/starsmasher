@@ -892,8 +892,12 @@ struct BState
 {
   bool valid;
   int n, nlow, nown, ch;
+  // the particles that the kernel left to the CPU (more than CAP candidates) with several devices: for each device the numbers of their
+  // records; the forces put what the CPU made of them into those records and into the lists of the device
+  int nflag;
+  std::vector<std::vector<int> > frec;
 };
-BState g_bs = {false, 0, 0, 0, 0};
+BState g_bs = {false, 0, 0, 0, 0, 0, std::vector<std::vector<int> >()};
 
 // where the lists made by the last call are on the devices and where they go in list() of the caller, for gpu_sph_getlists_
 struct LState
@@ -1169,7 +1173,7 @@ void launch_chunks(Dev &d, const View &V0, int slice, int ch, std::vector<cudaEv
 // lists are copied to the caller (the lists one after the other in list(1:), whatever the device), and the records of the chunk before
 // are spread over the arrays of the caller while the copies and the kernels go on.  The arrays of the caller change as the records are
 // spread: on a return with ierr=2 (the lists do not fit) the caller has to put back what it needs of them (the guess of h).
-void drain(int nown, int nlow, int ch, const Host &H, int *ltot, int *ierr, long *nflagged)
+void drain(int nown, int nlow, int ch, const Host &H, int *ltot, int *ierr, long *nflagged, std::vector<std::vector<int> > *flagrec = 0)
 {
   const int ndev = (int)g_dev.size();
   std::vector<int> slice(ndev), nch(ndev);
@@ -1202,7 +1206,15 @@ void drain(int nown, int nlow, int ch, const Host &H, int *ltot, int *ierr, long
         const int i = s.idx;
         H.sflag[i - nlow] = s.flag;
         nfl += s.flag;
-        if (s.flag) continue;
+        if (s.flag)
+        {
+          if (flagrec)
+          {
+#pragma omp critical(sphgpu_flagrec)
+            (*flagrec)[k].push_back(o);
+          }
+          continue;
+        }
         H.hp[i] = s.hp;
         H.rho[i] = s.rho;
         H.omega[i] = s.omega;
@@ -1770,6 +1782,14 @@ __global__ void k_foutc(int sl, int nlow, const SphOut *sout, const FOut *out, F
   oc[o] = out[sout[o].idx - nlow];
 }
 
+// the records of the particles that the CPU solved put into the records of the device (the places of the records in pidx)
+__global__ void k_patch(int np, const int *pidx, const SphOut *rec, SphOut *out)
+{
+  const int j = blockIdx.x * blockDim.x + threadIdx.x;
+  if (j >= np) return;
+  out[pidx[j]] = rec[j];
+}
+
 __global__ void k_fpack(int n, const double *x, const double *y, const double *z, const double *am, const double *vx, const double *vy,
                         const double *vz, const double *u, D4 *pos, D4 *vel)
 {
@@ -1863,6 +1883,9 @@ struct FDev
   int *hidx = 0, *hcnt = 0;                           // pinned: the list and the count
   double *tv = 0;                                     // the sums of the touched particles, six for each (see k_tgather)
   FOut *oc = 0;                                       // the results of the targets in the order of the records
+  SphOut *prec = 0;                                   // the records of the particles the CPU solved (see k_patch) and the places of the records
+  int *pidx = 0;
+  size_t pcap = 0;
 };
 std::vector<FDev> g_fdev;
 
@@ -1876,7 +1899,7 @@ void ffree(FDev &f)
   if (f.hacc) { cudaFreeHost(f.hacc); f.hacc = 0; }
   if (f.hout) { cudaFreeHost(f.hout); f.hout = 0; }
   if (f.hnlarge) { cudaFreeHost(f.hnlarge); f.hnlarge = 0; }
-  dfree(f.tmask); dfree(f.tpos); dfree(f.tidx); dfree(f.tcnt); dfree(f.tv); dfree(f.oc);
+  dfree(f.tmask); dfree(f.tpos); dfree(f.tidx); dfree(f.tcnt); dfree(f.tv); dfree(f.oc); dfree(f.prec); dfree(f.pidx); f.pcap = 0;
   if (f.hidx) { cudaFreeHost(f.hidx); f.hidx = 0; }
   if (f.hcnt) { cudaFreeHost(f.hcnt); f.hcnt = 0; }
   f.ncap = f.ntcap = 0; f.ecap = f.lcap = 0; f.tmpbytes = 0; f.haccn = f.houtn = 0;
@@ -2179,9 +2202,13 @@ extern "C"
       H.hp = hp; H.rho = rho; H.omega = omega; H.om0 = om0; H.psi = psi; H.wn = wn; H.zeta = zeta; H.u = u;
       H.nn = nn; H.first = first; H.sflag = sflag; H.list = list; H.listcap = listcap; H.skiplist = (*skiplist_ != 0);
       long nfl = 0;
-      drain(nown, nlow, ch, H, ltot, ierr, &nfl);
+      // With several devices the particles left to the CPU do not make the lists come back, and the forces do not leave the data on the devices: they take what the CPU made of
+      // those particles to the device that owns them, so that a step with such particles is summed as the other steps are
+      const bool keepres = (ndev > 1);
+      std::vector<std::vector<int> > flagrec(ndev);
+      drain(nown, nlow, ch, H, ltot, ierr, &nfl, keepres ? &flagrec : 0);
       // lists left on the device that the CPU needs after all (particles it has to solve itself): copy them now
-      if (*ierr == 0 && *skiplist_ != 0 && nfl > 0) getlists(list, ierr);
+      if (*ierr == 0 && *skiplist_ != 0 && nfl > 0 && !keepres) getlists(list, ierr);
       if (vmode)
       {
         Dev &d = g_dev[0];
@@ -2207,9 +2234,16 @@ extern "C"
         }
         else d.vvalid = false;
       }
-      if (*ierr == 0 && nfl == 0)
+      if (*ierr == 0 && (nfl == 0 || keepres))
       {
         g_bs.valid = true; g_bs.n = n; g_bs.nlow = nlow; g_bs.nown = nown; g_bs.ch = ch;
+        g_bs.nflag = (int)nfl;
+        g_bs.frec.clear();
+        if (nfl > 0)
+        {
+          for (int k = 0; k < ndev; k++) std::sort(flagrec[k].begin(), flagrec[k].end());
+          g_bs.frec = flagrec;
+        }
       }
       CK(cudaSetDevice(g_dev[0].id));
       if (plev)
@@ -2315,7 +2349,40 @@ extern "C"
       const int plev = prof_level();
       const int p0 = tp[0];
       // the data of the smoothing-length kernel on the devices can be used if it was just made for these particles
-      const bool useb = (*useb_ != 0) && contig && !blocks && g_bs.valid && g_bs.n == n && g_bs.nown == nt && g_bs.nlow == p0 - 1 && nloop == nt;
+      bool useb = (*useb_ != 0) && contig && !blocks && g_bs.valid && g_bs.n == n && g_bs.nown == nt && g_bs.nlow == p0 - 1 && nloop == nt;
+      // The particles the CPU solved (g_bs.nflag > 0, with several devices): their records and lists go to the device that owns them, as the GPU would have left
+      // them, and the step is summed as a step without such particles.  The lists are placed after the lists of the slice of the device; if they do not fit, the lists
+      // come back to the CPU and the forces are made from the arrays of the CPU as before.
+      std::vector<std::vector<SphOut> > psrec(ndev);
+      std::vector<std::vector<int> > pidx(ndev), plist(ndev);
+      if (useb && g_bs.nflag > 0)
+      {
+        bool fits = true;
+        for (int k = 0; k < ndev && fits; k++)
+        {
+          Dev &d = g_dev[k];
+          const size_t pb = (size_t)slice_of(nt, ndev, k) * CAP;
+          for (size_t a = 0; a < g_bs.frec[k].size(); a++)
+          {
+            const int o = g_bs.frec[k][a];
+            const int i = d.hout[o].idx;
+            SphOut r = d.hout[o];
+            r.hp = hp[i]; r.rho = rho[i]; r.omega = om[i]; r.om0 = om0[i]; r.psi = psi[i]; r.wn = 0.0; r.nn = nn[i]; r.flag = 0;
+            r.first = (int)(pb + plist[k].size() - (size_t)(o / g_bs.ch) * g_bs.ch * CAP);
+            for (int e = 0; e < nn[i]; e++) plist[k].push_back(list[(size_t)first[i] + e]);
+            psrec[k].push_back(r);
+            pidx[k].push_back(o);
+          }
+          if (pb + plist[k].size() > ((size_t)d.nowncap + d.chcap) * CAP || pb + plist[k].size() > 2000000000ULL) fits = false;
+        }
+        if (!fits)
+        {
+          int ie = 0;
+          getlists(list, &ie);
+          if (ie != 0) throw SphError(ie, "the lists could not be brought back to the CPU");
+          useb = false;
+        }
+      }
       // the longest list reached (the part of list() to send), and the work of each device: whole chunks of pb_chunk places (or, with the
       // data of the smoothing-length kernel, its slice of the particles)
       // three or more devices with the data of the smoothing-length kernel: a device brings back only what it touched.  With one device that is everything, with two it is more than a
@@ -2380,6 +2447,15 @@ extern "C"
         if (blocks) o_act = stg.put(act, (size_t)n * 4);
         if (!contig) { o_tp = stg.put(tp, (size_t)nt * 4); o_tiw = stg.put(tiw, (size_t)nt * 4); }
       }
+      std::vector<size_t> o_prec(ndev, 0), o_pidx(ndev, 0), o_plist(ndev, 0);
+      if (useb)
+        for (int k = 0; k < ndev; k++)
+        {
+          if (psrec[k].empty()) continue;
+          o_prec[k] = stg.put(psrec[k].data(), psrec[k].size() * sizeof(SphOut));
+          o_pidx[k] = stg.put(pidx[k].data(), pidx[k].size() * sizeof(int));
+          if (!plist[k].empty()) o_plist[k] = stg.put(plist[k].data(), plist[k].size() * sizeof(int));
+        }
       stg.fill();
       FPar P;
       P.alpha1 = *alpha1; P.beta1 = *beta1; P.hfloor = *hfloor; P.gam = *gam;
@@ -2440,6 +2516,22 @@ extern "C"
         CK(cudaMemsetAsync(f.acc, 0, 6 * (size_t)n * sizeof(double), st));
         CK(cudaMemsetAsync(f.nlarge, 0, sizeof(int), st));
         if (cmp) CK(cudaMemsetAsync(f.tmask, 0, (size_t)n * sizeof(int), st));
+        if (useb && !psrec[k].empty())
+        {
+          // the particles the CPU solved: their records and lists into the device's
+          const size_t np = psrec[k].size();
+          if (np > f.pcap)
+          {
+            cudaStreamSynchronize(st);
+            dfree(f.prec); dfree(f.pidx);
+            f.pcap = np + np / 2 + 64;
+            dmalloc(f.prec, f.pcap); dmalloc(f.pidx, f.pcap);
+          }
+          H2S(f.prec, o_prec[k], np * sizeof(SphOut));
+          H2S(f.pidx, o_pidx[k], np * sizeof(int));
+          if (!plist[k].empty()) h2d_staged(d.list + (size_t)slice_of(nt, ndev, k) * CAP, o_plist[k], plist[k].size() * sizeof(int), st, "the lists of the particles solved by the CPU");
+          k_patch<<<nblocks((int)np, 128), 128, 0, st>>>((int)np, f.pidx, f.prec, d.out);
+        }
         H2S(f.vx, o_vx, (size_t)n * 8); H2S(f.vy, o_vy, (size_t)n * 8); H2S(f.vz, o_vz, (size_t)n * 8);
         H2S(f.u, o_u, (size_t)n * 8); H2S(f.por2, o_por2, (size_t)n * 8);
         const double *dx_ = f.x, *dy_ = f.y, *dz_ = f.z, *dam_ = f.am;

@@ -57,8 +57,8 @@
       integer, save :: gs_said(2)=(/-1,-1/)
 !     ngpusphcheck=2: calls of the forces compared
       integer, save :: gs_ncheck=0
-!     the smoothing lengths, sums and lists of this step were just made on the GPU, all of them (the forces use what the
-!     devices hold)
+!     the smoothing lengths, sums and lists of this step were just made on the GPU (the forces use what the devices hold if the
+!     library can, see gpu_sph_forces)
       logical, save :: gs_fresh=.false.
 !     1 for the particles of the rank (i-n_lower+1) that the GPU did not do
       integer, allocatable, save :: gs_flag(:)
@@ -237,7 +237,9 @@
          if(gs_flag(io).ne.0) nflag=nflag+1
       enddo
       done=.true.
-      gs_fresh=(nflag.eq.0)
+!     (with particles the CPU solves, the devices hold the data too when there are several: the library says so, and the forces
+!     take what the CPU made of those particles to the devices; otherwise the forces read the arrays of the CPU)
+      gs_fresh=.true.
       if(iand(ngpusphcheck,1).ne.0) then
 !        keep what the GPU made and put back what the CPU starts from
          if(allocated(ck_hp)) deallocate(ck_hp,ck_rho,ck_om,ck_om0,ck_psi,ck_wn,ck_nn,ck_first,ck_list)

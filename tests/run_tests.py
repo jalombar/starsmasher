@@ -873,7 +873,8 @@ def t_gpu_multidev(ctx):
     SPHGPU_NDEV=K (a variable of the tests, see docs/source/using/gpu_sph.rst) makes the SPH use K logical devices on the GPU or GPUs of the rank, each with its own stream and buffers: one
     GPU then gives the code paths and the sums of K devices (the times are not those of K GPUs).  The unrelaxed polytrope is run with ngpusph=3 and ngpusphcheck=2 with 1, 2 and 4 logical
     devices: every run must finish, log0.sph must say that the forces are on the GPU, SPHGPU_PROF=1 must say that the devices were 1, 2 and 4, the differences that ngpusphcheck=2 writes
-    must be below 1e-12 of the acceleration of a particle and 1e-10 of du/dt, and the energies of every row must be those of one device to 1e-9.
+    must be below 1e-12 of the acceleration of a particle and 1e-10 of du/dt, and the energies of every row must be those of one device to 1e-9.  With 3 logical devices and ngpusph=7 the
+    dump and the energies must not depend on SPHGPU_FLAGMOD (7, 2 or none): the particles that the CPU solves in place of the GPU do not change how the forces are summed.
     """
     out = []
     if not ctx.exe:
@@ -916,7 +917,32 @@ def t_gpu_multidev(ctx):
             for k, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
                 close(rk[k], r1[k], 1e-9, '%s with %d logical devices against 1' % (name, nd))
         out.append('%d devices: %d rows' % (nd, len(res[nd])))
-    return 'logical devices run to the end, the check of the forces is clean and the energies are those of one device: ' + '; '.join(out)
+    # With several devices a step with particles the CPU solves (more than 128 candidates; SPHGPU_FLAGMOD=K leaves every Kth particle to the CPU as if they had) is summed as the
+    # other steps are: the results do not depend on which steps have such particles.  ngpusph=7, no check against the CPU: the bytes of the dump and the energies of every row.
+    ref = None
+    saved = {k: os.environ.get(k) for k in ('SPHGPU_NDEV', 'SPHGPU_FLAGMOD')}
+    try:
+        os.environ['SPHGPU_NDEV'] = '3'
+        for fm in (0, 7, 2):
+            os.environ['SPHGPU_FLAGMOD'] = str(fm)
+            d = ctx.dir('md_fm%d' % fm)
+            p, e = run(ctx.exe, d, np=1, **dict(POLY, nrelax=0, tf=1, dtout=1, ngpusph=7))
+            names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+            if not names:
+                raise Fail('3 logical devices, SPHGPU_FLAGMOD=%d: no dump was written\n%s' % (fm, (p.stdout + p.stderr)[-800:]))
+            got = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names])
+            if ref is None:
+                ref = got
+            elif got != ref:
+                raise Fail('3 logical devices: SPHGPU_FLAGMOD=%d changes the energies or a dump: the sums depend on which particles the CPU solved' % fm)
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    out.append('SPHGPU_FLAGMOD 7 and 2 give the bits of none')
+    return 'logical devices run to the end, the check of the forces is clean, the energies are those of one device, and the particles solved by the CPU do not change the sums: ' + '; '.join(out)
 
 # --------------------------------------------------------------- HDF5 -----
 

@@ -93,7 +93,9 @@ something changed.  These tell you whether the answer is right.
        with ``SPHGPU_NDEV`` (logical devices dealt out round the GPUs): with 1, 2
        and 4 logical devices the run reaches the end, with ``ngpusphcheck = 2`` the
        accelerations differ from the CPU's by less than 1e-12 and du/dt by less than
-       1e-10 of the largest, and the energies are those of one device to 1e-9.
+       1e-10 of the largest, and the energies are those of one device to 1e-9; with
+       3 logical devices the dump and the energies do not depend on
+       ``SPHGPU_FLAGMOD``.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
