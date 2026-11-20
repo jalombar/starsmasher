@@ -1017,7 +1017,7 @@ struct TreeDev
   int *counter;
   TreeStats *st;
   size_t cn, cnode, cwork;
-  cudaEvent_t e1, e3, em;      // after the copies to the device, after the first pass, after the copy back
+  cudaEvent_t e1, e3, em, em2; // after the copies to the device, after the first pass, after the copy back, after the second pass
   bool events;
   // heavy leaves: the counter of the second pass, the counts, the records of the heavy leaves, the pool of the chunks
   int *counter2, *hcount, *hdone;
@@ -1097,6 +1097,7 @@ void ensure_dev(TreeDev &d, const size_t n, const size_t nnode, const size_t nwo
     CUDA_SAFE_CALL(cudaEventCreate(&d.e1));
     CUDA_SAFE_CALL(cudaEventCreate(&d.e3));
     CUDA_SAFE_CALL(cudaEventCreate(&d.em));
+    CUDA_SAFE_CALL(cudaEventCreateWithFlags(&d.em2, cudaEventDisableTiming));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.counter, sizeof(int)));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.counter2, sizeof(int)));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.sortcnt, TREE_SORTB * sizeof(int)));
@@ -1185,6 +1186,7 @@ void launch_two(TreeDev &d)
   CUDA_SAFE_CALL(cudaEventRecord(d.em, 0));
   launch_nk<true>(d, d.a2, d.nk);
   CUDA_SAFE_CALL(cudaGetLastError());
+  CUDA_SAFE_CALL(cudaEventRecord(d.em2, 0));
 }
 
 // the call of a device done again (a longer stack, or a larger pool, is set): the counts are cleared, the two passes are launched, the result and the counts come back
@@ -1384,6 +1386,24 @@ extern "C"
     }
     CUDA_SAFE_CALL(cudaSetDevice(cur));
     t_pending = 1;
+  }
+
+  // The results of the last visit on the device, for the integration that the SPH library makes there (sph_gpu.cu): the gravity of the n particles in the order of the tree, 4
+  // doubles for each (x y z of the acceleration, then the potential), as the copy to the host takes them.  1 and the pointer if one device made the whole visit (n particles) and the call
+  // has been waited for (gpu_tree_wait_: the results are final, a visit that had to be done again included), else 0.
+  // early=1: the visit may still be in flight (the caller makes its stream wait for *ev, the event after the second pass of the kernels, before it reads the results); a visit
+  // that had to be done again (see gpu_tree_wait_) is not seen by a caller that did not wait for it: what it computes from the results is then not the CPU's, which the caller's
+  // check finds out.
+  int gpu_tree_dev_(void **out, int *n_, int *early, void **ev)
+  {
+    *out = NULL;
+    *ev = NULL;
+    if ((t_pending && !*early) || tdev.size() != 1 || t_nd != 1) return 0;
+    const TreeDev &d = tdev[0];
+    if (d.cnt <= 0 || d.out == NULL || d.plo != 0 || (long long)d.phi + 1 != (long long)*n_ || !d.events) return 0;
+    *out = (void *)d.out;
+    *ev = (void *)d.em2;
+    return 1;
   }
 
   // Wait for the call in flight.  ierr: 0, 1 if the stack had no room, 2 if the pool of the chunks had none.

@@ -7,6 +7,7 @@ c
 c *****************************************
 
       use omp_utils
+      use gpusph_mod, only: gi_report
       include 'starsmasher.h'
       include 'mpif.h'
 
@@ -118,6 +119,7 @@ c     only a run with a negative tf, or with rjump set, is allowed to make.
          if (t.ge.tf) then
             if(myrank.eq.0) then
                write (69,*) 'main: end of integration, t=',t,tf
+               call gi_report
                close(22)
                close(69)
                if(reat.gt.0) close(43)

@@ -48,6 +48,9 @@
 #include <omp.h>
 #endif
 
+// grav_tree_gpu.cu: the device and the results of the last visit of the tree of the gravity (for the integration on the device, see IntState)
+extern "C" int gpu_tree_dev_(void **out, int *n, int *early, void **ev);
+
 namespace
 {
 
@@ -1479,22 +1482,30 @@ inline int nblocks(int n, int t) { return (n + t - 1) / t; }
 // Copies the particles to the device and builds the tree of boxes there, up to the places of the rank's particles in the
 // order of the curve (d.tgt, d.cnt[0]): asynchronous.  hp: the smoothing lengths of the rank's particles (nown of them).
 void upload_and_build(Dev &d, int n, int nlow, int nup, const double *x, const double *y, const double *z, const double *am,
-                      const double *u, const double *hp, const double *divv)
+                      const double *u, const double *hp, const double *divv, bool resident = false)
 {
   CK(cudaSetDevice(d.id));
   const int nown = nup - nlow;
   const bool mk = (&d == &g_dev[0]);
   if (mk) mark("start", d.st);
   CK(cudaMemsetAsync(d.cnt, 0, 4 * sizeof(int), d.st));
-  // the positions first: the box, the keys and the sort need nothing else, and the rest (masses, u, h, div v) is on its way on another stream meanwhile; the gather waits for it
-  CK(cudaMemcpyAsync(d.x, x, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
-  CK(cudaMemcpyAsync(d.y, y, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
-  CK(cudaMemcpyAsync(d.z, z, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
-  CK(cudaMemcpyAsync(d.am, am, (size_t)n * 8, cudaMemcpyHostToDevice, d.sh));
-  CK(cudaMemcpyAsync(d.u, u, (size_t)n * 8, cudaMemcpyHostToDevice, d.sh));
-  CK(cudaMemcpyAsync(d.hp, hp, (size_t)nown * 8, cudaMemcpyHostToDevice, d.sh));
-  CK(cudaMemcpyAsync(d.divv, divv, (size_t)nown * 8, cudaMemcpyHostToDevice, d.sh));
-  CK(cudaEventRecord(d.evH, d.sh));
+  if (!resident)
+  {
+    // the positions first: the box, the keys and the sort need nothing else, and the rest (masses, u, h, div v) is on its way on another stream meanwhile; the gather waits for it
+    CK(cudaMemcpyAsync(d.x, x, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
+    CK(cudaMemcpyAsync(d.y, y, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
+    CK(cudaMemcpyAsync(d.z, z, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
+    CK(cudaMemcpyAsync(d.am, am, (size_t)n * 8, cudaMemcpyHostToDevice, d.sh));
+    CK(cudaMemcpyAsync(d.u, u, (size_t)n * 8, cudaMemcpyHostToDevice, d.sh));
+    CK(cudaMemcpyAsync(d.hp, hp, (size_t)nown * 8, cudaMemcpyHostToDevice, d.sh));
+    CK(cudaMemcpyAsync(d.divv, divv, (size_t)nown * 8, cudaMemcpyHostToDevice, d.sh));
+    CK(cudaEventRecord(d.evH, d.sh));
+  }
+  else
+  {
+    // (the integration on the device has just made the positions, u, h and div v on this stream: there is nothing to wait for)
+    CK(cudaEventRecord(d.evH, d.st));
+  }
   if (mk) mark("h2d", d.st);
   // the box of the particles and the curve
   const int nbb = std::min(256, nblocks(n, 256));
@@ -1605,6 +1616,24 @@ void launch_chunks(Dev &d, const View &V0, int slice, int ch, std::vector<cudaEv
 }
 
 // ---------------------------------------------------------------------------------------------------- the Verlet lists and the launch of the kernels of a call
+// What a call does to the state of the Verlet lists before its results are used, kept so that it can be put back if a call that was made in advance (see IntState) is not used
+struct VerletSnap
+{
+  bool vvalid = false, vforce = false;
+  int vused = 0, voff = 0, vofflen = 24, vbn = 0, vbnlow = 0, vbnown = 0;
+};
+VerletSnap verlet_snap(const Dev &d)
+{
+  VerletSnap s;
+  s.vvalid = d.vvalid; s.vforce = d.vforce; s.vused = d.vused; s.voff = d.voff; s.vofflen = d.vofflen; s.vbn = d.vbn; s.vbnlow = d.vbnlow; s.vbnown = d.vbnown;
+  return s;
+}
+void verlet_restore(Dev &d, const VerletSnap &s, int vmode)
+{
+  d.vvalid = s.vvalid; d.vforce = s.vforce; d.vused = s.vused; d.voff = s.voff; d.vofflen = s.vofflen; d.vbn = s.vbn; d.vbnlow = s.vbnlow; d.vbnown = s.vbnown;
+  if (vmode == 2) d.vvalid = false;   // (the call wrote the lists again: the ones that were there are gone)
+}
+
 // Verlet lists: what a call decides and queues for them: built by this call (2), or used (1), or not at all (0)
 int verlet_prep(int ndev, int n, int nlow, int nown, double skin)
 {
@@ -2759,6 +2788,579 @@ void getlists(int *list, int *ierr)
   }
 }
 
+
+// ====================================================================================================================== the integration on the device
+// With one device, one rank and the forces made on the device (ngpusph 3 and 7) the device goes on by itself while the CPU finishes the step: from the accelerations that it holds, the
+// step that the CPU gives it (tstep: dt), it makes the corrector of this step and the predictor of the next one, as the CPU does, and queues the build of the tree of boxes and the
+// kernel of the smoothing lengths of the next step, the data of which it then has.  The CPU goes on exactly as before (its arrays are the truth: files, log, checkpoints) and, when it
+// arrives at the smoothing lengths of the next step, compares a 64-bit sum of the bits of what the device used with its own (made in the predictor loop): the same sums mean the same
+// state, and the results that are already on their way are collected; otherwise the launch is dropped and the step is made as it would be without all this.  A wrong guess costs time of
+// the device and nothing else.
+//
+// Why the bits are the CPU's.  Every operation is the one of advance.f90 in the same order on the same numbers, in double precision and with no fused multiply-add (this file is compiled
+// with --fmad=false and the CPU code of a build that can fuse is not used with the SPH on the GPU, see gpu_sph_available_): the accelerations are (sum of the pairs + gravity) + gravity
+// correction as uvdots adds them (one rank, the gravity of the GPU for every particle: fuseacc), the velocities of the corrector vo+(dth+dthnew)*a, the positions x+dt*v, the velocities
+// of the predictor v+dthnew*a, u as the velocities.  The smoothing lengths and div v that start the next solve are the ones the CPU keeps (hp and div v of this step: the records of the
+// kernel with what the CPU made of the particles it solves, and div v of the forces).
+//
+// The sum of the check: for each particle the words (positions, velocities, u, the old velocities and u, h, div v, mass: 14 doubles) are mixed one after the other,
+// q = (rotl(q,27) ^ word) * M1 starting from (index+1)*K1 and finished with q = (q ^ q>>32) * M2, and the particles' values are added modulo 2^64.  The rotation makes a change of the same bit
+// in two words not cancel, the index in the start makes the swap of two particles' data change the sum, and the sum does not depend on the order in which the particles are added (threads of the
+// CPU, blocks of the GPU).  A particle with u = 0 (point particle, not done here) poisons the sum.
+//
+// dt.  The device does not wait for tstep either (int_early): once the forces and the gravity are done it sends the CPU the few particles that can give the smallest limit of the step
+// (see k_cand_min), the CPU makes the exact dt of them with the routine tstep uses, and the device goes on from there; tstep then makes its dt as always and the call at the end of the
+// step only checks that it is the same.  The check of the sums above is what keeps this honest: whatever is wrong in the guess (dt, the accelerations, the gravity of a visit that had to be done
+// again) ends in other sums and the launch is dropped.  After 8 calls in a row that the check dropped (the CPU's data are not what the device goes on from: a point particle, something
+// that writes the particles every step) the integration is turned off for the run.
+//
+// What was tried and is not here.  The sum of the check in a loop of its own on the CPU costs 0.05 ms (63 threads), in the loop of the predictor 0.018 ms.  The candidates copied back with
+// cudaMemcpyAsync came 0.09 ms late at the pericentre, stuck behind the copy of the gravity in the engine that copies to the host: the kernel writes them to host memory the device can reach
+// and the CPU polls the event (it has nothing else to do while it waits).  The place of each particle in the tree of the gravity, written by the CPU into a second array while it makes the tree, cost
+// 0.07 ms of the CPU's critical path at the pericentre, where the CPU is what the step waits for: the device copies gind, the particle at each place of the tree, from the call of the forces, while
+// the CPU is idle, and adds the gravity by place of the tree.  A copy of the arrays of the CPU to the device from the arrays themselves is refused when it starts in a page registered for another
+// array and ends in one that is not (see Stager): everything that comes from the CPU goes through a pinned buffer of ours.
+//
+// SPHGPU_NOINT=1 turns all this off.  SPHGPU_INTNODT=1 (a test of the code, to measure what the candidates of dt add) keeps the integration on the device but makes it wait for the dt of tstep.
+// SPHGPU_INTCHECK=1 compares, at every step, every array the device holds with the CPU's, bit by bit, and stops at the first difference, saying which array and which particle.
+constexpr unsigned long long IM1 = 0x9E3779B97F4A7C15ULL, IM2 = 0xC2B2AE3D27D4EB4FULL, IK1 = 0xD6E8FEB86659FD93ULL, IPOISON = 0xA5A5A5A55A5A5A5BULL;
+constexpr int INW = 14;     // the words of a particle in the sum
+
+__host__ __device__ inline unsigned long long imix(unsigned long long q, double w)
+{
+  unsigned long long b;
+#ifdef __CUDA_ARCH__
+  b = (unsigned long long)__double_as_longlong(w);
+#else
+  memcpy(&b, &w, 8);
+#endif
+  return (((q << 27) | (q >> 37)) ^ b) * IM1;
+}
+// the value of particle i (from 0) with its INW words
+__host__ __device__ inline unsigned long long ihash(long long i, const double *w)
+{
+  unsigned long long q = (unsigned long long)(i + 1) * IK1;
+  for (int k = 0; k < INW; k++) q = imix(q, w[k]);
+  q ^= q >> 32;
+  return q * IM2;
+}
+
+// what the Fortran side says about the step (gpu_sph_int_arm_): the same for the call in the middle of the step (the candidates of dt) and the one at its end
+struct IntArm
+{
+  bool armed = false;
+  int n = 0, nlow = 0, nup = 0, skiplist = 0, nnopt = 0, nselfg = 0, ngrav = 0;
+  double dth = 0, skin = 0, hfloor = 0, cn[4] = {0, 0, 0, 0}, dtforce = 0;
+  double *vxo = 0, *vyo = 0, *vzo = 0, *uo = 0, *vxdot = 0, *vydot = 0, *vzdot = 0, *udot = 0, *uijmax = 0, *divv = 0;
+  void (*cb)(int *, double *, double *, int *) = 0;     // Fortran: the exact dt of the candidates (gpusph.f90, gi_dtcand_cb)
+};
+constexpr int NCAND = 64;      // the most candidates for dt that are sent to the CPU
+
+struct IntState
+{
+  bool enabled = true;                 // not SPHGPU_NOINT
+  bool check = false;                  // SPHGPU_INTCHECK
+  bool nodt = false;                   // SPHGPU_INTNODT: no dt from the candidates (the device goes on when the CPU gives it dt)
+  bool env_read = false;
+  bool f_ok = false;                   // the forces of this step left their sums and results on the device (set by gpu_sph_forces_)
+  int f_n = 0, f_nt = 0;
+  bool state_valid = false;            // the device holds the old velocities and u of the step that the next call continues
+  bool pending = false;                // a call has been made in advance and nothing has decided what to do with it
+  bool adopt = false;                  // gpu_sph_int_check_ found it good: gpu_sph_rhoh_ collects it
+  bool fe_pack = false, fe_ready = false;
+  // what the call made in advance assumed (the call that adopts it must have the same)
+  int n = 0, nlow = 0, nup = 0, skiplist = 0, nnopt = 0, nselfg = 0, ch = 0, vmode = 0;
+  double dt = 0, skin = 0, hfloor = 0;
+  VerletSnap snap;
+  size_t cap = 0;
+  double *vxo = 0, *vyo = 0, *vzo = 0, *uo = 0, *udot = 0, *uij = 0, *dax = 0, *day = 0, *daz = 0;
+  int *ginv = 0;                       // on the device: the particle of each place of the tree of the gravity (from 1), copied from gind of the CPU
+  const int *gind = 0;                 // the CPU's: gind of gravtree.f90 for this step's tree (the pointer is valid until the tree is made again)
+  int ginv_n = 0;
+  bool ginv_valid = false;
+  unsigned long long *dhash = 0, *hhash = 0;
+  double *hst = 0;                     // pinned: the old velocities and u of the CPU on their way to the device (the arrays of the CPU are not registered: see Stager)
+  size_t ginvcap = 0;
+  int *ginvh = 0;                      // pinned: the CPU's gind on its way to the device (a copy from pageable memory makes the stream wait, see Stager)
+  cudaStream_t sx = 0;
+  cudaEvent_t evK = 0, evX = 0, evGi = 0;
+  long n_go = 0, n_adopt = 0, n_hash = 0, n_params = 0, n_other = 0, n_ref[10] = {0};
+  int nbad = 0;                        // calls in a row that the check dropped (the integration is turned off for the run after 8: the CPU's data is not what the device goes on from)
+  // dt from the device (the candidates): the call is made in the middle of the step, from the accelerations and gravity as soon as they are done, with the exact dt that the CPU makes of the
+  // candidates; the call at the end of the step then only checks that tstep found the same dt
+  IntArm arm;
+  bool early_ok = false;               // the forces of this step are laid out on the device as the integration needs (set by gpu_sph_forces_ before it calls the early part)
+  bool early_started = false;          // the call has been made from the candidates
+  double early_dt = 0;
+  const double *gout = 0;              // the gravity of this step on the device (4 doubles for each particle in the order of the tree), or 0
+  double *dbdt = 0, *dcand = 0, *hcand = 0, *hcandd = 0;
+  unsigned long long *dmin = 0;
+  int *dflag = 0, *hflag = 0, *hflagd = 0;   // the flags of the kernels of the candidates and their count (on the device); the candidates are written to host memory the device can reach (hcand, hflag; hcandd, hflagd: the device's addresses)
+  cudaEvent_t evF = 0, evC = 0;        // the forces of this step are done / the candidates are on the host
+  bool early_queued = false;           // gpu_sph_forces_ has queued work after the forces: it must not wait for the whole stream
+  long n_early = 0, n_dtmis = 0, n_eref = 0;
+};
+IntState g_it;
+
+void int_env()
+{
+  if (g_it.env_read) return;
+  g_it.env_read = true;
+  g_it.enabled = getenv("SPHGPU_NOINT") == NULL;
+  g_it.check = getenv("SPHGPU_INTCHECK") != NULL;
+  g_it.nodt = getenv("SPHGPU_INTNODT") != NULL;
+}
+
+// a call made in advance that is not used: wait for everything it queued (its kernels write buffers that the next call writes too), put back the state of the Verlet lists and forget the
+// state of the old velocities (the CPU's step is the one that goes on)
+void int_discard()
+{
+  if (!g_it.pending) return;
+  g_it.pending = false;
+  g_it.adopt = false;
+  g_it.early_started = false;
+  g_it.state_valid = false;
+  g_it.fe_ready = false;
+  g_it.ginv_valid = false;
+  g_lazy.pending = false;
+  g_ls.valid = false;
+  if (g_dev.empty()) return;
+  Dev &d = g_dev[0];
+  cudaSetDevice(d.id);
+  cudaStreamSynchronize(d.st);
+  cudaStreamSynchronize(d.st2);
+  for (int q = 0; q < 4; q++) if (d.sc[q]) cudaStreamSynchronize(d.sc[q]);
+  if (g_it.sx) cudaStreamSynchronize(g_it.sx);
+  cudaGetLastError();
+  verlet_restore(d, g_it.snap, g_it.vmode);
+}
+
+// the arguments of the kernels of the integration
+struct IntK
+{
+  int n, grav;
+  const double *mvx, *mvy, *mvz, *mgx, *mgy, *mgz;   // the sums of the forces (6 arrays of n)
+  const double *gout;                                // the gravity in the order of the tree, 4 doubles for each
+  const int *ginv;                                   // the particle (from 1) at every place of that order (gind of the CPU)
+  const double *udot, *am, *hp, *divv;
+  double *ax, *ay, *az;                              // the accelerations as uvdots adds them up
+  double *x, *y, *z, *u, *fu, *vx, *vy, *vz, *vxo, *vyo, *vzo, *uo;
+  double dth, dthnew, dt;
+  unsigned long long *hash;
+};
+
+// div v, du/dt and uijmax of each particle from the results of the targets of the forces, and a poison if a place has no particle
+__global__ void k_int_pre(int nt, int nlow, const FOut *fo, double *divv, double *udot, double *uij, unsigned long long *hash)
+{
+  const int t = blockIdx.x * blockDim.x + threadIdx.x;
+  if (t >= nt) return;
+  const FOut s = fo[t];
+  if (s.p < 0) { atomicAdd(hash, IPOISON); return; }
+  divv[s.p - nlow] = s.divv;
+  udot[s.p] = s.udot;
+  uij[s.p] = s.uij;
+}
+// the smoothing lengths the CPU holds after this step: the records of the kernel (with what the CPU made of the particles it solved, patched in by the forces)
+__global__ void k_int_hp(int nown, int nlow, const SphOut *out, double *hp)
+{
+  const int o = blockIdx.x * blockDim.x + threadIdx.x;
+  if (o >= nown) return;
+  hp[out[o].idx - nlow] = out[o].hp;
+}
+// uvdots: the accelerations are (the sum of the pairs + the gravity) + the gravity correction, one rank and the gravity of the GPU for every particle (fuseacc); without gravity the
+// sum of the pairs and the correction
+__global__ void k_int_acc(IntK K)
+{
+  const int t = blockIdx.x * blockDim.x + threadIdx.x;
+  if (t >= K.n) return;
+  if (K.grav)
+  {
+    // (a thread for each place of the tree of the gravity, which holds the particle gind(t) from 1: the places are a permutation of the particles, each is written once)
+    const double *g = K.gout + 4 * (size_t)t;
+    const int i = K.ginv[t] - 1;
+    K.ax[i] = __dadd_rn(__dadd_rn(K.mvx[i], g[0]), K.mgx[i]);
+    K.ay[i] = __dadd_rn(__dadd_rn(K.mvy[i], g[1]), K.mgy[i]);
+    K.az[i] = __dadd_rn(__dadd_rn(K.mvz[i], g[2]), K.mgz[i]);
+  }
+  else
+  {
+    K.ax[t] = __dadd_rn(K.mvx[t], K.mgx[t]);
+    K.ay[t] = __dadd_rn(K.mvy[t], K.mgy[t]);
+    K.az[t] = __dadd_rn(K.mvz[t], K.mgz[t]);
+  }
+}
+
+// the corrector of this step and the predictor of the next one (advance.f90), and the sum of the check
+__global__ void __launch_bounds__(256) k_int_step(IntK K)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  unsigned long long h = 0;
+  if (i < K.n)
+  {
+    const double ax = K.ax[i], ay = K.ay[i], az = K.az[i];
+    const double sdt = __dadd_rn(K.dth, K.dthnew);
+    // the corrector
+    const double vxn = __dadd_rn(K.vxo[i], __dmul_rn(sdt, ax));
+    const double vyn = __dadd_rn(K.vyo[i], __dmul_rn(sdt, ay));
+    const double vzn = __dadd_rn(K.vzo[i], __dmul_rn(sdt, az));
+    const double u0 = K.u[i], ud = K.udot[i];
+    double un = u0;
+    bool bad = false;
+    if (u0 != 0.0) un = __dadd_rn(K.uo[i], __dmul_rn(sdt, ud));
+    else if (ud != 0.0) bad = true;
+    // the predictor of the next step
+    const double xn = __dadd_rn(K.x[i], __dmul_rn(K.dt, vxn));
+    const double yn = __dadd_rn(K.y[i], __dmul_rn(K.dt, vyn));
+    const double zn = __dadd_rn(K.z[i], __dmul_rn(K.dt, vzn));
+    const double vxp = __dadd_rn(vxn, __dmul_rn(K.dthnew, ax));
+    const double vyp = __dadd_rn(vyn, __dmul_rn(K.dthnew, ay));
+    const double vzp = __dadd_rn(vzn, __dmul_rn(K.dthnew, az));
+    double uon = K.uo[i], up = un;
+    if (un != 0.0)
+    {
+      uon = un;
+      up = __dadd_rn(un, __dmul_rn(K.dthnew, ud));
+    }
+#ifdef SPH_INT_BUG
+    // (a build to test the check: the last bit of x of one particle is wrong, in the positions the device uses and in its sum)
+    const double xb = (i == 12345) ? __longlong_as_double(__double_as_longlong(xn) ^ 1LL) : xn;
+#else
+    const double xb = xn;
+#endif
+    K.x[i] = xb; K.y[i] = yn; K.z[i] = zn;
+    K.vx[i] = vxp; K.vy[i] = vyp; K.vz[i] = vzp;
+    K.u[i] = up; K.fu[i] = up;
+    K.vxo[i] = vxn; K.vyo[i] = vyn; K.vzo[i] = vzn; K.uo[i] = uon;
+    const double w[INW] = {xb, yn, zn, vxp, vyp, vzp, up, vxn, vyn, vzn, uon, K.hp[i], K.divv[i], K.am[i]};
+    h = ihash(i, w);
+    if (u0 == 0.0 || bad) h += IPOISON;
+  }
+  __shared__ unsigned long long sh[32];
+  for (int o = 16; o > 0; o >>= 1) h += __shfl_down_sync(0xffffffffu, h, o);
+  if ((threadIdx.x & 31) == 0) sh[threadIdx.x >> 5] = h;
+  __syncthreads();
+  if (threadIdx.x < 32)
+  {
+    unsigned long long t = threadIdx.x < (blockDim.x >> 5) ? sh[threadIdx.x] : 0ULL;
+    for (int o = 16; o > 0; o >>= 1) t += __shfl_down_sync(0xffffffffu, t, o);
+    if (threadIdx.x == 0) atomicAdd(K.hash, t);
+  }
+}
+
+// The candidates of dt.  tstep takes, over the particles that are gas, the smallest of bdt = (1/dtivel + 1/dtiacc + 1/dtiu + 1/dtiacc4)**(-1) (advance's dt is that minimum).  The CPU
+// raises two of the numbers to the powers 0.5, 0.25 and -1 with pow of the C library, which is not the pow of CUDA, so the device does not make the minimum itself: it makes the same
+// expression with the functions of CUDA for every particle, finds the smallest value, and sends to the CPU the particles whose value is within a relative 1e-12 of it, with what the
+// formula needs; the CPU makes bdt of those with the very routine tstep uses (dtlimit) and takes the smallest.  That is the minimum of tstep as long as the particle that gives it is among
+// the candidates, which it is: the value of the device differs from the exact one by a few units in the last place (sqrt and the divisions are correctly rounded, pow is within 2 ulp of
+// CUDA's, five roundings in all: under 3e-15 in relative terms, 6.4e-16 was the largest seen on 2.4 million particles of the collisions and the stars), so the exact minimum's value on the
+// device is at most 6e-15 above the smallest value on the device, far inside the 1e-12.  If the candidates do not fit (NCAND), or a value is not a positive finite number below the
+// 1e30 that tstep starts from, or a particle has u=0 (the limits of point particles, which this does not make), the device does not go on from the candidates.
+__global__ void k_cand_min(int n, const double *hp, const double *vx, const double *vy, const double *vz, const double *ax, const double *ay, const double *az, const double *ud,
+                           const double *u, const double *uij, double c1, double c2, double c3, double c4, double *bdt, unsigned long long *mn, int *flags)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  unsigned long long m = 0x7FF0000000000000ULL;      // +inf
+  if (i < n)
+  {
+    double r = 1.0e30;
+    if (u[i] != 0.0)
+    {
+      const double v2 = (vx[i] * vx[i] + vy[i] * vy[i]) + vz[i] * vz[i];
+      const double a2 = (ax[i] * ax[i] + ay[i] * ay[i]) + az[i] * az[i];
+      const double dtivel = c1 * hp[i] / sqrt(fmax(uij[i], v2 / 16.0));
+      const double dtiacc = c2 * pow(hp[i], 0.5) / pow(a2, 0.25);
+      const double dtiu = c3 * u[i] / fabs(ud[i]);
+      const double dtiacc4 = c4 * sqrt(uij[i]) / pow(a2, 0.5);
+      r = pow(1.0 / dtivel + 1.0 / dtiacc + 1.0 / dtiu + 1.0 / dtiacc4, -1.0);
+      if (!(r > 0.0 && r < 1.0e30)) atomicOr(flags, 1);
+    }
+    else atomicOr(flags, 2);
+    bdt[i] = r;
+    if (r > 0.0 && r < 1.0e30) m = (unsigned long long)__double_as_longlong(r);
+  }
+  for (int o = 16; o > 0; o >>= 1) { const unsigned long long t = __shfl_down_sync(0xffffffffu, m, o); m = t < m ? t : m; }
+  if ((threadIdx.x & 31) == 0) atomicMin(mn, m);
+}
+__global__ void k_cand_collect(int n, const double *bdt, const unsigned long long *mn, const double *hp, const double *vx, const double *vy, const double *vz, const double *ax,
+                               const double *ay, const double *az, const double *ud, const double *u, const double *uij, double *cand, int *flags)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  const double m = __longlong_as_double((long long)*mn);
+  if (bdt[i] <= m * (1.0 + 1.0e-12))
+  {
+    const int slot = atomicAdd(&flags[1], 1);
+    if (slot < NCAND)
+    {
+      double *c = cand + 12 * (size_t)slot;
+      c[0] = hp[i]; c[1] = vx[i]; c[2] = vy[i]; c[3] = vz[i]; c[4] = ax[i]; c[5] = ay[i]; c[6] = az[i]; c[7] = u[i]; c[8] = ud[i]; c[9] = uij[i]; c[10] = (double)(i + 1); c[11] = 0.0;
+    }
+  }
+}
+
+// the candidates to host memory that the device can write (a copy back would wait behind the copies of the gravity in the engine that copies to the host)
+__global__ void k_cand_publish(const double *cand, const int *flags, double *hcand, int *hflag)
+{
+  for (int q = threadIdx.x; q < 12 * NCAND; q += blockDim.x) hcand[q] = cand[q];
+  if (threadIdx.x < 4) hflag[threadIdx.x] = flags[threadIdx.x];
+}
+
+// the buffers of the state (n particles), made when they are too small
+void int_reserve(size_t n)
+{
+  if (n <= g_it.cap && g_it.dhash) return;
+  // (SPHGPU_INTFAILALLOC=1, a test of the code: the buffers cannot be had, as when the memory of the device is full)
+  if (getenv("SPHGPU_INTFAILALLOC")) throw SphError(4, "the buffers of the integration on the device cannot be allocated (SPHGPU_INTFAILALLOC)");
+  cudaStreamSynchronize(g_dev[0].st);
+  double **dd[] = {&g_it.vxo, &g_it.vyo, &g_it.vzo, &g_it.uo, &g_it.udot, &g_it.uij, &g_it.dax, &g_it.day, &g_it.daz};
+  for (size_t k = 0; k < sizeof dd / sizeof dd[0]; k++) dfree(*dd[k]);
+  const size_t cap = n + n / 8 + 1024;
+  for (size_t k = 0; k < sizeof dd / sizeof dd[0]; k++) dmalloc(*dd[k], cap);
+  if (g_it.hst) { cudaFreeHost(g_it.hst); g_it.hst = 0; }
+  CK(cudaMallocHost((void **)&g_it.hst, 4 * cap * sizeof(double)));
+  if (!g_it.dhash) dmalloc(g_it.dhash, 1);
+  if (!g_it.hhash) CK(cudaMallocHost((void **)&g_it.hhash, sizeof(unsigned long long)));
+  if (!g_it.sx) CK(cudaStreamCreateWithFlags(&g_it.sx, cudaStreamNonBlocking));
+  if (!g_it.evK) CK(cudaEventCreateWithFlags(&g_it.evK, cudaEventDisableTiming));
+  if (!g_it.evX) CK(cudaEventCreateWithFlags(&g_it.evX, cudaEventDisableTiming));
+  if (!g_it.evF) CK(cudaEventCreateWithFlags(&g_it.evF, cudaEventDisableTiming));
+  if (!g_it.evC) CK(cudaEventCreateWithFlags(&g_it.evC, cudaEventDisableTiming));
+  dfree(g_it.dbdt); dmalloc(g_it.dbdt, cap);
+  if (!g_it.dcand) dmalloc(g_it.dcand, 12 * NCAND);
+  if (!g_it.dmin) dmalloc(g_it.dmin, 1);
+  if (!g_it.dflag) dmalloc(g_it.dflag, 4);
+  if (!g_it.hcand)
+  {
+    CK(cudaHostAlloc((void **)&g_it.hcand, 12 * NCAND * sizeof(double), cudaHostAllocMapped | cudaHostAllocPortable));
+    CK(cudaHostAlloc((void **)&g_it.hflag, 4 * sizeof(int), cudaHostAllocMapped | cudaHostAllocPortable));
+    CK(cudaHostGetDevicePointer((void **)&g_it.hcandd, g_it.hcand, 0));
+    CK(cudaHostGetDevicePointer((void **)&g_it.hflagd, g_it.hflag, 0));
+  }
+  if (n > g_it.ginvcap || !g_it.ginv)
+  {
+    dfree(g_it.ginv);
+    if (g_it.ginvh) { cudaFreeHost(g_it.ginvh); g_it.ginvh = 0; }
+    g_it.ginvcap = cap;
+    dmalloc(g_it.ginv, cap);
+    CK(cudaMallocHost((void **)&g_it.ginvh, cap * sizeof(int)));
+  }
+  if (!g_it.evGi) CK(cudaEventCreateWithFlags(&g_it.evGi, cudaEventDisableTiming));
+  g_it.cap = cap;
+  g_it.state_valid = false;
+}
+
+// SPHGPU_INTCHECK: an array of the device against the CPU's, bit by bit
+void int_cmp(const char *what, const double *dev, const double *host, int n, int off)
+{
+  std::vector<double> t((size_t)n);
+  CK(cudaMemcpy(t.data(), dev, (size_t)n * 8, cudaMemcpyDeviceToHost));
+  for (int i = 0; i < n; i++)
+  {
+    unsigned long long a, b;
+    memcpy(&a, &t[i], 8);
+    memcpy(&b, &host[off + i], 8);
+    if (a != b)
+    {
+      fprintf(stderr, "StarSmasher (SPHGPU_INTCHECK): %s of particle %d differs between the device and the CPU: device %.17g (%016llx), CPU %.17g (%016llx)\n", what, off + i + 1, t[i], a,
+              host[off + i], b);
+      fflush(stderr);
+      abort();
+    }
+  }
+}
+
+
+// Stage A of the integration (the arrays that the corrector and the predictor are made from, and the accelerations as uvdots adds them): everything queued on the stream of the device, after the
+// forces, and (early) after the gravity of this step, the second pass of which the stream waits for.  Returns the reason why not (see gpu_sph_int_stats_) or 0; with 0 g_it.pending is
+// set, so that int_discard waits for what has been queued and puts the Verlet lists back.
+int int_prepare(bool early)
+{
+  IntArm &A = g_it.arm;
+  const int n = A.n, nlow = A.nlow, nup = A.nup, nown = nup - nlow;
+  int why = 0;
+  if (!g_it.enabled) why = 1;
+  else if (!g_ready || g_dev.size() != 1 || g_fdev.size() != 1) why = 2;
+  else if (early ? !g_it.early_ok : (!g_it.f_ok || g_it.f_n != n || g_it.f_nt != n)) why = 3;
+  else if (!g_fdev[0].x || !g_fdev[0].dw || n > g_fdev[0].ncap || !g_fdev[0].acc || !g_fdev[0].out || n > g_dev[0].ncap || nown > g_dev[0].nowncap || !g_dev[0].gd) why = 4;
+  else if (nlow != 0 || nup != n) why = 6;
+  else if (fe_check()) why = 7;
+  void *gev = 0;
+  g_it.gout = 0;
+  if (!why && A.ngrav)
+  {
+    void *go = 0;
+    int nn = n, e = early ? 1 : 0;
+    if (!gpu_tree_dev_(&go, &nn, &e, &gev) || !g_it.ginv_valid || g_it.ginv_n != n) why = 5;
+    g_it.gout = (const double *)go;
+  }
+  if (why) return why;
+  Dev &d = g_dev[0];
+  FDev &f = g_fdev[0];
+  CK(cudaSetDevice(d.id));
+  cudaStream_t st = d.st;
+  int_reserve((size_t)n);
+  const bool seed = !g_it.state_valid;
+  g_it.snap = verlet_snap(d);
+  g_it.vmode = 0;
+  g_it.pending = true;     // (from here on an error leaves nothing queued: int_discard waits for it and puts the Verlet state back)
+  // the old velocities and u, if the device does not hold those of this step: the CPU's (nothing has written them since the predictor of this step)
+  if (seed)
+  {
+    // (the arrays of the CPU are copied to a pinned buffer first: a copy that starts in a page registered for another array and ends in one that is not is refused, see Stager)
+    double *src[4] = {A.vxo, A.vyo, A.vzo, A.uo}, *dst[4] = {g_it.vxo, g_it.vyo, g_it.vzo, g_it.uo};
+    cudaStreamSynchronize(st);   // (the buffer may still be on its way from the last seed)
+    for (int a = 0; a < 4; a++) memcpy(g_it.hst + (size_t)a * n, src[a], (size_t)n * 8);
+    for (int a = 0; a < 4; a++) CK(cudaMemcpyAsync(dst[a], g_it.hst + (size_t)a * n, (size_t)n * 8, cudaMemcpyHostToDevice, st));
+  }
+  CK(cudaMemsetAsync(g_it.dhash, 0, sizeof(unsigned long long), st));
+  k_int_pre<<<nblocks(n, 256), 256, 0, st>>>(n, nlow, f.out, d.divv, g_it.udot, g_it.uij, g_it.dhash);
+  k_int_hp<<<nblocks(nown, 256), 256, 0, st>>>(nown, nlow, d.out, d.hp);
+  if (A.ngrav)
+  {
+    // the order of the particles of this step's tree, copied from the CPU's array (the CPU is idle here when this is made from the forces); the second pass of the visit is waited for
+    // (only the sum of the accelerations needs the gravity: what is before runs while the visit ends)
+    CK(cudaEventSynchronize(g_it.evGi));       // (the buffer may still be on its way from the last call)
+    memcpy(g_it.ginvh, g_it.gind, (size_t)n * 4);
+    CK(cudaMemcpyAsync(g_it.ginv, g_it.ginvh, (size_t)n * 4, cudaMemcpyHostToDevice, st));
+    CK(cudaEventRecord(g_it.evGi, st));
+    if (early) CK(cudaStreamWaitEvent(st, (cudaEvent_t)gev, 0));
+  }
+  IntK K;
+  memset(&K, 0, sizeof K);
+  K.n = n; K.grav = A.ngrav ? 1 : 0;
+  K.mvx = f.acc; K.mvy = f.acc + (size_t)n; K.mvz = f.acc + 2 * (size_t)n; K.mgx = f.acc + 3 * (size_t)n; K.mgy = f.acc + 4 * (size_t)n; K.mgz = f.acc + 5 * (size_t)n;
+  K.gout = g_it.gout; K.ginv = g_it.ginv;
+  K.ax = g_it.dax; K.ay = g_it.day; K.az = g_it.daz;
+  k_int_acc<<<nblocks(n, 256), 256, 0, st>>>(K);
+  CK(cudaGetLastError());
+  return 0;
+}
+
+// Stage B: the corrector of this step, the predictor of the next one with the sum of the check, the tree of boxes and the kernel of the smoothing lengths of the next step, and the copies
+// of its results if the call that collects them will want them.  dt is the step of the next one.
+void int_launch(double dt, double dthnew)
+{
+  IntArm &A = g_it.arm;
+  const int n = A.n, nlow = A.nlow, nup = A.nup, nown = nup - nlow;
+  Dev &d = g_dev[0];
+  FDev &f = g_fdev[0];
+  CK(cudaSetDevice(d.id));
+  cudaStream_t st = d.st;
+  IntK K;
+  memset(&K, 0, sizeof K);
+  K.n = n;
+  K.ax = g_it.dax; K.ay = g_it.day; K.az = g_it.daz;
+  K.udot = g_it.udot; K.am = d.am; K.hp = d.hp; K.divv = d.divv;
+  K.x = d.x; K.y = d.y; K.z = d.z; K.u = d.u; K.fu = f.u; K.vx = f.vx; K.vy = f.vy; K.vz = f.vz;
+  K.vxo = g_it.vxo; K.vyo = g_it.vyo; K.vzo = g_it.vzo; K.uo = g_it.uo;
+  K.dth = A.dth; K.dthnew = dthnew; K.dt = dt;
+  K.hash = g_it.dhash;
+  k_int_step<<<nblocks(n, 256), 256, 0, st>>>(K);
+  CK(cudaGetLastError());
+  CK(cudaEventRecord(g_it.evK, st));
+  CK(cudaStreamWaitEvent(g_it.sx, g_it.evK, 0));
+  CK(cudaMemcpyAsync(g_it.hhash, g_it.dhash, sizeof(unsigned long long), cudaMemcpyDeviceToHost, g_it.sx));
+  CK(cudaEventRecord(g_it.evX, g_it.sx));
+  // the build of the next step
+  Phys ph;
+  ph.dt = dt; ph.hfloor = A.hfloor; ph.nnopt = (double)A.nnopt; ph.nselfg = A.nselfg;
+  const int ch = std::min(chunk_size(), std::max(1, nown));
+  const int nch = (nown + ch - 1) / ch;
+  upload_and_build(d, n, nlow, nup, 0, 0, 0, 0, 0, 0, 0, true);
+  const int vmode = verlet_prep(1, n, nlow, nown, A.skin);
+  g_it.vmode = vmode;
+  launch_all(1, n, nlow, nup, ph, vmode, A.skin, nown, ch, 0);
+  const bool fastdrain = fast_drain_enabled() && A.skiplist != 0 && nown > 0 && nch <= 8;
+  if (fastdrain) queue_results(d, nown, nlow, nch);
+  // the velocities and u for the forces of the next step, packed (see gpu_sph_fearly_), only if the call that collects this one will let them be used
+  g_it.fe_pack = false;
+  if (fastdrain && fe_enabled())
+  {
+    k_fpack<<<nblocks(n, 256), 256, 0, st>>>(n, d.x, d.y, d.z, d.am, f.vx, f.vy, f.vz, f.u, f.pos, f.vel);
+    CK(cudaGetLastError());
+    g_it.fe_pack = true;
+  }
+  g_it.adopt = false;
+  g_it.n = n; g_it.nlow = nlow; g_it.nup = nup; g_it.dt = dt; g_it.skin = A.skin; g_it.skiplist = A.skiplist; g_it.hfloor = A.hfloor; g_it.nnopt = A.nnopt; g_it.nselfg = A.nselfg;
+  g_it.ch = ch;
+  g_it.n_go++;
+  g_it.f_ok = false;
+  g_it.ginv_valid = false;
+}
+
+// The early part, from gpu_sph_forces_ once the work of the forces is queued (and the CPUs have done theirs): the accelerations and the candidates of dt, queued on the stream of the device
+// behind the forces (and, with gravity, behind the second pass of the visit); the CPU waits for the candidates only (a few kilobytes), has dt made of them (the callback), and the device
+// starts on the next step while the CPU is still collecting the forces and the gravity.
+void int_early()
+{
+  IntArm &A = g_it.arm;
+  g_it.early_started = false;
+  try
+  {
+    const int why = int_prepare(true);
+    if (why)
+    {
+      g_it.n_ref[why]++;
+      g_it.n_eref++;
+      return;
+    }
+    Dev &d = g_dev[0];
+    FDev &f = g_fdev[0];
+    cudaStream_t st = d.st;
+    const int n = A.n;
+    CK(cudaMemsetAsync(g_it.dflag, 0, 4 * sizeof(int), st));
+    CK(cudaMemsetAsync(g_it.dmin, 0x7F, sizeof(unsigned long long), st));
+    // (0x7F7F7F7F7F7F7F7F is a large positive number: every value below 1e30 is smaller as bits)
+    k_cand_min<<<nblocks(n, 256), 256, 0, st>>>(n, d.hp, f.vx, f.vy, f.vz, g_it.dax, g_it.day, g_it.daz, g_it.udot, d.u, g_it.uij, A.cn[0], A.cn[1], A.cn[2], A.cn[3], g_it.dbdt, g_it.dmin,
+                                                g_it.dflag);
+    k_cand_collect<<<nblocks(n, 256), 256, 0, st>>>(n, g_it.dbdt, g_it.dmin, d.hp, f.vx, f.vy, f.vz, g_it.dax, g_it.day, g_it.daz, g_it.udot, d.u, g_it.uij, g_it.dcand, g_it.dflag);
+    CK(cudaGetLastError());
+    k_cand_publish<<<1, 256, 0, st>>>(g_it.dcand, g_it.dflag, g_it.hcandd, g_it.hflagd);
+    CK(cudaGetLastError());
+    CK(cudaEventRecord(g_it.evC, st));
+    // (polled: the CPU has nothing else to do)
+    for (;;)
+    {
+      const cudaError_t qe = cudaEventQuery(g_it.evC);
+      if (qe == cudaSuccess) break;
+      if (qe != cudaErrorNotReady) CK(qe);
+    }
+    const int flags = g_it.hflag[0];
+    int m = g_it.hflag[1];
+    if (flags != 0 || m <= 0 || m > NCAND || !A.cb)
+    {
+      // not a case for the candidates (a value that is not a number, a point particle, too many particles equal to the smallest): the call is made after tstep, as without this
+      g_it.pending = false;
+      g_it.n_eref++;
+      return;
+    }
+    double dt = 0.0;
+    int ok = 0;
+    A.cb(&m, g_it.hcand, &dt, &ok);
+    if (!ok)
+    {
+      g_it.pending = false;
+      g_it.n_eref++;
+      return;
+    }
+    int_launch(dt, 0.5 * dt);
+    g_it.early_started = true;
+    g_it.early_dt = dt;
+    g_it.n_early++;
+  }
+  catch (const SphError &e)
+  {
+    fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
+    g_it.n_ref[9]++;
+    int_discard();
+    g_it.pending = false;
+    g_it.state_valid = false;
+    if (e.code == 4) g_it.enabled = false;      // no room: the integration on the device is off for the rest of the run
+    cudaGetLastError();
+    if (!g_dev.empty()) cudaSetDevice(g_dev[0].id);
+  }
+}
+
 }  // namespace
 
 extern "C"
@@ -2832,6 +3434,14 @@ extern "C"
       if (!g_ready || !g_rhoh_queued || g_dev.size() != 1 || !fe_enabled()) return;
       const int n = *n_;
       if (g_fdev.size() != 1 || !g_fdev[0].x || n > g_fdev[0].ncap || !g_fdev[0].dw) return;
+      // the call made in advance has put the velocities and u on the device and packed them: nothing is sent
+      if (g_it.fe_ready)
+      {
+        g_it.fe_ready = false;
+        g_fe.valid = true;
+        g_fe.n = n;
+        return;
+      }
       Dev &d = g_dev[0];
       FDev &f = g_fdev[0];
       CK(cudaSetDevice(d.id));
@@ -2922,6 +3532,11 @@ extern "C"
     g_bs.valid = false;
     g_lazy.pending = false;
     g_fe.valid = false;
+    g_it.fe_ready = false;
+    // the call made at the end of the step before (IntState) is the one this call is, if gpu_sph_int_check_ found its data to be the CPU's; a launch that was not asked for is dropped
+    const bool adopt = g_it.adopt && g_it.pending;
+    g_it.adopt = false;
+    if (g_it.pending && !adopt) int_discard();
     const int n = *n_, nlow = *nlow_ - 1, nup = *nup_, nown = nup - nlow;
     const size_t listcap = *listcap_;
     try
@@ -2950,19 +3565,22 @@ extern "C"
 #endif
       const double t0 = now_ms();
       const int ch = std::min(chunk_size(), std::max(1, (nown + ndev - 1) / ndev));
-      for (int k = 0; k < ndev; k++)
+      if (!adopt)
       {
-        if (!g_dev[k].gd) throw SphError(3, "the tables of the kernel were not sent to the device");
-        reserve(g_dev[k], n, nown, ch);
+        for (int k = 0; k < ndev; k++)
+        {
+          if (!g_dev[k].gd) throw SphError(3, "the tables of the kernel were not sent to the device");
+          reserve(g_dev[k], n, nown, ch);
+        }
+        for (int k = 0; k < ndev; k++) upload_and_build(g_dev[k], n, nlow, nup, x, y, z, am, u, hp + nlow, divv + nlow);
       }
-      for (int k = 0; k < ndev; k++) upload_and_build(g_dev[k], n, nlow, nup, x, y, z, am, u, hp + nlow, divv + nlow);
-      // Verlet lists: built by this call (2), or used (1), or not at all (0)
+      // Verlet lists: built by this call (2), or used (1), or not at all (0); the call made in advance (adopt) did it already
       const double skin = *skin_;
-      const int vmode = verlet_prep(ndev, n, nlow, nown, skin);
+      const int vmode = adopt ? g_it.vmode : verlet_prep(ndev, n, nlow, nown, skin);
       double t1 = 0;
       if (plev) { for (int k = 0; k < ndev; k++) { CK(cudaSetDevice(g_dev[k].id)); CK(cudaStreamSynchronize(g_dev[k].st)); } t1 = now_ms(); }
       std::vector<cudaEvent_t> ev;
-      launch_all(ndev, n, nlow, nup, ph, vmode, skin, nown, ch, plev >= 2 ? &ev : 0);
+      if (!adopt) launch_all(ndev, n, nlow, nup, ph, vmode, skin, nown, ch, plev >= 2 ? &ev : 0);
       Host H;
       H.hp = hp; H.rho = rho; H.omega = omega; H.om0 = om0; H.psi = psi; H.wn = wn; H.zeta = zeta; H.u = u;
       H.nn = nn; H.first = first; H.sflag = sflag; H.list = list; H.listcap = listcap; H.skiplist = (*skiplist_ != 0);
@@ -2977,8 +3595,10 @@ extern "C"
       // one device, the lists kept on it: the copies of the results are queued now (see queue_results)
       // (with more than 8 chunks the kernels end one after the other over many milliseconds, and drain copies and spreads each chunk while the next is computed: that is the better way)
       const bool fastdrain = fast_drain_enabled() && ndev == 1 && H.skiplist && nown > 0 && keepres && (nown + ch - 1) / ch <= 8;
-      if (fastdrain) queue_results(g_dev[0], nown, nlow, (nown + ch - 1) / ch);
+      if (fastdrain && !adopt) queue_results(g_dev[0], nown, nlow, (nown + ch - 1) / ch);
       g_rhoh_queued = fastdrain;
+      // (the velocities and u for the forces are on the device already, packed, if the call made in advance did that: gpu_sph_fearly_ only says so)
+      g_it.fe_ready = adopt && g_it.fe_pack && fastdrain;
       if (work && *work) (*work)();
       g_rhoh_queued = false;
       if (fastdrain) drain_fast(g_dev[0], nown, nlow, ch, (nown + ch - 1) / ch, H, ltot, ierr, &nfl, &flagrec);
@@ -2986,6 +3606,12 @@ extern "C"
       // lists left on the device that the CPU needs after all (particles it has to solve itself): copy them now
       if (*ierr == 0 && *skiplist_ != 0 && nfl > 0 && !keepres) getlists(list, ierr);
       verlet_post(vmode, n, nlow, nown, skin, *ierr, plev);
+      if (adopt)
+      {
+        g_it.pending = false;
+        g_it.state_valid = (*ierr == 0);
+        g_it.n_adopt++;
+      }
       if (*ierr == 0 && (nfl == 0 || keepres))
       {
         g_bs.valid = true; g_bs.n = n; g_bs.nlow = nlow; g_bs.nown = nown; g_bs.ch = ch;
@@ -3032,6 +3658,9 @@ extern "C"
       fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
       *ierr = e.code;
       if (!g_dev.empty()) cudaSetDevice(g_dev[0].id);
+      g_it.state_valid = false;
+      int_discard();
+      g_it.pending = false;
     }
   }
 
@@ -3089,6 +3718,9 @@ extern "C"
   {
     *ierr = 0;
     *nlarge = 0;
+    g_it.f_ok = false;
+    g_it.early_ok = false;
+    g_it.early_queued = false;
     const int n = *n_, nt = *nt_, nloop = *nloop_, contig = *contig_, blocks = *blocks_, prec = *prec_;
     try
     {
@@ -3514,9 +4146,24 @@ extern "C"
           if (mk) mark("f d2h", st);
         }
       }
+      // The integration on the device may go on from here with the candidates of dt (see int_early): it queues its work behind the forces on the stream of the device, so that this call
+      // must wait for the forces only (an event after them) and not for the stream
+      g_it.early_ok = g_it.arm.armed && useb && ndev == 1 && !cmp && contig && !blocks && used[0] && nts[0] == nt && nt == n;
+      g_it.early_queued = false;
+      if (g_it.early_ok)
+      {
+        CK(cudaSetDevice(g_dev[0].id));
+        if (!g_it.evF) CK(cudaEventCreateWithFlags(&g_it.evF, cudaEventDisableTiming));
+        CK(cudaEventRecord(g_it.evF, g_dev[0].st));
+      }
       // The work the caller has for its CPUs while the devices are busy with phase B (work: a function or NULL).  It must read what the caller keeps
       // in its arrays and write nothing that this call writes (mvx.. udot, uijmax, divv) or reads from the CPU's arrays after this point.
       if (work && *work) (*work)();
+      if (g_it.early_ok)
+      {
+        int_early();
+        g_it.early_queued = g_it.pending;
+      }
       // with the data of the smoothing-length kernel only what a device touched comes back: the sums of those particles and the results of its targets
       if (cmp)
       {
@@ -3542,9 +4189,11 @@ extern "C"
       {
         if (!used[k]) continue;
         CK(cudaSetDevice(g_dev[k].id));
-        CK(cudaStreamSynchronize(g_dev[k].st));
+        if (k == 0 && g_it.early_queued) CK(cudaEventSynchronize(g_it.evF));
+        else CK(cudaStreamSynchronize(g_dev[k].st));
         if (!cmp) CK(cudaStreamSynchronize(g_fdev[k].stc));
       }
+      g_it.arm.armed = false;
       const double tdev = now_ms();
       // nothing of the CPU has been changed up to here: the results now (the devices in order, so the sums do not depend on timing)
       double *outs[6] = {mvx, mvy, mvz, mgx, mgy, mgz};
@@ -3637,6 +4286,11 @@ extern "C"
           if (!blocks || act[s.p]) uijmax[s.p] = s.uij;
         }
       }
+      // the sums, the results of the targets and (with the smoothing-length kernel's data) the records are on the device as the integration there needs them: one device, every
+      // particle a target (see IntState)
+      g_it.f_ok = useb && ndev == 1 && !cmp && contig && !blocks && used[0] && nts[0] == nt && nt == n;
+      g_it.f_n = n;
+      g_it.f_nt = nt;
       CK(cudaSetDevice(g_dev[0].id));
       if (plev)
       {
@@ -3650,6 +4304,176 @@ extern "C"
       fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
       *ierr = e.code;
       if (!g_dev.empty()) cudaSetDevice(g_dev[0].id);
+    }
+  }
+
+  // ------------------------------------------------------------------------------------------------ the integration on the device (see IntState)
+
+  // 1 if the integration on the device is on (bit 1) and what SPHGPU_INTCHECK says (bit 2)
+  void gpu_sph_int_flags_(int *fl)
+  {
+    int_env();
+    *fl = (g_it.enabled ? 1 : 0) | (g_it.check ? 2 : 0);
+  }
+
+  // the value of the check for one particle (index from 1, 14 words): the Fortran side tests its own sum against this one before it relies on it
+  void gpu_sph_int_hash14_(int *i, double *w, long long *out)
+  {
+    *out = (long long)ihash((long long)*i - 1, w);
+  }
+
+  // the counters: calls made in advance, collected, dropped because the sums differed, because the call that collects them was not the one expected, for another reason, and the
+  // reasons for which none was made (index from 1: the integration is off, one device only, the forces left no data, no room, no gravity data, the rank has not all the particles, FECHECK)
+  void gpu_sph_int_stats_(long long *s)
+  {
+    s[0] = g_it.n_go; s[1] = g_it.n_adopt; s[2] = g_it.n_hash; s[3] = g_it.n_params; s[4] = g_it.n_other;
+    for (int k = 0; k < 7; k++) s[5 + k] = g_it.n_ref[k + 1];
+    s[12] = g_it.n_ref[9];
+    s[13] = g_it.n_early; s[14] = g_it.n_dtmis; s[15] = g_it.n_eref;
+  }
+
+  // The order of the tree of the gravity of this step: gind of gravtree.f90 (the particle, from 1, at each place of the tree).  Only the address is kept: the integration on the device copies
+  // the array when it needs it (from the forces, while the CPU waits for them), and nothing writes it before the end of the step (the tree is made again in the next).
+  void gpu_sph_int_gind_(int *gind, int *n_)
+  {
+    g_it.ginv_valid = false;
+    int_env();
+    if (!g_it.enabled) return;
+    g_it.gind = gind;
+    g_it.ginv_n = *n_;
+    g_it.ginv_valid = true;
+  }
+
+  // Before the forces of a step: what the device needs to go on by itself from them (see IntState).  cb: Fortran, the exact dt from the candidates (gi_dtcand_cb).  The arrays are the
+  // CPU's, read only to give the device the old velocities when it does not hold them and, with SPHGPU_INTCHECK, to compare.  With armed=0 nothing is done in the middle of the step.
+  void gpu_sph_int_arm_(int *armed, int *n_, int *nlow_, int *nup_, double *dth_, double *skin_, int *skiplist_, double *hfloor_, int *nnopt_, int *nselfg_, int *ngrav_, double *cn,
+                        double *dtforce_, double *vxo, double *vyo, double *vzo, double *uo, double *vxdot, double *vydot, double *vzdot, double *udot, double *uijmax, double *divv,
+                        void (**cb)(int *, double *, double *, int *))
+  {
+    int_env();
+    IntArm &A = g_it.arm;
+    A.armed = (*armed != 0) && g_it.enabled && !g_it.nodt;
+    g_it.early_started = false;
+    if (!A.armed) return;
+    A.n = *n_; A.nlow = *nlow_ - 1; A.nup = *nup_; A.dth = *dth_; A.skin = *skin_; A.skiplist = *skiplist_; A.hfloor = *hfloor_; A.nnopt = *nnopt_; A.nselfg = *nselfg_; A.ngrav = *ngrav_;
+    for (int k = 0; k < 4; k++) A.cn[k] = cn[k];
+    A.dtforce = *dtforce_;
+    A.vxo = vxo; A.vyo = vyo; A.vzo = vzo; A.uo = uo; A.vxdot = vxdot; A.vydot = vydot; A.vzdot = vzdot; A.udot = udot; A.uijmax = uijmax; A.divv = divv;
+    A.cb = cb ? *cb : 0;
+  }
+
+  // The step is over (the forces, the gravity and tstep are done: dt is the step of the next one): the device goes on by itself (see IntState): accelerations, corrector of this step,
+  // predictor of the next, build of the tree of boxes and the kernel of the smoothing lengths of the next step, and the copies of its results if the call that collects them
+  // will want them.  If the device went on from the candidates of dt in the middle of the step, this only checks that the dt tstep found is the one it used.  The arrays after ngrav are the
+  // CPU's (see gpu_sph_int_arm_).  status: 0 queued, else the reason why not (see gpu_sph_int_stats_); nothing has changed on the device or on the CPU then.
+  void gpu_sph_int_go_(int *n_, int *nlow_, int *nup_, double *dt_, double *dth_, double *dthnew_, double *skin_, int *skiplist_, double *hfloor_, int *nnopt_, int *nselfg_,
+                       int *ngrav_, double *vxo, double *vyo, double *vzo, double *uo, double *vxdot, double *vydot, double *vzdot, double *udot, double *uijmax, double *divv,
+                       int *status)
+  {
+    *status = 0;
+    int_env();
+    try
+    {
+      if (g_it.pending && g_it.early_started)
+      {
+        g_it.early_started = false;
+        if (memcmp(dt_, &g_it.early_dt, 8) == 0) return;      // the device is on its way with the right step
+        g_it.n_dtmis++;
+        int_discard();
+      }
+      if (g_it.pending) int_discard();
+      g_it.adopt = false;
+      IntArm &A = g_it.arm;
+      A.n = *n_; A.nlow = *nlow_ - 1; A.nup = *nup_; A.dth = *dth_; A.skin = *skin_; A.skiplist = *skiplist_; A.hfloor = *hfloor_; A.nnopt = *nnopt_; A.nselfg = *nselfg_; A.ngrav = *ngrav_;
+      A.vxo = vxo; A.vyo = vyo; A.vzo = vzo; A.uo = uo; A.vxdot = vxdot; A.vydot = vydot; A.vzdot = vzdot; A.udot = udot; A.uijmax = uijmax; A.divv = divv;
+      const int why = int_prepare(false);
+      if (why)
+      {
+        *status = why;
+        g_it.n_ref[why]++;
+        g_it.state_valid = false;
+        return;
+      }
+      int_launch(*dt_, *dthnew_);
+    }
+    catch (const SphError &e)
+    {
+      fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
+      *status = 9;
+      g_it.n_ref[9]++;
+      int_discard();
+      g_it.pending = false;
+      g_it.state_valid = false;
+      if (e.code == 4) g_it.enabled = false;      // no room: the integration on the device is off for the rest of the run
+      cudaGetLastError();
+      if (!g_dev.empty()) cudaSetDevice(g_dev[0].id);
+    }
+  }
+
+  // rho_and_h is done: a call that was made in advance and was not collected is dropped
+  void gpu_sph_int_drop_()
+  {
+    int_discard();
+  }
+
+  // At the smoothing lengths of the next step: the sum of the CPU's data (made in its predictor loop) against the device's, and the arguments of the call that is about to be made
+  // against what the call made in advance assumed.  adopt=1: the results already on their way are the ones the call is going to collect (gpu_sph_rhoh_ does it); else the call made in
+  // advance is dropped (the device has finished with it) and the next call is the plain one.  The arrays: the CPU's, for SPHGPU_INTCHECK.
+  void gpu_sph_int_check_(int *n_, int *nlow_, int *nup_, double *dt, double *skin, int *skiplist, double *hfloor, int *nnopt, int *nselfg, long long *hosthash, double *x,
+                          double *y, double *z, double *vx, double *vy, double *vz, double *u, double *vxo, double *vyo, double *vzo, double *uo, double *hp, double *divv,
+                          double *am, int *adopt)
+  {
+    *adopt = 0;
+    g_it.adopt = false;
+    if (!g_it.pending) return;
+    try
+    {
+      const int n = *n_, nlow = *nlow_ - 1, nup = *nup_;
+      Dev &d = g_dev[0];
+      FDev &f = g_fdev[0];
+      CK(cudaSetDevice(d.id));
+      unsigned long long hd = 0;
+      CK(cudaEventSynchronize(g_it.evX));
+      hd = *g_it.hhash;
+      const bool same = n == g_it.n && nlow == g_it.nlow && nup == g_it.nup && memcmp(dt, &g_it.dt, 8) == 0 && memcmp(skin, &g_it.skin, 8) == 0 && *skiplist == g_it.skiplist &&
+                        memcmp(hfloor, &g_it.hfloor, 8) == 0 && *nnopt == g_it.nnopt && *nselfg == g_it.nselfg;
+      if (g_it.check)
+      {
+        CK(cudaStreamSynchronize(d.st));
+        if (!same) { fprintf(stderr, "StarSmasher (SPHGPU_INTCHECK): the call made in advance assumed other arguments than the call that collects it\n"); fflush(stderr); abort(); }
+        const struct { const char *nm; const double *dv, *hv; } arr[] = {
+          {"x", d.x, x}, {"y", d.y, y}, {"z", d.z, z}, {"vx", f.vx, vx}, {"vy", f.vy, vy}, {"vz", f.vz, vz}, {"u", d.u, u}, {"the old vx", g_it.vxo, vxo}, {"the old vy", g_it.vyo, vyo},
+          {"the old vz", g_it.vzo, vzo}, {"the old u", g_it.uo, uo}, {"h", d.hp, hp}, {"div v", d.divv, divv}, {"the mass", d.am, am},
+          {"the x acceleration", g_it.dax, g_it.arm.vxdot}, {"the y acceleration", g_it.day, g_it.arm.vydot}, {"the z acceleration", g_it.daz, g_it.arm.vzdot},
+          {"du/dt", g_it.udot, g_it.arm.udot}, {"uijmax", g_it.uij, g_it.arm.uijmax}};
+        for (size_t k = 0; k < sizeof arr / sizeof arr[0]; k++) int_cmp(arr[k].nm, arr[k].dv, arr[k].hv, n, 0);
+        if ((long long)hd != *hosthash)
+        {
+          fprintf(stderr, "StarSmasher (SPHGPU_INTCHECK): the arrays are the same but the sums of the check differ: device %016llx, CPU %016llx\n", hd, (unsigned long long)*hosthash);
+          fflush(stderr);
+          abort();
+        }
+      }
+      if (!same || (long long)hd != *hosthash)
+      {
+        if (!same) g_it.n_params++; else g_it.n_hash++;
+        int_discard();
+        if (++g_it.nbad >= 8)
+        {
+          g_it.enabled = false;
+          fprintf(stderr, "StarSmasher (SPH on the GPU): the integration on the device is turned off: the data of the CPU were not what it went on from in 8 steps in a row\n");
+        }
+        return;
+      }
+      g_it.nbad = 0;
+      g_it.adopt = true;
+      *adopt = 1;
+    }
+    catch (const SphError &e)
+    {
+      fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
+      g_it.n_other++;
+      int_discard();
     }
   }
 }

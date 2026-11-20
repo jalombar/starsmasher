@@ -85,6 +85,15 @@
 !     the same particles as a list (gs_list(1:gs_nlist), in increasing order): rho_and_h solves only those
       integer, allocatable, save :: gs_list(:)
       integer, save :: gs_nlist=0
+!     The integration on the device (SPHgrav_lib2/sph_gpu.cu, IntState; SPHGPU_NOINT=1 turns it off, SPHGPU_INTCHECK=1 compares it with the CPU at every step): at the end of a step
+!     the device is told dt (gi_go) and goes on by itself with the corrector of this step, the predictor of the next one and the smoothing lengths of the next step, while the CPU
+!     does what it always did.  gi_pending: it was told, and the next smoothing lengths have to decide whether to collect what it made; gi_hash: the sum of the bits of the CPU's
+!     data (made in the predictor loop of advance) that the device's has to equal.  gi_on: the integration on the device is on (the library has it, SPHGPU_NOINT is not set and the
+!     test of the sum passed).
+      logical, save :: gi_pending=.false., gi_on=.false., gi_set=.false., gi_dbg=.false.
+      integer(8), save :: gi_hash=0
+!     the steps in which it was asked and the reasons for which it was not made
+      integer, save :: gi_ncall=0, gi_nrefused=0, gi_narm(0:4)=0
 !     ngpusphcheck: what the GPU made, kept to compare with what the CPU makes
       real*8, allocatable, save :: ck_hp(:),ck_rho(:),ck_om(:),ck_om0(:),ck_psi(:),ck_wn(:),hp0(:)
       integer, allocatable, save :: ck_nn(:),ck_first(:),ck_list(:)
@@ -212,13 +221,11 @@
       real*8 divv(*)
       logical done,checking
       integer nflag,ltot
-      integer why,why2,ierr,nown,listcap,i,io,skiplist
+      integer why,ierr,nown,listcap,i,io,skiplist
       integer nthl,tid,tlo,thi,c,k
       integer, allocatable :: tcnt(:)
       real*8 skinarg
       type(c_funptr) :: workfn
-      logical needvdotsm
-      external needvdotsm
       character(len=32) what
       what='h, rho and neighbour lists'
       done=.false.
@@ -253,16 +260,15 @@
 !     The lists stay on the GPU (bit 4) when the forces will be made there from them: shared steps, no check against the CPU, and
 !     the forces can be done on the GPU in this run (the same reasons as in gpusph_forces).  If the CPU needs them they are copied;
 !     it does when tstep calls vdotsm (cn2 or cn4 finite, see needvdotsm), which sums over list().
-      skiplist=0
-      if(iand(ngpusph,4).ne.0 .and. iand(ngpusph,2).ne.0 .and. ngpusphcheck.eq.0 .and. nblock.eq.0 .and. .not.needvdotsm()) then
-         call gpusph_usable(why2,2)
-         if(why2.eq.0) skiplist=1
-      endif
+      skiplist=gpusph_skiplist()
       workfn=c_null_funptr
       gw_fsend=gw_vkept .and. skiplist.eq.1 .and. nblock.eq.0 .and. nrelax.eq.0
       if(gw_tree .or. gw_kd .or. gw_fsend) workfn=c_funloc(gpusph_work)
+!     the integration on the device was started at the end of the step before: is what it made what this call would make?
+      if(gi_pending) call gi_check(skinarg,skiplist)
       call gpu_sph_rhoh(n,n_lower,n_upper,nmax,x,y,z,am,u,hp,divv,rho,bonet_omega,bonet_0mega,bonet_psi,bonet_wn,zeta,nn,first,&
            gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,skinarg,skiplist,workfn,ierr)
+      gi_pending=.false.
       gw_fsend=.false.
       if(ierr.ne.0) then
          if(ierr.eq.2) then
@@ -345,6 +351,239 @@
          ltot=0
       endif
       end subroutine gpusph_rhoh
+
+!     1 if the lists stay on the GPU (the forces read them there): shared steps, no check against the CPU, the forces can be done on the GPU in this run (the same
+!     reasons as in gpusph_forces), and the CPU does not need them (tstep calls vdotsm when cn2 or cn4 is finite, see needvdotsm, which sums over list())
+      integer function gpusph_skiplist()
+      include 'starsmasher.h'
+      integer why2
+      logical needvdotsm
+      external needvdotsm
+      gpusph_skiplist=0
+      if(iand(ngpusph,4).ne.0 .and. iand(ngpusph,2).ne.0 .and. ngpusphcheck.eq.0 .and. nblock.eq.0 .and. .not.needvdotsm()) then
+         call gpusph_usable(why2,2)
+         if(why2.eq.0) gpusph_skiplist=1
+      endif
+      end function gpusph_skiplist
+
+!***********************************************************************
+!     The integration on the device (see gi_pending above).
+!***********************************************************************
+!     the sum of the check for particle i (from 1) and its 14 words, as sph_gpu.cu makes it (ihash there): q starts at i*K1, takes each word as q=(rotl(q,27) xor word)*M1,
+!     and ends as (q xor q>>32)*M2.  The arithmetic wraps modulo 2**64.
+      integer(8) function gi_hash14(i,w)
+      integer i
+      real*8 w(14)
+      integer(8) q
+      integer k
+      integer(8), parameter :: m1=-7046029254386353131_8, m2=-4417276706812531889_8, k1=-2960836687051489901_8
+      q=int(i,8)*k1
+      do k=1,14
+         q=ieor(ishftc(q,27),transfer(w(k),0_8))*m1
+      enddo
+      q=ieor(q,ishft(q,-32))*m2
+      gi_hash14=q
+      end function gi_hash14
+
+!     once: does the library have it, is it wanted, and does this compiler make the same sum as the device (a test with made-up numbers)
+      subroutine gi_setup
+      include 'starsmasher.h'
+      integer fl,k,nd
+      real*8 w(14)
+      integer(8) hc
+      if(gi_set) return
+      gi_set=.true.
+      gi_on=.false.
+      if(gs_state.ne.1) return
+      call gpu_sph_int_flags(fl)
+      gi_dbg=iand(fl,2).ne.0
+      if(iand(fl,1).eq.0) return
+      call gpu_sph_ndev(nd)
+      if(nd.ne.1) return
+      do k=1,14
+         w(k)=sin(1.d0+0.37d0*dble(k))*10.d0**(k-7)
+      enddo
+      w(5)=-0.d0
+      call gpu_sph_int_hash14(77,w,hc)
+      if(hc.ne.gi_hash14(77,w)) then
+         if(myrank.eq.0) then
+            write(69,*) 'ngpusph: the integration on the device is off: the sum of its check is not the same in this build'
+            call flush(69)
+         endif
+         return
+      endif
+      gi_on=.true.
+      end subroutine gi_setup
+
+!     true if the device can go on by itself after this step: one rank and one device, the forces on the GPU, shared steps, the integration of advance as the device makes it (u, no
+!     relaxation, no cooling, no periodic box, no point particles with a softening length of their own), and the gravity either off or the tree on the GPU with every particle done
+!     by this rank (uvdots then adds the accelerations in one pass)
+      logical function gi_allowed()
+      include 'starsmasher.h'
+      integer w1,w2
+      gi_allowed=.false.
+      if(.not.gi_on) return
+      if(nprocs.ne.1 .or. nblock.ne.0 .or. nrelax.ne.0 .or. ncooling.ne.0 .or. nintvar.ne.2) return
+      if(periodic .or. dynhco.ne.0 .or. hcolim .or. nav.eq.4) return
+      if(iand(ngpusph,3).ne.3 .or. ngpusphcheck.ne.0 .or. dt.le.0.d0) return
+      if(n_lower.ne.1 .or. n_upper.ne.n) return
+      if(ngr.ne.0) then
+         if(ngravtree.ne.2 .or. nusegpus.ne.1 .or. ngrav_lower.ne.1 .or. ngrav_upper.ne.n) return
+      endif
+      call gpusph_usable(w1,1)
+      call gpusph_usable(w2,2)
+      if(w1.ne.0 .or. w2.ne.0) return
+      gi_allowed=.true.
+      end function gi_allowed
+
+!     the end of a step (after tstep): the device is told dt and goes on
+      subroutine gi_go
+      include 'starsmasher.h'
+      real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
+      common/oldarrays/uo,vxo,vyo,vzo
+      real*8 uijmax(nmax)
+      common/uijmax/ uijmax
+      double precision divv(nmax)
+      common/commdivv/divv
+      integer status,skiplist,ngrav,gok
+      real*8 skinarg,dthnew
+      gi_pending=.false.
+      if(.not.gi_set) call gi_setup
+      if(.not.gi_allowed()) return
+      gi_ncall=gi_ncall+1
+      skinarg=0.d0
+      if(iand(ngpusph,4).ne.0) skinarg=ngpusphskin
+      skiplist=gpusph_skiplist()
+      ngrav=0
+      if(ngr.ne.0) then
+         call gt_int_ok(n,gok)
+         if(gok.eq.0) then
+            gi_nrefused=gi_nrefused+1
+            return
+         endif
+         ngrav=1
+      endif
+      dthnew=0.5d0*dt
+      call gpu_sph_int_go(n,n_lower,n_upper,dt,dth,dthnew,skinarg,skiplist,hfloor,nnopt,nselfgravity,ngrav,vxo,vyo,vzo,uo,&
+           vxdot,vydot,vzdot,udot,uijmax,divv,status)
+      gi_pending=status.eq.0
+      end subroutine gi_go
+
+!     at the smoothing lengths: decides, with the sums, what to do with what the device made in advance
+      subroutine gi_check(skinarg,skiplist)
+      include 'starsmasher.h'
+      real*8 skinarg
+      integer skiplist
+      real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
+      common/oldarrays/uo,vxo,vyo,vzo
+      double precision divv(nmax)
+      common/commdivv/divv
+      integer adopt
+      call gpu_sph_int_check(n,n_lower,n_upper,dt,skinarg,skiplist,hfloor,nnopt,nselfgravity,gi_hash,x,y,z,vx,vy,vz,u,vxo,vyo,vzo,&
+           uo,hp,divv,am,adopt)
+      end subroutine gi_check
+
+!     Before the forces of a step: what the device needs to go on by itself from them, and whether it may do it in the middle of the step, with dt made of the candidates it sends (the
+!     accelerations and the gravity are on the device as soon as the forces and the visit are done: much before they are on the CPU).  That is not so when tstep would smooth the
+!     accelerations over the lists (vdotsm: cn2 or cn4 finite), ramp the step up at the start (nstartramp=1; a restart has it negative and never ramps), or when the visit of the gravity has not been queued yet.
+      subroutine gi_arm
+      include 'starsmasher.h'
+      real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
+      common/oldarrays/uo,vxo,vyo,vzo
+      real*8 uijmax(nmax)
+      common/uijmax/ uijmax
+      double precision divv(nmax)
+      common/commdivv/divv
+      integer armed,ngrav,skiplist,gok
+      real*8 skinarg,cn(4)
+      type(c_funptr), save :: cbf
+      logical needvdotsm
+      external needvdotsm
+      armed=0
+      ngrav=0
+      skiplist=0
+      skinarg=0.d0
+      cn=0.d0
+      if(.not.gi_set) call gi_setup
+      if(gi_on) then
+         if(.not.gi_allowed()) then
+            gi_narm(1)=gi_narm(1)+1
+         else if(needvdotsm()) then
+            gi_narm(2)=gi_narm(2)+1
+         else if(nstartramp.eq.1) then
+            gi_narm(3)=gi_narm(3)+1
+         else
+            armed=1
+         endif
+      endif
+      if(armed.eq.1 .and. ngr.ne.0) then
+         call gt_int_early_ok(n,gok)
+         if(gok.eq.0) then
+            armed=0
+            gi_narm(4)=gi_narm(4)+1
+         else
+            ngrav=1
+         endif
+      endif
+      if(armed.eq.1) gi_narm(0)=gi_narm(0)+1
+      if(armed.eq.1) then
+         if(iand(ngpusph,4).ne.0) skinarg=ngpusphskin
+         skiplist=gpusph_skiplist()
+         cn(1)=cn1
+         cn(2)=cn2
+         cn(3)=cn3
+         cn(4)=cn4
+         cbf=c_funloc(gi_dtcand_cb)
+      endif
+      call gpu_sph_int_arm(armed,n,n_lower,n_upper,dth,skinarg,skiplist,hfloor,nnopt,nselfgravity,ngrav,cn,dtforce,vxo,vyo,vzo,uo,&
+           vxdot,vydot,vzdot,udot,uijmax,divv,cbf)
+      end subroutine gi_arm
+
+!     the exact dt from the candidates the device sends (m of them, 12 numbers each: h, the velocity, the acceleration, u, du/dt, uijmax and the particle): the smallest of their limits,
+!     made by dtlimit as tstep makes them (the device made the smallest of the approximate values of all the particles and sent those within 1e-12 of it, so that the
+!     exact smallest is among them), and dtforce if it is set.  ok=0 if a value is not a positive number below the 1e30 that tstep starts from.
+      subroutine gi_dtcand_cb(gm,gc,gdt,gok) bind(C, name='gi_dtcand_cb')
+      include 'starsmasher.h'
+      integer(c_int) :: gm,gok
+      real(c_double) :: gc(12,*),gdt
+      real*8 bdt,dtivel,dtiacc,dtiu,dtiacc4,dtmin
+      integer k
+      gok=0
+      dtmin=1.d30
+      do k=1,gm
+         call dtlimit(gc(1,k),gc(2,k),gc(3,k),gc(4,k),gc(10,k),gc(5,k),gc(6,k),gc(7,k),gc(8,k),gc(9,k),&
+              dtivel,dtiacc,dtiu,dtiacc4,bdt)
+         if(.not.(bdt.gt.0.d0 .and. bdt.lt.1.d30)) return
+         dtmin=min(dtmin,bdt)
+      enddo
+      if(dtforce.gt.0.d0) dtmin=dtforce
+      gdt=dtmin
+      gok=1
+      end subroutine gi_dtcand_cb
+
+!     rho_and_h is done: if the device's call was not collected it is dropped
+      subroutine gi_drop
+      if(gi_pending) call gpu_sph_int_drop
+      gi_pending=.false.
+      end subroutine gi_drop
+
+!     the counters, to log0.sph at the end of the run
+      subroutine gi_report
+      include 'starsmasher.h'
+      integer(8) s(16)
+      if(.not.gi_on .or. myrank.ne.0) return
+      call gpu_sph_int_stats(s)
+      write(69,'(a,i0,a,i0,a,i0,a,i0,a,i0,a,i0,a,i0)') 'integration on the device: steps asked ',gi_ncall,', started ',s(1),&
+           ', collected ',s(2),', dropped because the sums differed ',s(3),', for other arguments ',s(4),', after an error ',s(5),&
+           ', not started (no gravity data) ',gi_nrefused
+      write(69,'(a,8(1x,i0))') 'integration on the device: not started, by reason (off, no device, no forces data, no room, &
+           &no gravity data, rank, FECHECK, error):',s(6:13)
+      write(69,'(a,5(1x,i0))') 'integration on the device: armed for the middle of the step, and not armed because (not &
+           &allowed, vdotsm, ramp, no visit):',gi_narm(0:4)
+      write(69,'(a,i0,a,i0,a,i0)') 'integration on the device: started from the candidates of dt in the middle of the step ',s(14),&
+           ' times, dropped because tstep found another dt ',s(15),', not started from them ',s(16)
+      call flush(69)
+      end subroutine gi_report
 
 !     the largest number of threads a parallel region can have
       integer function max_threads_gs()
@@ -505,6 +744,8 @@
       workfn=c_null_funptr
       if(gw_enout) workfn=c_funloc(gpusph_fwork)
       if(nt.gt.0) then
+!        (the device may go on by itself from the forces: the integration of the step, with the candidates of dt, see gi_arm)
+         call gi_arm
          call gpu_sph_forces(n,nmax,nt,nloop,ncontig,gtp,gtiw,x,y,z,vx,vy,vz,am,u,hp,rho,por2,bonet_omega,bonet_0mega,bonet_psi,&
               nn,first,list,listcap,actblk,blocks,alpha1,beta1,hfloor,gam,nav,nintvar,relaxnoheat,udotother,ngr,useb,ngpusphprec,&
               mvx,mvy,mvz,mgx,mgy,mgz,udot,uijmax,divv,nlarge,workfn,ierr)

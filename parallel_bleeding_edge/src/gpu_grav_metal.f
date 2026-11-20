@@ -146,3 +146,76 @@ c     SPH on the GPU (ngpusph): the CUDA library has it, this build does not (gp
       ierr=1
       return
       end
+
+c     the integration on the device (gpusph.f90, gi_*): the CUDA library has it, this build does not (gpusph.f90 never asks for it here: gpu_sph_available says 0)
+      subroutine gpu_sph_int_flags(fl)
+      integer fl
+      fl=0
+      return
+      end
+
+      subroutine gpu_sph_int_hash14(i,w,out)
+      integer i
+      integer*8 out
+      real*8 w(*)
+      out=0
+      return
+      end
+
+      subroutine gpu_sph_int_stats(s)
+      integer*8 s(*)
+      integer k
+      do k=1,16
+         s(k)=0
+      enddo
+      return
+      end
+
+      subroutine gpu_sph_int_gind(g,n)
+      integer g(*),n
+      return
+      end
+
+      subroutine gpu_sph_int_go(n,nlow,nup,dt,dth,dthnew,skin,skiplist,
+     $     hfloor,nnopt,nselfg,ngrav,vxo,vyo,vzo,uo,vxdot,vydot,vzdot,
+     $     udot,uijmax,divv,status)
+      integer n,nlow,nup,skiplist,nnopt,nselfg,ngrav,status
+      real*8 dt,dth,dthnew,skin,hfloor
+      real*8 vxo(*),vyo(*),vzo(*),uo(*),vxdot(*),vydot(*),vzdot(*)
+      real*8 udot(*),uijmax(*),divv(*)
+      status=1
+      return
+      end
+
+      subroutine gpu_sph_int_check(n,nlow,nup,dt,skin,skiplist,hfloor,
+     $     nnopt,nselfg,hosthash,x,y,z,vx,vy,vz,u,vxo,vyo,vzo,uo,hp,
+     $     divv,am,adopt)
+      integer n,nlow,nup,skiplist,nnopt,nselfg,adopt
+      integer*8 hosthash
+      real*8 dt,skin,hfloor
+      real*8 x(*),y(*),z(*),vx(*),vy(*),vz(*),u(*),vxo(*),vyo(*)
+      real*8 vzo(*),uo(*),hp(*),divv(*),am(*)
+      adopt=0
+      return
+      end
+
+      subroutine gpu_sph_int_drop
+      return
+      end
+
+      subroutine gpu_sph_int_arm(armed,n,nlow,nup,dth,skin,skiplist,
+     $     hfloor,nnopt,nselfg,ngrav,cn,dtforce,vxo,vyo,vzo,uo,vxdot,
+     $     vydot,vzdot,udot,uijmax,divv,cb)
+      integer armed,n,nlow,nup,skiplist,nnopt,nselfg,ngrav
+      integer*8 cb
+      real*8 dth,skin,hfloor,cn(*),dtforce
+      real*8 vxo(*),vyo(*),vzo(*),uo(*),vxdot(*),vydot(*),vzdot(*)
+      real*8 udot(*),uijmax(*),divv(*)
+      return
+      end
+
+      subroutine gpu_sph_ndev(nd)
+      integer nd
+      nd=0
+      return
+      end
