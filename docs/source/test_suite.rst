@@ -45,7 +45,8 @@ something changed.  These tell you whether the answer is right.
        the limits measured for the SPH that goes with the gravity by default;
        the tree on the CPUs in the CPU build), writes the choice in
        ``log0.sph``, and gives exactly the energies and dumps of the value it
-       chose, set by hand.
+       chose, set by hand; with three or more GPUs it is tried with 4 ranks and with
+       one rank of ``ngpuperrank = 4`` (skipped on a machine with fewer than 4 GPUs).
    * - ``gpu_sph``
      - ``ngpusph = 1`` (the smoothing lengths, densities and neighbour lists on the GPU) gives exactly the bits of
        ``ngpusph = 0``: the energies of every row and the bytes of every dump, on
@@ -89,7 +90,7 @@ something changed.  These tell you whether the answer is right.
        the class that ``log0.sph`` says must agree with the number of
        multiprocessors it says it read, and ``ngpuclass = 3`` must be refused
        (in a build without OpenMP the cases that need more than one thread per rank
-       are skipped).
+       are skipped; the cases with ``ngpuperrank = 4`` need 4 GPUs).
    * - ``vdotsm``
      - With ``cn2`` and ``cn4`` finite (so that ``tstep`` uses the smoothed
        accelerations of ``vdotsm``, which sums over the neighbour lists on the

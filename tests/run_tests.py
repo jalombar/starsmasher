@@ -541,10 +541,11 @@ def t_guard_periodic(ctx):
 # (relaxed Suns of 9966 to 499860 particles, 7 to 63 threads per rank, one rank with one GPU): the smallest star measured is 9966 particles, below it the choice of the earlier versions stays (the direct
 # sum; ngpusph 7 with at most 8 threads per rank, 0 with 32 or more, in between 7 below 300000).  From there up, with one rank and one GPU:
 #   ngravtree=-1 (ngravtreeauto=-1): the tree on the GPU from 9966 particles with ngpusph=-1 (the pair of the tree and ngpusph=7 is the fastest) or 3 or 7 written, from 25000 with ngpusph=1, from 75000 with ngpusph=0 and
-#   48 threads or more (450000 with fewer); two GPUs (2 ranks): from 15000 with the SPH on the GPU, from 450000 with ngpusph 0 or 1; more GPUs (4 ranks here): from 299000
+#   48 threads or more (450000 with fewer); two GPUs (2 ranks): from 15000 with the SPH on the GPU, from 450000 with ngpusph 0 or 1; three or more GPUs (ranks x ngpuperrank): the tree from 9966 particles with one rank (ngpuperrank=4 in the cases, which need 4 GPUs
+#   and are skipped on a machine with fewer) and from 99954 with several ranks (4 here), for every ngpusph; ngpuperrank=0 (not measured): from 299000
 #   ngpusph=-1: with the tree 7; the direct sum on one GPU 7 with at most 8 threads, with 9 to 31 threads below 450000 particles, with 32 to 47 below 150000 and with 48 or more below 75000 (0 from there) for a GPU
 #   of the strong class (100 multiprocessors or more, or not known), below 75000 and 40000 for one of the mid class (1 to 99; ngpuclass in sph.input writes the class, -1 reads it from the GPU, and the cases that
-#   depend on it write it, so that they hold on any machine); on two GPUs 7 (1 from 450000); on more 1
+#   depend on it write it, so that they hold on any machine); on two GPUs 7 (1 from 450000); on three or more 7 whatever the number of particles; ngpuperrank=0 (not measured) 1
 # (the rank counts of the cases do not depend on the --np of the suite.)  Each case is run with the automatic values, the pair that was chosen is read from log0.sph (and compared with the rule above), and the run is made again with that pair written by hand: the energies of
 # every row and the bytes of every dump must be those of the automatic run.  The stars are polytropes of n particles (a few less come out of the lattice), a factor of 1.1 or more from the limit.
 AUTO_CASES_GRAVITY = [   # (label, ranks, threads, n, written, wanted (ngravtree, ngpusph))
@@ -565,7 +566,14 @@ AUTO_CASES_GRAVITY = [   # (label, ranks, threads, n, written, wanted (ngravtree
     ('two_ranks_s7',    2, 1, 18000, dict(ngpusph=7), (2, 7)),
     ('two_ranks_s1',    2, 1, 33000, dict(ngpusph=1), (0, 1)),
     ('two_ranks_s0',    2, 1, 33000, dict(ngpusph=0), (0, 0)),
-    ('four_ranks',      4, 1, 14000, {}, (0, 1)),
+    ('four_ranks',      4, 1, 14000, {}, (0, 7)),
+    ('four_ranks_small', 4, 1, 5000, {}, (0, 1)),
+    ('four_ranks_below', 4, 1, 88000, {}, (0, 7)),
+    ('four_ranks_above', 4, 1, 112000, {}, (2, 7)),
+    ('four_devices_small', 1, 1, 5000, dict(ngpuperrank=4), (0, 1)),
+    ('four_devices_big', 1, 1, 14000, dict(ngpuperrank=4), (2, 7)),
+    ('four_devices_s0', 1, 1, 14000, dict(ngpuperrank=4, ngpusph=0), (2, 0)),
+    ('ngpuperrank_0',   1, 1, 14000, dict(ngpuperrank=0), (0, 1)),
     ('nleafgrav_40',    1, 1, 14000, dict(nleafgrav=40), (0, 7)),
     ('no_gravity',      1, 1, 14000, dict(ngr=0), (0, 7)),
     ('user_below',      1, 1, 14000, dict(ngravtreeauto=20000), (0, 7)),
@@ -587,7 +595,11 @@ AUTO_CASES_SPH = [       # (label, ranks, threads, n, written, wanted ngpusph)
     ('direct_63t_small',  1, 63, 5000, dict(ngravtree=0), 0),
     ('direct_2_ranks',    2, 1, 14000, dict(ngravtree=0), 7),
     ('direct_2_ranks_small', 2, 1, 5000, dict(ngravtree=0), 1),
-    ('direct_4_ranks',    4, 1, 14000, dict(ngravtree=0), 1),
+    ('direct_4_ranks',    4, 1, 14000, dict(ngravtree=0), 7),
+    ('direct_4_ranks_small', 4, 1, 5000, dict(ngravtree=0), 1),
+    ('direct_4_devices',  1, 1, 14000, dict(ngravtree=0, ngpuperrank=4), 7),
+    ('direct_4_devices_small', 1, 1, 5000, dict(ngravtree=0, ngpuperrank=4), 1),
+    ('direct_ngpuperrank_0', 1, 1, 14000, dict(ngravtree=0, ngpuperrank=0), 1),
     ('tree_gpu',          1, 1, 14000, dict(ngravtree=2, treeacc='0.5d0'), 7),
     ('tree_cpu',          1, 1, 14000, dict(ngravtree=1, treeacc='0.5d0'), 7),
     ('tree_4_ranks',      4, 1, 14000, dict(ngravtree=1, treeacc='0.5d0'), 7),
@@ -600,6 +612,17 @@ def periodic_box_setup(d):
     parts = [dict(x=q[0], y=q[1], z=q[2], am=L[0] * L[1] * L[2] / n, hp=1.0, u=1.0, vx=0.0, vy=0.0, vz=0.0) for q in pts]
     write_dump(os.path.join(d, 'box.sph'), parts)
     return dict(PBOX, tf=0.2, dtout=1, cn1=0.05, boxx=L[0], boxy=L[1], boxz=L[2])
+
+def gpus_visible():
+    """The number of GPUs the tests can use: CUDA_VISIBLE_DEVICES if it is set, else the lines of nvidia-smi -L; 0 if neither says (the cases that need several devices of one rank are skipped then)."""
+    v = os.environ.get('CUDA_VISIBLE_DEVICES')
+    if v is not None and v.strip():
+        return len([x for x in v.split(',') if x.strip()])
+    try:
+        p = subprocess.run(['nvidia-smi', '-L'], capture_output=True, text=True, timeout=30)
+        return len([l for l in p.stdout.splitlines() if l.startswith('GPU')])
+    except Exception:
+        return 0
 
 def auto_read(d):
     """What the automatic values chose, read from log0.sph: (ngravtree, ngpusph, the text); a value that was written (not -1) is None."""
@@ -697,7 +720,11 @@ def t_gravity_auto(ctx):
             chosen = auto_case(ctx, exe, 'cpu_default', 1, 1, 5000, dict(ngpusph=0), (1, None))
             out.append('cpu default -> %d' % chosen[0])
             continue
+        ngpu = gpus_visible()
         for label, np_, threads, nn, written, wanted in AUTO_CASES_GRAVITY:
+            if written.get('ngpuperrank', 1) > max(ngpu, 1):
+                out.append('%s skipped (needs %d GPUs, %d here)' % (label, written['ngpuperrank'], ngpu))
+                continue
             chosen = auto_case(ctx, exe, 'g_' + label, np_, threads, nn, written, wanted)
             if chosen is None:
                 out.append('%s skipped (no OpenMP)' % label)
@@ -944,7 +971,11 @@ def t_sph_auto(ctx):
                     chosen = auto_case(ctx, exe, 'sa_cpu_%d_%s' % (np_, gname), np_, 1, 5000, gx, (None, 0))
                     out.append('cpu np=%d %s -> %d' % (np_, gname, chosen[1]))
             continue
+        ngpu = gpus_visible()
         for label, np_, threads, nn, written, want in AUTO_CASES_SPH:
+            if written.get('ngpuperrank', 1) > max(ngpu, 1):
+                out.append('%s skipped (needs %d GPUs, %d here)' % (label, written['ngpuperrank'], ngpu))
+                continue
             chosen = auto_case(ctx, exe, 'sa_' + label, np_, threads, nn, written, (None, want))
             if chosen is None:
                 out.append('%s skipped (no OpenMP)' % label)

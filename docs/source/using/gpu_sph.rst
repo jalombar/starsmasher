@@ -63,6 +63,7 @@ The automatic choice (``ngpusph = -1``)
 ``ngpusph = -1`` chooses 0, 1 or 7 once, at the start of the run (and of every restart), from the configuration alone and never from a time measured, and writes
 the choice and the reason to ``log0.sph`` (as ``ngravtree = -1`` does), as the fastest.  The rules come from measurements of the step time with ``ngpusph`` 0, 1 and 7 for
 the direct sum on a GPU, the tree on a GPU and the tree on the CPUs (1, 4, 16 and 63 threads, 100000 and 500000 particles, 4 and 8 ranks and 8 GPUs;
+for three or more GPUs, relaxed Suns of 9966 to 499860 particles and the collision of two Suns, 7 to 63 threads per rank, on 4 H100 and on 8 RTX PRO 6000, in the layouts of :doc:`gravity`;
 relaxed Suns of 9966 to 499860 particles, 7, 16, 32 and 63 threads per rank, one rank and one GPU, on a Threadripper 7980X with a RTX 4070 Ti SUPER and on
 an EPYC 9335 with a RTX PRO 6000; and, as a check, on a third node, a Xeon 8480C with a H100: 19938 to 499860 particles, 16, 32, 48 and 63 threads, mean step).  A choice is taken as the fastest if it is the fastest of the cells measured or lies within the noise of the measurement (the spread of the repetitions).
 
@@ -72,8 +73,9 @@ an EPYC 9335 with a RTX PRO 6000; and, as a check, on a third node, a Xeon 8480C
   against 1457; tree on the CPUs, 63 threads: 60 against 75).
 * The direct sum on two GPUs (two ranks, or one rank with ``ngpuperrank = 2``): 7 below 450000 particles (the collision of two Suns, 199908 particles, 2 ranks of 8 threads:
   17.9 ms a step with 7, 26.1 with 1, 53.6 with 0) and 1 from there (500000 particles, one rank of 16 threads: 56.8 ms with 1, 62.9 with 7, 110.7 with 0).
-* The direct sum on more GPUs (several ranks, or ``ngpuperrank`` not 1, not measured for the limits above): 1.  For 500000 particles, 8 ranks of 7 threads: 26 ms a step against 41 with 0
-  and 27 with 7; 4 ranks of 15 threads: 37, 56 and 39; one rank with 8 GPUs: 28, 41 and 29.
+* The direct sum on three or more GPUs (ranks times ``ngpuperrank``): 7 whatever the number of particles (4 H100, one rank of 63 threads: 3.77 ms a step with 7 against 4.92 with 1 at 9966 particles, 4.02 against 5.24 at 30090;
+  at 499860 particles 1 is ahead by 2% with 63 threads and by 5% with 32; 8 RTX PRO 6000, 16 threads, 499860 particles: 30.34 ms with 7 against 52.01 with 1).  With ``ngpuperrank = 0`` (all the devices of the node divided among the processes),
+  not measured: 1.
 * The direct sum on one GPU, which the kernels of the gravity keep busy, depends on the threads per rank and on the particles, and with 32 threads or more on the class of the GPU: with at most 8 threads 7 (7 threads, 100000 particles: 25 ms against 60 with 0;
   1 thread, 500000 particles: 180 ms against 1425); with 9 to 31 threads 7 below 450000 particles (16 threads, 100000 particles: 24 ms against 30 on the Threadripper, 11 against 24 on the EPYC; 399816 particles: 70.7 ms against 91.3 on the EPYC)
   and 0 from there (499860 particles: 100 ms against 105); with 32 threads or more the limits are in the table below.  Below 9966 particles, the smallest star measured, the choice stays what it was in the earlier versions
