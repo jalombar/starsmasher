@@ -51,6 +51,7 @@
 !***********************************************************************
       module gpusph_mod
       use iso_c_binding
+!$    use omp_lib
       implicit none
 !     Work that the CPUs do while the devices solve the smoothing lengths (gpusph_work, called by the library between the launch of the
 !     kernels and the collection of their results): the structure of the tree of the gravity (gw_tree).  The caller sets what it wants
@@ -75,6 +76,9 @@
       logical, save :: gs_fresh=.false.
 !     1 for the particles of the rank (i-n_lower+1) that the GPU did not do
       integer, allocatable, save :: gs_flag(:)
+!     the same particles as a list (gs_list(1:gs_nlist), in increasing order): rho_and_h solves only those
+      integer, allocatable, save :: gs_list(:)
+      integer, save :: gs_nlist=0
 !     ngpusphcheck: what the GPU made, kept to compare with what the CPU makes
       real*8, allocatable, save :: ck_hp(:),ck_rho(:),ck_om(:),ck_om0(:),ck_psi(:),ck_wn(:),hp0(:)
       integer, allocatable, save :: ck_nn(:),ck_first(:),ck_list(:)
@@ -200,6 +204,8 @@
       logical done,checking
       integer nflag,ltot
       integer why,why2,ierr,nown,listcap,i,io,skiplist
+      integer nthl,tid,tlo,thi,c,k
+      integer, allocatable :: tcnt(:)
       real*8 skinarg
       type(c_funptr) :: workfn
       logical needvdotsm
@@ -260,10 +266,45 @@
          return
       endif
       call gpusph_say(what,0,1)
+!     the particles the GPU did not do, counted and listed by the threads, each over a fixed share of the particles (the list is in
+!     increasing order whatever the number of threads)
+      if(allocated(gs_list)) then
+         if(size(gs_list).lt.nown) deallocate(gs_list)
+      endif
+      if(.not.allocated(gs_list)) allocate(gs_list(nown))
+      allocate(tcnt(0:max(max_threads_gs(),1)))
       nflag=0
-      do io=1,nown
-         if(gs_flag(io).ne.0) nflag=nflag+1
+!$omp parallel default(shared) private(nthl,tid,tlo,thi,c,k,io)
+      nthl=1
+      tid=0
+!$    nthl=omp_get_num_threads()
+!$    tid=omp_get_thread_num()
+      tlo=int((int(nown,8)*tid)/nthl)+1
+      thi=int((int(nown,8)*(tid+1))/nthl)
+      c=0
+      do io=tlo,thi
+         if(gs_flag(io).ne.0) c=c+1
       enddo
+      tcnt(tid)=c
+!$omp barrier
+!$omp single
+      nflag=0
+      do k=0,nthl-1
+         c=tcnt(k)
+         tcnt(k)=nflag
+         nflag=nflag+c
+      enddo
+!$omp end single
+      c=tcnt(tid)
+      do io=tlo,thi
+         if(gs_flag(io).ne.0) then
+            c=c+1
+            gs_list(c)=io
+         endif
+      enddo
+!$omp end parallel
+      gs_nlist=nflag
+      deallocate(tcnt)
       done=.true.
 !     (with particles the CPU solves, the devices hold the data too when there are several: the library says so, and the forces
 !     take what the CPU made of those particles to the devices; otherwise the forces read the arrays of the CPU)
@@ -293,6 +334,12 @@
          ltot=0
       endif
       end subroutine gpusph_rhoh
+
+!     the largest number of threads a parallel region can have
+      integer function max_threads_gs()
+      max_threads_gs=1
+!$    max_threads_gs=omp_get_max_threads()
+      end function max_threads_gs
 
 !     true if the two numbers have the same bits
       logical function same8(a,b)

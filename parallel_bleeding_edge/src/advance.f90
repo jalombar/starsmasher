@@ -518,7 +518,7 @@
 !     the particles are handed out in chunks of this many consecutive indices
       integer, parameter :: hchunk=64
       type(hscratch), allocatable, save :: hsc(:)
-      integer listtop,listfail,failfirst,failneed,nthr,it
+      integer listtop,listfail,failfirst,failneed,nthr,it,k2
 !     the groups a thread takes at a time (hgroup.f90): the groups of the rank over 16 times the threads, at most hg_chunk
       integer hgch
 !     The lists in the order of the particles (hg_listord): particle k of the own range has room for lcap(k) entries at
@@ -740,7 +740,7 @@
 !     The particles are independent: each one is solved by one thread, which
 !     writes only the elements of the arrays with the index of the particle
 !     and the list in its own block.
-!$omp parallel default(shared) private(iw,it) num_threads(nthr)
+!$omp parallel default(shared) private(iw,it,k2) num_threads(nthr)
       it=thread_id()+1
       if(usegroup) then
 !$omp do schedule(dynamic,hgch)
@@ -756,16 +756,22 @@
          enddo
 !$omp end do
       else
-!$omp do schedule(dynamic,hchunk)
-         do iw=1,nloop
-            if(listfailed()) cycle
-!           (the GPU did the others)
-            if(gpudone) then
-               if(gs_flag(iw).eq.0) cycle
-            endif
-            call solve_particle(iw,hsc(it))
-         enddo
+         if(gpudone) then
+!           (the GPU did the others: only the particles of the list that gpusph_rhoh made are solved here, one at a time to a thread)
+!$omp do schedule(dynamic,1)
+            do k2=1,gs_nlist
+               if(listfailed()) cycle
+               call solve_particle(gs_list(k2),hsc(it))
+            enddo
 !$omp end do
+         else
+!$omp do schedule(dynamic,hchunk)
+            do iw=1,nloop
+               if(listfailed()) cycle
+               call solve_particle(iw,hsc(it))
+            enddo
+!$omp end do
+         endif
       endif
 !$omp end parallel
       if(usegroup) deallocate(gsel)
