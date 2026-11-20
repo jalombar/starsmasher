@@ -649,7 +649,7 @@ c      end
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
      $     bbh_longitude,rp,rjump,rjumpfactor,rjumppercent,ndtoutafter,
      $     reentryfactor,
-     $     hgroup,ngpusph,ngpusphcheck,ngpusphskin,
+     $     hgroup,ngpusph,ngpusphcheck,ngpusphskin,ngpusphprec,
      $     boxx,boxy,boxz,nhdf5
       
       character*9 slurm_gpu_count_str
@@ -775,9 +775,10 @@ c     set some default values, so that they don't necessarily have to be set in 
       hgroup=32 ! neighbour search of the smoothing-length solve.  N>0: one search of the tree for each group of N particles that are consecutive in the tree (N at most 256), which is faster; 0: one search for each particle.  The results are the same bits for any N and any number of threads, but a build that fuses multiplications and additions (MARCH, aarch64) can differ in the last bit of a sum.  Not used in periodic boxes, with dynhco>0 or with block steps that divide the particles between the ranks
       nhdf5=0 ! snapshot format: 0 writes out*.sph only, 1 writes out*.h5 (HDF5) as well, 2 writes out*.h5 only.  1 and 2 need a build made with make HDF5=1.  2 leaves no out*.sph, which startfile1 and splash read, so use it only to analyse a run.  restartrad.sph is always written in the native format
 
-      ngpusph=0 ! SPH work done on the GPUs, a bit mask: 0, 1, 3 or 7.  0: all on the CPUs.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  Bit 4 (value 4, ngpusph=7): the candidate lists of the smoothing-length search are kept on the GPU between steps (Verlet lists, the margin is ngpusphskin) and the results are the bits of ngpusph=3.  Bit 2 (value 2, always with bit 1, so ngpusph=3): the pair sums of the forces (div v and curl v, the accelerations, du/dt, with Balsara's viscosity) are made on the GPU too, with the terms and the order of the sums of the CPU, so that the bits are those of the CPU except where a pair approaches and the root of its viscosity term is taken (sqrt on the GPU, pow on the CPU).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, nav=4 or nintvar=3 for the forces, block steps and the first step of a run for bit 1); a particle with more than 128 candidates is solved by the CPU
+      ngpusph=0 ! SPH work done on the GPUs, a bit mask: 0, 1, 3 or 7; or -1.  0 (the default): all on the CPUs, the code as it was.  -1 chooses from the configuration (see below); it is off unless asked for, and with a CUDA build it is the value recommended for speed, together with ngravtree=-1.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  Bit 4 (value 4, ngpusph=7): the candidate lists of the smoothing-length search are kept on the GPU between steps (Verlet lists, the margin is ngpusphskin) and the results are the bits of ngpusph=3.  Bit 2 (value 2, always with bit 1, so ngpusph=3): the pair sums of the forces (div v and curl v, the accelerations, du/dt, with Balsara's viscosity) are made on the GPU too, with the terms and the order of the sums of the CPU, so that the bits are those of the CPU except where a pair approaches and the root of its viscosity term is taken (sqrt on the GPU, pow on the CPU).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, nav=4 or nintvar=3 for the forces, block steps and the first step of a run for bit 1); a particle with more than 128 candidates is solved by the CPU  -1: chosen once, when the number of particles is known, from nothing but the configuration (never a time): no GPU, MARCH, a periodic box or dynhco>0: 0; nav=4 or nintvar=3: 1; the direct sum on several GPUs (several ranks or ngpuperrank>1): 1; the direct sum on one GPU: 7 with at most 8 threads per rank, 0 with 32 or more, and in between 7 below 300000 particles and 0 from there; the tree on the GPU or on the CPUs, or no gravity: 7.  The choice and why are written in log0.sph. Measured on one kind of node (63 cores, Blackwell GPUs): other hardware may need other rules
       ngpusphcheck=0 ! 0, 1, 2 or 3 (a bit mask).  Bit 1 (value 1): whatever ngpusph=1 puts on the GPU is also done on the CPUs and compared, and the run stops at the first particle that differs.  Bit 2 (value 2): the forces of ngpusph=3 are also made by the CPUs, on the same data, and the differences are written to log0.sph at each step (the run goes on with the CPU results).  A diagnostic, slower than either alone
       ngpusphskin=0.3d0 ! margin of the Verlet lists of bit 4 of ngpusph (ngpusph=7), as a fraction of the search radius: the candidates of the smoothing-length search are kept this much further out and used while they are complete (a larger margin makes them last longer and the lists longer).  The results do not depend on it
+      ngpusphprec=0 ! 1: the terms of the pairs of the forces on the GPU (ngpusph=3 or 7) are made in single precision (the differences of positions and velocities in double precision, rounded to float; the sums in double precision); div v, curl v, the smoothing lengths and the densities stay in double precision.  About 1e-6 of the acceleration of a particle is lost, and the results are not the bits of ngpusphprec=0.  Never the default: qualified with the tolerances (accelerations 1e-4, du/dt 1e-3 of the largest, energy, momentum and angular momentum drifts within 2 times the CPU's)
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
@@ -789,8 +790,9 @@ c     set some default values, so that they don't necessarily have to be set in 
      $     stop 'init: reentryfactor must be above 0 and at most 1'
       if(hgroup.lt.0 .or. hgroup.gt.256)
      $     stop 'init: hgroup must be between 0 and 256'
-      if(ngpusph.ne.0 .and. ngpusph.ne.1 .and. ngpusph.ne.3 .and. ngpusph.ne.7)
-     $     stop 'init: ngpusph must be 0, 1, 3 or 7 (bit 2, the forces, needs bit 1; bit 4 needs bits 1 and 2)'
+      if(ngpusph.ne.-1 .and. ngpusph.ne.0 .and. ngpusph.ne.1 .and. ngpusph.ne.3 .and. ngpusph.ne.7)
+     $     stop 'init: ngpusph must be -1, 0, 1, 3 or 7 (bit 2, the forces, needs bit 1; bit 4 needs bits 1 and 2)'
+      if(ngpusphprec.ne.0 .and. ngpusphprec.ne.1) stop 'init: ngpusphprec must be 0 or 1'
       if(ngpusphskin.le.0.d0 .or. ngpusphskin.gt.2.d0)
      $     stop 'init: ngpusphskin must be above 0 and at most 2'
       if(ngpusphcheck.lt.0 .or. ngpusphcheck.gt.3)
@@ -1038,6 +1040,88 @@ c     settings that get_input makes for the value chosen are made here.
          if(choice.eq.1) desc='tree on the CPUs'
          if(choice.eq.2) desc='tree walked on the GPU'
          write(msg,'(a,i0,a)') 'gravity: ngravtree=-1 (auto): '//trim(why)//' -> ngravtree=',choice,' ('//trim(desc)//')'
+         write(69,'(a)') trim(msg)
+         write(6,'(a)') trim(msg)
+      endif
+      return
+      end
+************************************************************************
+      subroutine sph_auto
+c     ngpusph=-1: chooses the SPH work done on the GPUs once, when the number of particles ntot and the gravity are known (the first
+c     gravquant), from nothing but the configuration, so that the choice is the same in every run and every restart (never from a
+c     time measured).  The rules come from the measurements (the step time with ngpusph=0, 1
+c     and 7 for the direct sum on a GPU, the tree on a GPU and the tree on the CPUs, 1, 4, 16 and 63 threads, 100000 and 500000
+c     particles, and with 4 and 8 ranks and 8 GPUs); where two choices are within 5% the smaller (its results are closer to the
+c     CPU's):
+c       no GPU code (CPU build, no GPU), a build whose CPU code fuses multiplications and additions (MARCH), a periodic box,
+c         dynhco>0: 0
+c       nav=4 or nintvar=3 (their forces are done by the CPUs): 1
+c       the direct sum on several GPUs (several ranks, or ngpuperrank not 1): 1  (n500: 8 ranks 26 ms, 4 ranks 37, 8 GPUs of a
+c         rank 28; 0 would be 41, 56, 41)
+c       the direct sum on one GPU, which the kernels of the gravity occupy: with at most 8 threads per rank 7 (1 thread 26 ms
+c         against 324, n100; 180 against 1425, n500; 4 threads 14 against 84 and 119 against 362), with 32 or more 0 (63 threads
+c         9 against 11 ms, n100; 87 against 100, n500), in between 7 below 300000 particles (16 threads, n100: 11 against 24) and
+c         0 from there (n500: 98 against 105)
+c       the tree on the GPU or on the CPUs, or no gravity: 7  (tree on the GPU: 63 threads n500 24.5 against 37, n100 9 against
+c         10, 1 thread 124 against 1457 and 27 against 329; tree on the CPUs: 63 threads n500 60 against 75, 1 thread 2209
+c         against 3521)
+c     The choice of rank 0 is the one all the ranks take; it is written to log0.sph.
+      include 'starsmasher.h'
+      include 'mpif.h'
+      integer choice,ierr,ok,nthr,ngpu
+!$    integer omp_get_max_threads
+      character*160 why
+      character*24 snum,sthr
+      character*300 msg
+      nthr=1
+!$    nthr=omp_get_max_threads()
+      write(snum,'(i0)') ntot
+      write(sthr,'(i0)') nthr
+      choice=0
+      call gpu_sph_available(ok)
+c     (a GPU on the node: ngravgpuok is set only when ngravtree=-1, so rank 0 asks, as init does)
+      ngpu=0
+      if(ok.ne.0 .and. myrank.eq.0) call get_gpu_count(ngpu,myrank)
+      if(ok.eq.0 .or. (myrank.eq.0 .and. ngpu.le.0)) then
+         why='no GPU code in this build or no GPU'
+      else if(ok.eq.2) then
+         why='the CPU code of this build fuses multiplications and additions (MARCH)'
+      else if(periodic) then
+         why='periodic box'
+      else if(dynhco.ne.0 .or. hcolim) then
+         why='dynhco>0'
+      else if(nav.eq.4 .or. nintvar.eq.3) then
+         choice=1
+         why='nav=4 or nintvar=3 (the forces stay on the CPUs)'
+      else if(ngravtree.eq.0 .and. ngr.ne.0 .and. (nprocs.gt.1 .or. ngpuperrank.ne.1)) then
+         choice=1
+         why='direct sum on several GPUs ('//trim(snum)//' particles)'
+      else if(ngravtree.eq.0 .and. ngr.ne.0) then
+         if(nthr.le.8) then
+            choice=7
+            why='direct sum on one GPU and '//trim(sthr)//' threads per rank (at most 8)'
+         else if(nthr.ge.32) then
+            why='direct sum on one GPU and '//trim(sthr)//' threads per rank (32 or more)'
+         else if(ntot.lt.300000) then
+            choice=7
+            why='direct sum on one GPU, '//trim(sthr)//' threads per rank (9 to 31) and N='//trim(snum)//' < 300000'
+         else
+            why='direct sum on one GPU, '//trim(sthr)//' threads per rank (9 to 31) and N='//trim(snum)//' >= 300000'
+         endif
+      else if(ngravtree.eq.2) then
+         choice=7
+         why='tree walked on the GPU'
+      else if(ngravtree.eq.1) then
+         choice=7
+         why='tree on the CPUs, the GPU for the SPH'
+      else
+         choice=7
+         why='no gravity'
+      endif
+      call mpi_bcast(choice,1,mpi_integer,0,mpi_comm_world,ierr)
+      ngpusph=choice
+      if(myrank.eq.0) then
+         write(msg,'(a,i0)') 'SPH on the GPU: ngpusph=-1 (auto): '//trim(why)//' -> ngpusph=',choice
          write(69,'(a)') trim(msg)
          write(6,'(a)') trim(msg)
       endif

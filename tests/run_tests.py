@@ -758,6 +758,83 @@ def t_gpu_resident(ctx):
             out.append('%s np=%d: %d rows, %d dumps' % (tag, np_, len(res['3'][0]), len(res['3'][1])))
     return 'ngpusph=7 gives the bits of 3, also with the check against the CPU: ' + '; '.join(out)
 
+def t_gpu_mixed(ctx):
+    """ngpusphprec=1 (the terms of the pairs of the forces on the GPU in single precision, sums in double) stays within the tolerances given below.
+
+    An unrelaxed polytrope is run with ngpusph=3, ngpusphprec=1 and ngpusphcheck=2 (the CPUs make the forces too and the differences go to log0.sph; the run goes on with the CPU
+    forces): the accelerations must differ by less than 1e-4 of the particle's and du/dt by less than 1e-3 of the largest, at every step.  The same run without the check must end with
+    energies within 1e-4 of those of ngpusph=3 in double precision.  The CPU build says it has no GPU code and gives the same bits.
+    """
+    out = []
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        if not exe:
+            continue
+        for np_ in (1, ctx.np):
+            res = {}
+            for mode, extra in (('d', dict(ngpusph=3)), ('m', dict(ngpusph=3, ngpusphprec=1)), ('mc', dict(ngpusph=3, ngpusphprec=1, ngpusphcheck=2))):
+                d = ctx.dir('gm_%s_%d_%s' % (tag, np_, mode))
+                p, e = run(exe, d, np=np_, **dict(POLY, nrelax=0, tf=1, dtout=1, **extra))
+                log = open(os.path.join(d, 'log0.sph')).read() if os.path.exists(os.path.join(d, 'log0.sph')) else ''
+                res[mode] = energies(e)
+                if mode == 'mc' and tag == 'gpu':
+                    lines = [l for l in log.splitlines() if 'ngpusphcheck forces:' in l]
+                    if not lines:
+                        raise Fail('np=%d: ngpusphcheck=2 wrote no line of differences' % np_)
+                    worst = worstdu = 0.0
+                    for l in lines:
+                        f = l.split('forces:')[1].split()
+                        worst = max(worst, float(f[f.index('a_rel_max') + 1]))
+                        worstdu = max(worstdu, float(f[f.index('du_max') + 1]) / max(float(f[f.index('du_ref') + 1]), 1e-300))
+                    if worst > 1e-4 or worstdu > 1e-3:
+                        raise Fail('np=%d: single precision differs from the CPU by %.2e of a (limit 1e-4) and %.2e of du/dt (limit 1e-3)' % (np_, worst, worstdu))
+                    out.append('np=%d: a %.1e, du/dt %.1e' % (np_, worst, worstdu))
+            tol = 0.0 if tag == 'cpu' else 1e-4
+            if len(res['d']) != len(res['m']):
+                raise Fail('%s build, np=%d: another number of rows' % (tag, np_))
+            for r1, r2 in zip(res['d'], res['m']):
+                for k, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
+                    if tol == 0.0:
+                        if r1[k] != r2[k]:
+                            raise Fail('%s build, np=%d: ngpusphprec=1 changes %s' % (tag, np_, name))
+                    else:
+                        close(r2[k], r1[k], tol, '%s, np=%d, ngpusphprec=1 against 0' % (name, np_))
+    return 'ngpusphprec=1 within the tolerances' + (': ' + '; '.join(out) if out else ' (CPU build: the same bits)')
+
+def t_sph_auto(ctx):
+    """ngpusph=-1 chooses from the configuration, says so in log0.sph, and gives exactly the bits of the value it chose, set by hand.
+
+    The line "SPH on the GPU: ngpusph=-1 (auto): <why> -> ngpusph=N" must be in log0.sph; the energies of every row and the bytes of every dump must be those of a run with
+    ngpusph=N.  The CPU build must choose 0.  With a GPU build and a tree on the GPU or on the CPUs the choice is 7; with the direct sum it depends on the threads per rank.
+    """
+    out = []
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        if not exe:
+            continue
+        for np_ in (1, ctx.np):
+            for gname, gx in (('direct', dict(ngravtree=0)), ('tree', dict(ngravtree=1, treeacc='0.5d0'))):
+                res = {}
+                chosen = None
+                for mode in ('auto', 'set'):
+                    extra = dict(gx, ngpusph=-1) if mode == 'auto' else dict(gx, ngpusph=chosen)
+                    d = ctx.dir('sa_%s_%d_%s_%s' % (tag, np_, gname, mode))
+                    p, e = run(exe, d, np=np_, **dict(POLY, nrelax=0, tf=1, dtout=1, **extra))
+                    log = open(os.path.join(d, 'log0.sph')).read() if os.path.exists(os.path.join(d, 'log0.sph')) else ''
+                    if mode == 'auto':
+                        m = re.search(r'ngpusph=-1 \(auto\): (.*) -> ngpusph=(\d+)', log)
+                        if not m:
+                            raise Fail('%s build, np=%d, %s: log0.sph does not say what ngpusph=-1 chose\n%s' % (tag, np_, gname, (p.stdout + p.stderr)[-500:]))
+                        chosen = int(m.group(2))
+                        if tag == 'cpu' and chosen != 0:
+                            raise Fail('the CPU build chose ngpusph=%d' % chosen)
+                        if tag == 'gpu' and gname == 'tree' and chosen != 7:
+                            raise Fail('a GPU build with the tree on the CPUs chose ngpusph=%d, not 7' % chosen)
+                    names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+                    res[mode] = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names])
+                if res['auto'] != res['set']:
+                    raise Fail('%s build, np=%d, %s: ngpusph=-1 does not give the bits of ngpusph=%d' % (tag, np_, gname, chosen))
+                out.append('%s np=%d %s -> %d' % (tag, np_, gname, chosen))
+    return 'ngpusph=-1 chooses, says so, and gives the bits of its choice: ' + '; '.join(out)
+
 def t_vdotsm(ctx):
     """With cn2 and cn4 finite (tstep uses the smoothed accelerations of vdotsm) ngpusph=1 gives the bits of 0 and ngpusph=7 those of 3.
 
@@ -892,6 +969,8 @@ TESTS = {
     'gpu_forces':       t_gpu_forces,
     'gpu_ranks':        t_gpu_ranks,
     'gpu_resident':     t_gpu_resident,
+    'gpu_mixed':        t_gpu_mixed,
+    'sph_auto':         t_sph_auto,
     'vdotsm':           t_vdotsm,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,

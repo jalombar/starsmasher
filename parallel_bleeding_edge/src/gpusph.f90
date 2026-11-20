@@ -41,6 +41,11 @@
 !     and the final filter r2<4h2 is the same: the same bits as ngpusph=3.  One GPU for the rank (with several the search is
 !     as before).  The second is that the neighbour lists stay on the GPU (the forces read them there) and are not copied to list():
 !     they are copied only if the CPU needs them (particles it solves itself, an error of CUDA in the forces).
+!     ngpusphprec=1 (never the default) makes the terms of the pairs of the forces in single precision: the differences of positions
+!     and velocities are made in double precision and rounded to float, the term is float (the tables too), and what is added up
+!     (accelerations, du/dt, uijmax) is double.  div v and curl v, the smoothing lengths and the densities stay in double precision.
+!     The results are not the bits of ngpusph=3: the differences are about 1e-6 of the acceleration of a particle (ngpusphcheck=2
+!     writes them).
 !     ngpusphcheck=2 runs the CPU pair sums after the GPU ones on the same data, compares them, and writes one line to log0.sph
 !     for each call with the differences (the run goes on with the CPU results); 3 is 1 and 2.
 !***********************************************************************
@@ -407,7 +412,7 @@
       gs_fresh=.false.
       if(nt.gt.0) then
          call gpu_sph_forces(n,nmax,nt,nloop,ncontig,gtp,gtiw,x,y,z,vx,vy,vz,am,u,hp,rho,por2,bonet_omega,bonet_0mega,bonet_psi,&
-              nn,first,list,listcap,actblk,blocks,alpha1,beta1,hfloor,gam,nav,nintvar,relaxnoheat,udotother,ngr,useb,&
+              nn,first,list,listcap,actblk,blocks,alpha1,beta1,hfloor,gam,nav,nintvar,relaxnoheat,udotother,ngr,useb,ngpusphprec,&
               mvx,mvy,mvz,mgx,mgy,mgz,udot,uijmax,divv,nlarge,ierr)
          if(ierr.ne.0) then
             call gpusph_fail(7)

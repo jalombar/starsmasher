@@ -1,8 +1,9 @@
 SPH on the GPUs
 ===============
 
-``ngpusph`` in ``sph.input`` puts parts of the SPH on the GPUs.  Its value is a bit mask; the default, 0,
-is the code as it was.  Bit 1 (``ngpusph = 1``) solves the smoothing lengths on the GPU and makes the
+``ngpusph`` in ``sph.input`` puts parts of the SPH on the GPUs.  Its value is a bit mask: 0 (the code as it was, which is the default), 1, 3 or 7;
+-1 chooses one of 0, 1 and 7 from the configuration (below).  The SPH on the GPUs is off unless it is asked for; with a CUDA build
+``ngpusph = -1``, together with ``ngravtree = -1``, is the value recommended for speed.  Bit 1 (``ngpusph = 1``) solves the smoothing lengths on the GPU and makes the
 densities, the other sums over the neighbours (``omega``, ``0mega``, ``psi`` and ``wn`` of the code) and
 the neighbour lists there; everything else of the step (the pair forces, the pressure, the integrator)
 stays where it was.  Bit 2 (``ngpusph = 3``, always together with bit 1) also makes the pair sums of the
@@ -47,6 +48,28 @@ lengths are solved, which the CPUs would do meanwhile at no cost: ``ngpusph = 1`
 87 ms per step at 500000 particles) and faster for few (a 100000-particle star on one thread: 141 ms against 328 ms).  ``ngpusph``
 is a choice, and it is made as asked.
 
+The automatic choice (``ngpusph = -1``)
+---------------------------------------
+
+``ngpusph = -1`` chooses 0, 1 or 7 once, at the start of the run (and of every restart), from the configuration alone and never from a time measured, and writes
+the choice and the reason to ``log0.sph`` (as ``ngravtree = -1`` does).  The rules come from measurements of the step time with ``ngpusph`` 0, 1 and 7 for
+the direct sum on a GPU, the tree on a GPU and the tree on the CPUs, with 1, 4, 16 and 63 threads, for 100000 and 500000 particles, and with 4 and 8 ranks and
+8 GPUs); where two choices are within 5% the smaller is taken, because its results are closer to the CPU's.
+
+* No GPU code (CPU build, no GPU on the node), a build whose CPU code fuses multiplications and additions (``MARCH``), a periodic box, ``dynhco`` above 0: 0.
+* ``nav = 4`` or ``nintvar = 3`` (their forces stay on the CPUs): 1.
+* The direct sum on several GPUs (several ranks, or ``ngpuperrank`` not 1): 1.  For 500000 particles, 8 ranks of 7 threads: 26 ms a step against 41 with 0 and 27
+  with 7; 4 ranks of 15 threads: 37, 56 and 39; one rank with 8 GPUs: 28, 41 and 29.
+* The direct sum on one GPU, which the kernels of the gravity keep busy: with at most 8 threads per rank 7 (1 thread, 500000 particles: 180 ms against 1425; 4 threads:
+  119 against 362); with 32 or more threads 0 (63 threads: 87 ms against 100 with 7, 500000 particles); in between, 7 below 300000 particles (16 threads, 100000
+  particles: 11 ms against 24) and 0 from there (500000 particles: 98 ms against 105).
+* The tree walked on the GPU, the tree on the CPUs, or no gravity: 7 (tree on the GPU, 63 threads, 500000 particles: 24.5 ms against 37 with 0; 1 thread: 124
+  against 1457; tree on the CPUs, 63 threads: 60 against 75).
+
+Where the choice is 3 or 7 the results differ from the CPU's at the rounding level (the forces are formed once on the GPU, the root of the viscosity term differs), as
+in the paragraph below; ``ngpusph = 0`` gives back the CPU code of earlier versions.  The measurements are for one kind of node (63 cores, Blackwell GPUs): other
+hardware may need other rules.
+
 The forces (``ngpusph = 3``)
 ----------------------------
 
@@ -67,7 +90,7 @@ with ``ngpusph = 3`` are not those of ``ngpusph = 1``.  Momentum and angular mom
 pairing of terms as on the CPU, to the rounding of the sums.
 
 Verlet lists (``ngpusph = 7``)
------------------------------
+------------------------------
 
 The search of the neighbours is the dearest part of the smoothing-length kernel (the visit of the tree and the sorting of the candidates by index).
 With bit 4 the candidates of the first search of each particle, which are every particle within a radius larger by ``ngpusphskin`` (0.3 by default)
@@ -81,6 +104,15 @@ the neighbour lists then stay on the GPU, where the forces read them, and are no
 solves itself, an error of CUDA in the forces, or a time step that uses the smoothed accelerations: ``nrelax`` other than 1 with ``cn2`` or ``cn4`` below
 ``1d29``, the default is ``1d30``, which makes ``tstep`` sum the accelerations over the lists on the CPU).  A particle whose list would hold more than 128
 candidates has none.  ``SPHGPU_PROF=1`` writes whether the lists were built or used, the largest displacement and the number of lists that did not reach.
+
+Single precision for the forces (``ngpusphprec = 1``)
+-----------------------------------------------------
+
+Never the default.  The terms of the pairs of the forces are made in single precision: the differences of positions and velocities are made in double
+precision and rounded to float, the term is float (the kernel tables too), and what is added up (accelerations, du/dt, ``uijmax``) is double.  ``div v`` and
+``curl v``, the smoothing lengths and the densities stay in double precision.  The results are not the bits of ``ngpusphprec = 0`` but differ from them, and from
+the CPU's, by about 1e-6 of the acceleration of a particle (``ngpusphcheck = 2`` writes the differences); the run is as repeatable as the double precision one
+(the same bits every time).  The tolerances it is qualified with are those of the test ``gpu_mixed`` (see :doc:`test_suite`).
 
 Checking and measuring
 ----------------------

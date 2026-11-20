@@ -144,6 +144,9 @@
 !     ngpusphskin (input): the margin of the Verlet lists of bit 4 of ngpusph, as a fraction of the search radius
       real*8 ngpusphskin
       common/gpusphpars2/ ngpusphskin
+!     ngpusphprec (input): 1 makes the terms of the pairs of the forces on the GPU in single precision (never the default)
+      integer ngpusphprec
+      common/gpusphpars3/ ngpusphprec
       integer stellarevolutioncodetype	
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
       common/inputfilenames2/startfile3,binaryfile,triplefile,bpbhfile,imagefile,advectedfile

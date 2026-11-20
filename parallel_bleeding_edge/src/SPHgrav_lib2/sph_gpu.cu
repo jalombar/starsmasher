@@ -1321,6 +1321,8 @@ struct FView
   const int *tp, *tiw;             // the particle (from 1) and its place in the work of the rank (from 1), for all targets
   const int *eoff;                 // where the entries of the targets of this device start (nts+1 of them)
   const double *dw, *dg;
+  const float *dwf, *dgf;          // the same tables in single precision (ngpusphprec=1)
+  int prec;                        // 1: the terms of the pairs in single precision
   FPar P;
   double2 *c;                      // csij and csijgc of every entry
   int *key, *et, *val;             // for every entry: the particle it acts on (n: none), its target, its number
@@ -1505,6 +1507,171 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair(FView V)
   V.out[tl] = o;
 }
 
+// The same as k_fpair with the terms of the pairs in single precision (ngpusphprec=1): div v and curl v stay in double precision
+__global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair_mix(FView V)
+{
+  const int tl = blockIdx.x * FTHR + threadIdx.x;
+  if (tl >= V.nts) return;
+  const int t = V.t0 + tl;
+  TPar tq;
+  if (!load_place(V, tl, tq))
+  {
+    FOut o;
+    o.udot = 0.0; o.uij = 0.0; o.divv = 0.0; o.p = -1; o.pad = 0;
+    V.out[tl] = o;
+    return;
+  }
+  const int p = tq.p;
+  const FPar &P = V.P;
+  const int nn = tq.nn, fo = tq.off;
+  const int e0 = V.eoff[tl];
+  const D4 pp = V.pos[p], pv = V.vel[p];
+  const double hpi = tq.hp, rhoi = tq.rho, por2i = V.por2[p], omi = tq.om, om0i = tq.om0, psii = tq.psi;
+  const bool actp = P.blocks ? (V.act[p] != 0) : true;
+  const double h2 = hpi * hpi;
+  const double h5 = hpi * (h2 * h2);
+  // getderivs.f
+  double cx = 0.0, cy = 0.0, cz = 0.0, dvv = 0.0;
+  if (rhoi > 0.0)
+  {
+    const double ctoh2 = P.ctab / h2;
+    for (int k = 0; k < nn; k++)
+    {
+      const int j = V.list[fo + k] - 1;
+      const D4 vj = V.vel[j];
+      if (vj.w != 0.0)
+      {
+        const D4 pj = V.pos[j];
+        const double dx = pp.x - pj.x, dy = pp.y - pj.y, dz = pp.z - pj.z;
+        const double r2 = (dx * dx + dy * dy) + dz * dz;
+        double xq = ctoh2 * r2;
+        xq = xq < P.c4 ? xq : P.c4;
+        const int it = (int)xq;
+        const double fq = xq - (double)it;
+        const double dwi = V.dw[it] + fq * (V.dw[it + 1] - V.dw[it]);
+        const double dvx = pv.x - vj.x, dvy = pv.y - vj.y, dvz = pv.z - vj.z;
+        const double cxi = dz * dvy - dy * dvz;
+        const double cyi = dx * dvz - dz * dvx;
+        const double czi = dy * dvx - dx * dvy;
+        cx = cx + (pj.w * dwi) * cxi;
+        cy = cy + (pj.w * dwi) * cyi;
+        cz = cz + (pj.w * dwi) * czi;
+        const double divin = (dx * dvx + dy * dvy) + dz * dvz;
+        const double tij = dwi * divin;
+        dvv = dvv - pj.w * tij;
+      }
+    }
+    const double den = rhoi * h5;
+    cx = cx / den;
+    cy = cy / den;
+    cz = cz / den;
+    dvv = dvv / den;
+  }
+  const double abscurl = sqrt((cx * cx + cy * cy) + cz * cz);
+  const double ci2 = (P.gam * por2i) * rhoi;
+  const double ci = sqrt(ci2);
+  // uvchunk with the terms of the pairs in single precision: the differences of positions and velocities are made in double and rounded to float, everything else of the
+  // term is float (the tables too), and what is added up (the accelerations, du/dt, the maximum) is double
+  const double hpt = hpi - P.hfloor;
+  const double h2t = hpt * hpt;
+  const double invh = 1.0 / hpi, invh2 = 1.0 / h2, invh2t = 1.0 / h2t, invh5 = 1.0 / h5;
+  const float invh2f = (float)invh2, invh5f = (float)invh5, invh2tf = (float)invh2t, invhf = (float)invh, h2t4f = (float)(4.0 * h2t), hpif = (float)hpi;
+  const float por2f = (float)por2i, cif = (float)ci, advf = (float)fabs(dvv), abscf = (float)abscurl, omf = (float)omi, om0f = (float)om0i, psif = (float)psii;
+  const float a1f = (float)P.alpha1, b1f = (float)P.beta1, rhof = (float)rhoi;
+  const bool gasp = pv.w != 0.0;
+  double gx = 0.0, gy = 0.0, gz = 0.0, ggx = 0.0, ggy = 0.0, ggz = 0.0, ud = 0.0, um = 0.0;
+  for (int k = 0; k < nn; k++)
+  {
+    const int j = V.list[fo + k] - 1;
+    const D4 vj = V.vel[j];
+    int keyv = j;
+    double csij_d = 0.0, csijgc_d = 0.0;
+    bool term = gasp && vj.w != 0.0;
+    if (P.blocks)
+    {
+      const bool actj = V.act[j] != 0;
+      if (!(actp || actj)) term = false;
+      if (!actj) keyv = V.n;
+    }
+    if (term)
+    {
+      const D4 pj = V.pos[j];
+      const double dx = pp.x - pj.x, dy = pp.y - pj.y, dz = pp.z - pj.z;
+      const float dxf = (float)dx, dyf = (float)dy, dzf = (float)dz;
+      const float dvxf = (float)(pv.x - vj.x), dvyf = (float)(pv.y - vj.y), dvzf = (float)(pv.z - vj.z);
+      const float amj = (float)pj.w;
+      const float r2 = (dxf * dxf + dyf * dyf) + dzf * dzf;
+      const float q4 = r2 * invh2f;
+      const double xq = P.ctab * (double)(q4 < 4.0f ? q4 : 4.0f);
+      const int it = (int)xq;
+      const float fq = (float)(xq - (double)it);
+      float diwkin = 0.0f;
+      if (r2 < h2t4f)
+      {
+        const double xqt = P.ctab * (double)(r2 * invh2tf);
+        const int itt = (int)xqt;
+        const float fqt = (float)(xqt - (double)itt);
+        diwkin = (V.dgf[itt] + fqt * (V.dgf[itt + 1] - V.dgf[itt])) * invh2tf;
+      }
+      const float dwijin = (V.dwf[it] + fq * (V.dwf[it + 1] - V.dwf[it])) * invh5f;
+      const float divin = (dxf * dvxf + dyf * dvyf) + dzf * dvzf;
+      float pijin = 0.0f;
+      if (divin < 0.0f)
+      {
+        const float fi = advf / ((advf + abscf) + (0.00001f * cif) * invhf);
+        float udbij = 0.0f;
+        if (r2 > 0.0f)
+        {
+          if (P.nav3) udbij = divin / (cif * sqrtf(r2)) * fi;
+          else udbij = (hpif * divin) / (cif * r2) * fi;
+        }
+        if (fabsf(udbij) > 1.0e8f) atomicAdd(V.nlarge, 1);
+        pijin = (por2f * (a1f + b1f * udbij)) * udbij;
+      }
+      const float invbonnet = 1.0f / (om0f * amj);
+      float csij = por2f * (-(omf * invbonnet * diwkin) + dwijin);
+      float csijgc = (0.5f * pijin) * dwijin;
+      const float csiju = P.relaxnoheat ? csij : csij + csijgc;
+      if (P.nintvar2) ud = ud + (double)((amj * csiju) * divin);
+      else if (P.udotother) ud = ud + (double)(((amj * pijin) * dwijin) * divin);
+      if (actp)
+      {
+        const float uv = (por2f + 0.5f * pijin) * rhof;
+        um = um > (double)uv ? um : (double)uv;
+      }
+      if (P.ngr) csijgc = csijgc - ((0.5f * diwkin) * psif) * invbonnet;
+      csij_d = (double)csij;
+      csijgc_d = (double)csijgc;
+      const double sx = csij_d * dx, sy = csij_d * dy, sz = csij_d * dz;
+      const double sgx = csijgc_d * dx, sgy = csijgc_d * dy, sgz = csijgc_d * dz;
+      gx = gx - pj.w * sx;
+      gy = gy - pj.w * sy;
+      gz = gz - pj.w * sz;
+      ggx = ggx - pj.w * sgx;
+      ggy = ggy - pj.w * sgy;
+      ggz = ggz - pj.w * sgz;
+    }
+    else
+    {
+      keyv = V.n;
+    }
+    V.c[e0 + k] = make_double2(csij_d, csijgc_d);
+    V.key[e0 + k] = keyv;
+    V.et[e0 + k] = t;
+    V.val[e0 + k] = e0 + k;
+  }
+  const size_t n = (size_t)V.n;
+  V.acc[0 * n + p] = gx;
+  V.acc[1 * n + p] = gy;
+  V.acc[2 * n + p] = gz;
+  V.acc[3 * n + p] = ggx;
+  V.acc[4 * n + p] = ggy;
+  V.acc[5 * n + p] = ggz;
+  FOut o;
+  o.udot = ud; o.uij = um; o.divv = dvv; o.p = p; o.pad = 0;
+  V.out[tl] = o;
+}
+
 // the first entry with key >= q in the sorted keys
 __device__ __forceinline__ int lower_key(const int *key, int m, int q)
 {
@@ -1641,6 +1808,7 @@ struct FDev
   double2 *c = 0;
   int *ka = 0, *kb = 0, *va = 0, *vb = 0, *et = 0;
   double *dw = 0, *dg = 0;
+  float *dwf = 0, *dgf = 0;
   void *tmp = 0;
   size_t tmpbytes = 0;
   double *hacc = 0;      // pinned: the 6 arrays of n that come back
@@ -2041,7 +2209,14 @@ extern "C"
         FDev &f = g_fdev[k];
         CK(cudaSetDevice(g_dev[k].id));
         dfree(f.dw); dfree(f.dg);
-        dmalloc(f.dw, nt); dmalloc(f.dg, nt);
+        dfree(f.dwf); dfree(f.dgf);
+        dmalloc(f.dw, nt); dmalloc(f.dg, nt); dmalloc(f.dwf, nt); dmalloc(f.dgf, nt);
+        {
+          std::vector<float> a(nt), b(nt);
+          for (size_t q = 0; q < nt; q++) { a[q] = (float)dwtab[q]; b[q] = (float)dgtab[q]; }
+          CK(cudaMemcpy(f.dwf, a.data(), nt * sizeof(float), cudaMemcpyHostToDevice));
+          CK(cudaMemcpy(f.dgf, b.data(), nt * sizeof(float), cudaMemcpyHostToDevice));
+        }
         CK(cudaMemcpy(f.dw, dwtab, nt * sizeof(double), cudaMemcpyHostToDevice));
         CK(cudaMemcpy(f.dg, dgtab, nt * sizeof(double), cudaMemcpyHostToDevice));
       }
@@ -2067,12 +2242,12 @@ extern "C"
                        double *vx, double *vy, double *vz, double *am, double *u, double *hp, double *rho, double *por2, double *om,
                        double *om0, double *psi, int *nn, int *first, int *list, int *listcap_, int *act, int *blocks_, double *alpha1,
                        double *beta1, double *hfloor, double *gam, int *nav, int *nintvar, int *relaxnoheat, int *udotother, int *ngr,
-                       int *useb_, double *mvx, double *mvy, double *mvz, double *mgx, double *mgy, double *mgz, double *udot,
+                       int *useb_, int *prec_, double *mvx, double *mvy, double *mvz, double *mgx, double *mgy, double *mgz, double *udot,
                        double *uijmax, double *divv, int *nlarge, int *ierr)
   {
     *ierr = 0;
     *nlarge = 0;
-    const int n = *n_, nt = *nt_, nloop = *nloop_, contig = *contig_, blocks = *blocks_;
+    const int n = *n_, nt = *nt_, nloop = *nloop_, contig = *contig_, blocks = *blocks_, prec = *prec_;
     try
     {
       if (!g_ready) throw SphError(3, "gpu_sph_forces_ called before gpu_sph_setup_");
@@ -2227,7 +2402,7 @@ extern "C"
         V.n = n; V.nts = nts[k]; V.t0 = t0[k];
         V.pos = f.pos; V.vel = f.vel; V.por2 = f.por2; V.tpar = f.tpar;
         V.list = useb ? d.list : f.list; V.act = f.act; V.tp = f.tp; V.tiw = f.tiw; V.eoff = f.eoff;
-        V.dw = f.dw; V.dg = f.dg;
+        V.dw = f.dw; V.dg = f.dg; V.dwf = f.dwf; V.dgf = f.dgf;
         V.P = P; V.P.ctab = d.ctab; V.P.c4 = 4.0 * d.ctab;
         V.c = f.c; V.key = f.ka; V.et = f.et; V.val = f.va; V.skey = f.kb; V.sval = f.vb;
         V.acc = f.acc; V.out = f.out; V.nlarge = f.nlarge;
@@ -2268,7 +2443,8 @@ extern "C"
         ent[k] = f.hE[0];
         if ((size_t)ent[k] > f.ecap) throw SphError(4, "the lists of the forces do not fit in the buffers");
         V.nent = (int)ent[k];
-        k_fpair<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
+        if (prec) k_fpair_mix<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
+        else k_fpair<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
         CK(cudaGetLastError());
         if (mk) mark("f pairs", st);
         if (ent[k] > 0)

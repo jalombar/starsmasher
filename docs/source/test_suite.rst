@@ -69,6 +69,18 @@ something changed.  These tell you whether the answer is right.
        and the bytes of every dump, on one rank and on several, also with
        ``ngpusphcheck = 3``; the CPU build says in ``log0.sph`` that it has no GPU
        code and gives the same bits.
+   * - ``gpu_mixed``
+     - ``ngpusphprec = 1`` (the terms of the pairs of the forces on the GPU in
+       single precision, sums in double) stays within the tolerances:
+       with ``ngpusphcheck = 2`` the accelerations differ from the CPU's by less
+       than 1e-4 and du/dt by less than 1e-3 of the largest at every step, and the
+       energies are within 1e-4 of those in double precision; the CPU build says in
+       ``log0.sph`` that it has no GPU code and gives the same bits.
+   * - ``sph_auto``
+     - ``ngpusph = -1`` chooses from the configuration, writes the
+       choice and the reason in ``log0.sph`` (the CPU build chooses 0, a GPU build
+       with the tree on the CPUs 7), and gives exactly the bits of a run with the
+       value it chose set by hand, on one rank and on several.
    * - ``vdotsm``
      - With ``cn2`` and ``cn4`` finite (so that ``tstep`` uses the smoothed
        accelerations of ``vdotsm``, which sums over the neighbour lists on the
