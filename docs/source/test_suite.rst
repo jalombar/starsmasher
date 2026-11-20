@@ -98,6 +98,11 @@ something changed.  These tell you whether the answer is right.
        ``ngpusph = 7`` those of ``ngpusph = 3``: the energies of every row, the
        bytes of every dump and the number of steps, on one rank and on several;
        the same run with the default ``cn2`` and ``cn4`` comes out different.
+   * - ``autotune``
+     - ``tools/sph_autotune.py`` tries the pairs of ``ngravtree`` and ``ngpusph`` on a run folder (GPU build: 0 and 2 with 0 and 7; CPU build: 0, 1 and 2, which it refuses),
+       with a star, with the same star restarted from a dump (a folder with ``restartrad.sph`` and no ``sph.init``) and with a periodic box where ``ngpusph = 7`` is not done on the GPU (a folder with neither ``sph.init`` nor ``restartrad.sph`` stops the tool with exit code 2 and a message), with ``ngpusph = 3`` written in ``sph.input`` (not among the candidates: it is added, and marked as the pair of the file) and with the pair of the file the only candidate (it is the one advised: "Nothing to change"); the advice is also tried on candidates with step times written in the test (the pair of the file is kept when it is equivalent to the fastest, it is always said how the pair of the file does, a difference below 10% with one repetition is said not to be sure) and the second measure of a candidate whose steps were not steady on runs with steps written in the test (only the second run counts when it is steady, both when it is not): the table has the expected candidates, with the status the build must give them (measured,
+       died, or changed by the code with the reason from ``log0.sph``), the choice of the automatic values is read from ``log0.sph``, the advice is a pair that was measured, every
+       file of the folder of the run (and the leftovers of an earlier run) is the same after, the work folder holds only the table, and no process is left.
    * - ``gpu_multidev``
      - The SPH and the forces with several devices for the rank, tried on one GPU
        with ``SPHGPU_NDEV`` (logical devices dealt out round the GPUs): with 1, 2

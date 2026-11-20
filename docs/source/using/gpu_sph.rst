@@ -106,6 +106,9 @@ are the numbers that lose least in the worst cell of the machines of the class, 
 With ``ngravtree = -1`` as well (the default of ``ngravtreeauto`` is -1) the gravity and the SPH are chosen together, as the fastest pair: the tree walked on the GPU with the SPH on the GPU (7) from 9966 particles
 on (see :doc:`gravity`).
 
+The rule does not know how fast your GPU is, and the nodes do not always agree.  To find the fastest pair on your machine, for your input, measure it: :doc:`autotune` runs the
+pairs for a few tens of steps and says which values to write.
+
 Where the choice is 3 or 7 the results differ from the CPU's at the rounding level (the forces are formed once on the GPU, the root of the viscosity term differs), as
 in the paragraph below; ``ngpusph = 0`` gives back the CPU code of earlier versions.  The measurements are for three kinds of node (a Threadripper with a RTX 4070 Ti SUPER,
 an EPYC with RTX PRO 6000 Blackwell GPUs, a Xeon 8480C with a H100, on which the limits of the direct sum on one GPU were checked and moved): one is of the mid class and two of the strong one,

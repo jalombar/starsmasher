@@ -172,7 +172,8 @@ of the SPH with the direct sum were then moved after a check on a third node, a 
 fast the GPU is; the limits of the SPH with the direct sum on one GPU, with 32 threads or more, do, through the class of the GPU (mid or strong, from its number of multiprocessors, ``ngpuclass``: see :doc:`gpu_sph`),
 because the nodes do not agree (with 32 threads and 100000 particles the direct sum and the CPUs for the SPH win on the first, the GPU for the SPH on the second and the third).  Each limit is
 the number that gives the smallest loss in the worst cell of the machines it was measured on, and the number of multiprocessors is only a coarse hint of the speed of a GPU.  On other hardware another value may be better:
-write ``ngravtreeauto`` then (and ``ngpuclass``, or ``ngpusph``, for the SPH).
+write ``ngravtreeauto`` then (and ``ngpuclass``, or ``ngpusph``, for the SPH), or measure the pairs of ``ngravtree`` and ``ngpusph`` on your machine and your input with
+:doc:`autotune`, which says which values to write.
 
 With three or more GPUs the limits come from relaxed Suns of 9966 to 499860 particles and the collision of two Suns (199908 particles) at four moments, with 7 to 63 threads per rank, on 4 H100 (a node with two
 Xeon 8480C: one rank with ``ngpuperrank = 4``, 4 ranks with a GPU each, 2 ranks with two) and on 8 RTX PRO 6000 (a node with an EPYC 9335: one rank with ``ngpuperrank = 8``, 8 ranks with one GPU each, 4 ranks with two, 2 ranks

@@ -4,7 +4,7 @@
 Runs short calculations and checks them against expectations that must hold,
 rather than against stored output.  See tests/README.md.
 """
-import argparse, glob, math, os, random, re, shutil, signal, struct, subprocess, sys, tempfile, time
+import argparse, csv, glob, hashlib, math, os, random, re, shutil, signal, struct, subprocess, sys, tempfile, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC  = os.path.join(ROOT, 'parallel_bleeding_edge', 'src')
@@ -1041,6 +1041,282 @@ def t_vdotsm(ctx):
             out.append('%s np=%d: %d steps (%d with the default cn2, cn4)' % (tag, np_, res['7'][2], res['d'][2]))
     return 'with cn2 and cn4 finite ngpusph=1 gives the bits of 0 and 7 those of 3: ' + '; '.join(out)
 
+AUTOTUNE = os.path.join(ROOT, 'parallel_bleeding_edge', 'tools', 'sph_autotune.py')
+
+def tree_sha(d):
+    """sha256 of every file under d (but not under the autotune_* folders that the tool makes), by relative name."""
+    res = {}
+    for root, dirs, files in os.walk(d):
+        dirs[:] = [x for x in dirs if not x.startswith('autotune_')]
+        for n in sorted(files):
+            p = os.path.join(root, n)
+            h = hashlib.sha256()
+            with open(p, 'rb') as f:
+                for blk in iter(lambda: f.read(1 << 20), b''):
+                    h.update(blk)
+            res[os.path.relpath(p, d)] = h.hexdigest()
+    return res
+
+def procs_in(d):
+    """The pids of the processes that run in d or below it (Linux); None where there is no /proc."""
+    real = os.path.realpath(d)
+    if not os.path.isdir('/proc/self'):
+        return None
+    out = []
+    for p in os.listdir('/proc'):
+        if p.isdigit():
+            try:
+                cwd = os.readlink('/proc/%s/cwd' % p)
+            except OSError:
+                continue
+            if cwd == real or cwd.startswith(real + os.sep):
+                out.append(int(p))
+    return out
+
+def autotune_advice_checks():
+    """The advice of sph_autotune.py on candidates with step times that are written here (no run, so no time of this machine is asserted): the pair that sph.input gives now is advised when it
+    is the fastest or equivalent to it (3%), before the pair of the automatic rule and before the fastest; the line "as it is now" is always there, with a time or with why it has none and
+    never with a negative percentage; with one repetition a difference below 10% is said not to be sure, also when two pairs are advised and when one candidate was measured twice.
+    Returns the number of cases."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('sph_autotune', AUTOTUNE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+
+    def cands(rows):
+        res = []
+        for pair, v in rows:
+            c = mod.Cand(*pair)
+            if v is None:
+                c.runs = [dict(status='died', ms=[], note='exit code 3')]
+            else:
+                c.runs = [dict(status='ok', ms=[x] * 30, note='') for x in (v if isinstance(v, list) else [v])]
+            c.finish()
+            res.append(c)
+        return res
+
+    # name, candidates ((ngravtree, ngpusph), step ms or the ms of each repetition, or None for a run that died), pair of the automatic rule, pair of the file now, ngravtree and ngpusph
+    # written in the file, the pair advised, what the text must hold, what it must not
+    cases = [
+        ('the pair of the file is equivalent: kept before the automatic rule and the fastest', [((0, 0), 10.0), ((0, 7), 9.8)], (0, 7), (0, 0), 0, 0, (0, 0),
+         [r'Nothing to change: your sph\.input as it is now \(ngravtree=0, ngpusph=0\) gives 10\.00 ms a step, within 2\.0% of the fastest'], ['The difference is']),
+        ('not equivalent, the automatic rule is among the equivalent: that one', [((0, 0), 12.0), ((0, 7), 10.0), ((0, 1), 10.1)], (0, 1), (0, 0), 0, 0, (0, 1),
+         [r'ngpusph = 1', r'Your sph\.input as it is now \(ngravtree=0, ngpusph=0\): 12\.00 ms a step; with the advised values 10\.10, 15\.8% less'], ['The difference is']),
+        ('neither the file nor the automatic rule is equivalent: the fastest', [((0, 0), 12.0), ((0, 7), 10.0), ((0, 3), 10.1), ((0, 1), 11.5)], (0, 1), (0, 0), 0, 0, (0, 7),
+         [r'Neither your sph\.input as it is now nor the automatic rule', r'ngpusph = 7'], ['The difference is']),
+        ('one repetition, a gain below 10%: not sure', [((0, 0), 10.0), ((0, 7), 9.2)], (0, 7), (0, 0), 0, 0, (0, 7),
+         [r'The difference is 8\.0%', r'--reps 3'], []),
+        ('one repetition, a gain above 10%: sure enough', [((0, 0), 10.0), ((0, 7), 7.0)], (0, 7), (0, 0), 0, 0, (0, 7), [], ['The difference is']),
+        ('one repetition, the nearest candidate that is not equivalent is below 10% behind', [((0, 0), 10.0), ((0, 7), 10.6)], (0, 0), (0, 0), 0, 0, (0, 0),
+         [r'Nothing to change', r'The difference is 6\.0%'], []),
+        ('three repetitions: no such line', [((0, 0), [10.0, 10.1, 9.9]), ((0, 7), [9.2, 9.3, 9.1])], (0, 7), (0, 0), 0, 0, (0, 7), [r'ngpusph = 7'], ['The difference is']),
+        ('the file has -1 and the gravity of the file has an equivalent pair', [((0, 0), 9.9), ((0, 7), 10.0), ((2, 0), 11.0), ((2, 7), 9.5)], (2, 7), (0, 7), 0, -1, (2, 7),
+         [r'To keep the same gravity nothing needs to change', r'which the code runs as ngravtree=0, ngpusph=7', r'The file has -1', r'ngpusph = 7', r'ngravtree = 2'], []),
+        ('the pair of the file died: said, not silent', [((0, 0), 10.0), ((0, 7), 9.0), ((0, 3), None)], (0, 7), (0, 3), 0, 3, (0, 7),
+         [r'Your sph\.input as it is now \(ngravtree=0, ngpusph=3\): not measured'], []),
+        ('one repetition, two pairs advised and the fastest overall is below 10% ahead of the next (times of a real run)',
+         [((0, 0), 14.95), ((0, 7), 23.10), ((2, 0), 13.86), ((2, 7), 14.39), ((0, 3), 23.35)], (2, 7), (0, 3), 0, 3, (2, 0),
+         [r'To keep the same gravity write in sph\.input', r'To take the fastest and accept the other gravity solver',
+          r'The difference between the fastest overall and the next candidate is 3\.8%'], []),
+        ('one candidate was measured twice and the others once: a difference below 10% is still not sure', [((0, 0), [10.0, 10.2]), ((0, 7), 9.2)], (0, 7), (0, 0), 0, 0, (0, 7),
+         [r'The difference is 8\.9%', r'--reps 3'], []),
+    ]
+    for name, rows, auto, cur, ug, us, want, present, absent in cases:
+        cs = cands(rows)
+        rec, best, eq = mod.advise(cs, auto, cur)
+        text = '\n'.join(mod.advice_lines(cs, rec, best, eq, auto, cur, ug, us, 35))
+        if rec is None or rec.pair != want:
+            raise Fail('advice on fixed times, "%s": advised %s, expected %s\n%s' % (name, rec.pair if rec else None, want, text))
+        for pat in present:
+            if not re.search(pat, text):
+                raise Fail('advice on fixed times, "%s": the text does not hold /%s/\n%s' % (name, pat, text))
+        for pat in absent + [r'-\d+(\.\d+)?% less']:
+            if re.search(pat, text):
+                raise Fail('advice on fixed times, "%s": the text holds /%s/\n%s' % (name, pat, text))
+        if not re.search(r'(?i)your sph\.input as it is now', text):
+            raise Fail('advice on fixed times, "%s": no line about the pair of the file as it is now\n%s' % (name, text))
+    return len(cases)
+
+def autotune_measure_checks():
+    """measure() of sph_autotune.py on runs with step times that are written here: a run with steady steps counts as it is; a run with some steps much slower than the others (the mean
+    above 1.10 times the median) is done again, and then only the second counts when it is steady and both when it is not, or when the second did not end; a run that did not end is not
+    done again.  With the times of a real case (a candidate that shared the machine for a while, 34.77 ms a step instead of 15) the candidate measured again is the one advised.  Returns
+    the number of cases."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location('sph_autotune', AUTOTUNE)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    steady, tail, slow = [10.0] * 30, [10.0] * 27 + [17.0] * 3, [10.0] * 25 + [60.0] * 5        # mean over median: 1, 1.07 (the largest seen on a quiet machine), 1.83
+    mild = [10.0] * 28 + [26.0, 27.0]                                                           # 1.11: a real run that shared the machine for a moment (16.20 ms a step instead of 14.4)
+    ok = lambda ms: dict(status='ok', ms=list(ms), note='')
+    died = lambda: dict(status='died', ms=[], note='exit code 3')
+    # name, the runs in the order they are handed out, how many are done, which of them count, a word of the note of the last
+    cases = [
+        ('steady steps: one run', [ok(steady), ok(steady)], 1, [0], None),
+        ('a mean 7% above the median is steady', [ok(tail), ok(steady)], 1, [0], None),
+        ('a mean 11% above the median is not: the second counts', [ok(mild), ok(steady)], 2, [1], 'measured again'),
+        ('slow steps, then steady: the second counts', [ok(slow), ok(steady)], 2, [1], 'measured again'),
+        ('slow steps twice: both count', [ok(slow), ok(slow)], 2, [0, 1], 'in two runs'),
+        ('slow steps, then a run that did not end: both, so the candidate is not measured', [ok(slow), died()], 2, [0, 1], 'exit code'),
+        ('a run that did not end is not done again', [died(), ok(steady)], 1, [0], 'exit code'),
+    ]
+    for name, runs, ncall, kept, word in cases:
+        left, told = list(runs), []
+        got = mod.measure(lambda: left.pop(0), told.append)
+        if len(runs) - len(left) != ncall or [id(r) for r in got] != [id(runs[i]) for i in kept]:
+            raise Fail('unsteady runs, "%s": %d run(s) done and %d kept, expected %d and %d' % (name, len(runs) - len(left), len(got), ncall, len(kept)))
+        if word and word not in got[-1]['note']:
+            raise Fail('unsteady runs, "%s": the note is "%s", without "%s"' % (name, got[-1]['note'], word))
+        if (ncall == 2) != (len(told) == 1):
+            raise Fail('unsteady runs, "%s": said %s' % (name, told))
+    # the real case: ngravtree=0 ngpusph=0 shared the machine in its first run (mean 34.77, median 25.92) and gave 15 in the second; the pair of the file is that one
+    first = [15.9] * 10 + [25.92] * 10 + [34.0] * 5 + [116.17, 100.0, 90.0, 80.0, 62.15]
+    if not mod.unsteady(first):
+        raise Fail('unsteady runs: the steps of the real case (mean %.2f, median %.2f) are called steady' % (mod.statistics.mean(first), mod.statistics.median(first)))
+    left = [ok(first), ok([15.0] * 30)]
+    cs = []
+    for pair, v in (((0, 0), None), ((0, 7), 22.89), ((2, 0), 13.81), ((2, 7), 14.46)):
+        c = mod.Cand(*pair)
+        c.runs = mod.measure(lambda: left.pop(0)) if v is None else [ok([v] * 30)]
+        c.finish()
+        cs.append(c)
+    rec, best, eq = mod.advise([c for c in cs if c.g == 0], (0, 0), (0, 0))
+    if rec is None or rec.pair != (0, 0) or len(cs[0].runs) != 1 or 'measured again' not in cs[0].note or abs(cs[0].mean - 15.0) > 1e-9:
+        raise Fail('unsteady runs, the real case: advised %s with ngravtree=0 ngpusph=0 at %s ms a step (%d run(s), note "%s")'
+                   % (rec.pair if rec else None, cs[0].mean, len(cs[0].runs), cs[0].note))
+    text = '\n'.join(mod.advice_lines(cs, *(mod.advise(cs, (2, 7), (0, 0)) + ((2, 7), (0, 0), 0, 0, 35))))
+    if not re.search(r'To keep the same gravity nothing needs to change', text):
+        raise Fail('unsteady runs, the real case: the advice does not keep the pair of the file\n%s' % text)
+    return len(cases) + 1
+
+def t_autotune(ctx):
+    """sph_autotune.py tries the candidate pairs of ngravtree and ngpusph on a run folder, leaves the folder as it was, and advises one of the pairs it measured.
+
+    The tool runs a few steps of a small star for each candidate (GPU build: ngravtree 0 and 2 x ngpusph 0 and 7; CPU build: ngravtree 0 and 1, and 2, which the CPU build refuses), of the same
+    star restarted from a dump (a folder with restartrad.sph and no sph.init), and of a periodic box (ngpusph=7 is not done on the GPU there); a folder with neither sph.init nor
+    restartrad.sph stops the tool with a message of its own (exit code 2) before anything runs; with ngpusph=3 written in sph.input, a pair that is not among the candidates, the table has it
+    too, marked as the pair of the file; and with the pair of the file the only candidate it is the one advised, with "Nothing to change".  The advice is also tried on candidates with step
+    times that are written in the test (the pair of the file kept when it is equivalent, the line "as it is now", the warning about differences below 10% with one repetition), and the second measure of a candidate whose
+    steps were not steady on runs with steps that are written in the test.  Checked: the table has the expected candidates with the status the build must give them (measured, died, or changed by the
+    code, with the reason from log0.sph), the pair the automatic values choose is read from log0.sph, the advice is one of the measured pairs, every file of the folder (also the
+    leftovers of an earlier run, which the candidates must not take) has the same sha256 after, the work folder holds only autotune.txt and autotune.csv, and no process is left.
+    No time is checked.
+    """
+    out = ['advice on fixed times: %d cases' % autotune_advice_checks(), 'unsteady runs on fixed steps: %d cases' % autotune_measure_checks()]
+    star = dict(POLY, tf=1000, ngravtree=0)
+    box_d = ctx.dir('at_pbox_setup')
+    box = periodic_box_setup(box_d)
+    box.update(tf=1000, ngravtree=0)
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        if not exe:
+            continue
+        cpu = exe.endswith('_cpu_sph')
+        if cpu:
+            star_want = {(0, 0): 'ok', (1, 0): 'ok', (2, 0): 'died'}
+            star_args = ['--gravity', '0,1,2']
+        else:
+            star_want = {(0, 0): 'ok', (0, 7): 'ok', (2, 0): 'ok', (2, 7): 'ok'}
+            star_args = []
+        # ngpusph=3 written: not among the candidates, so it is added; the CPU build does not do it (no GPU code)
+        hand3_want = dict(star_want)
+        hand3_want[(0, 3)] = 'changed' if cpu else 'ok'
+        # a dump of the star to restart from: what the code writes as out*.sph has the format of restartrad.sph
+        dd = ctx.dir('at_%s_dump' % tag)
+        p, e = run(exe, dd, np=1, **dict(POLY, tf=0.2, dtout=1))
+        dumps = sorted(f for f in os.listdir(dd) if f.startswith('out') and f.endswith('.sph'))
+        if not dumps:
+            raise Fail('%s build: the run that should make the dump to restart from wrote none\n%s' % (tag, (p.stdout + p.stderr)[-800:]))
+        # the second case: ngr=0 in a periodic box, where the GPU does not do the SPH: ngpusph=7 is "changed" in the GPU build (periodic box) and in the CPU build (no GPU code)
+        # (the star restarted from its dump has no sph.init: the code opens it only when there is no restartrad.sph)
+        for label, init, settings, want, extra in (('star', "'1es'", star, star_want, star_args),
+                                                   ('restart', None, star, star_want, star_args),
+                                                   ('box', "'pbx'", box, {(0, 0): 'ok', (0, 7): 'changed'}, ['--sph', '0,7']),
+                                                   ('hand3', "'1es'", dict(star, ngpusph=3), hand3_want, star_args),
+                                                   ('only', "'1es'", dict(star, ngpusph=0), {(0, 0): 'ok'}, ['--gravity', 'keep', '--sph', '0'])):
+            d = ctx.dir('at_%s_%s' % (tag, label))
+            shutil.copy(exe, os.path.join(d, 'run_sph'))
+            os.chmod(os.path.join(d, 'run_sph'), 0o755)
+            if label == 'box':
+                shutil.copy(os.path.join(box_d, 'box.sph'), os.path.join(d, 'box.sph'))
+            if init is None:
+                shutil.copy(os.path.join(dd, dumps[-1]), os.path.join(d, 'restartrad.sph'))
+            else:
+                open(os.path.join(d, 'sph.init'), 'w').write(' &INITT\n INAME=%s\n &END\n' % init)
+            open(os.path.join(d, 'sph.input'), 'w').write(' &input\n%s\n &end\n' % '\n'.join(' %s=%s, ! %s' % (k, v, k) for k, v in settings.items()))
+            # what an earlier run leaves, and a file large enough to be linked, not copied
+            for n in ('energy0.sph', 'log0.sph', 'out0001.sph'):
+                open(os.path.join(d, n), 'w').write('an earlier run %s\n' % n)
+            with open(os.path.join(d, 'big.dat'), 'wb') as f:
+                f.truncate(20 * 1024 * 1024)
+            before = tree_sha(d)
+            p = sh([sys.executable, AUTOTUNE, '--dir', d, '--exe', os.path.join(d, 'run_sph'), '--launch', 'mpirun --oversubscribe --bind-to none -np 1', '--steps', '6', '--warmup', '2',
+                    '--timeout', '120'] + extra, check=False, timeout=900)
+            where = '%s build, %s' % (tag, label)
+            if p.returncode != 0:
+                raise Fail('%s: sph_autotune exited with %d\n%s' % (where, p.returncode, (p.stdout + p.stderr)[-1500:]))
+            if tree_sha(d) != before:
+                raise Fail('%s: a file of the folder of the run changed' % where)
+            work = glob.glob(os.path.join(d, 'autotune_*'))
+            if len(work) != 1 or sorted(os.listdir(work[0])) != ['autotune.csv', 'autotune.txt']:
+                raise Fail('%s: the work folder should hold autotune.csv and autotune.txt only, it holds %s' % (where, [sorted(os.listdir(w)) for w in work]))
+            left = procs_in(d)
+            if left:
+                raise Fail('%s: processes are still running in the folder of the run: %s' % (where, left))
+            rows = list(csv.DictReader(open(os.path.join(work[0], 'autotune.csv'))))
+            cand = dict(((int(r['ngravtree']), int(r['ngpusph'])), r) for r in rows if r['kind'] == 'grid')
+            if set(cand) != set(want):
+                raise Fail('%s: the candidates are %s, expected %s' % (where, sorted(cand), sorted(want)))
+            for pair, status in sorted(want.items()):
+                r = cand[pair]
+                if r['status'] != status:
+                    raise Fail('%s: ngravtree=%d ngpusph=%d has status %s, expected %s (%s)' % (where, pair[0], pair[1], r['status'], status, r['note']))
+                if status == 'ok' and not (int(r['steps']) >= 3 and float(r['mean_ms']) > 0 and float(r['median_ms']) > 0):
+                    raise Fail('%s: ngravtree=%d ngpusph=%d has no step times: %s' % (where, pair[0], pair[1], r))
+                if status == 'changed' and not re.search(r'periodic box|no GPU code', r['note']):
+                    raise Fail('%s: ngravtree=%d ngpusph=%d is changed but the note does not give the reason of log0.sph: %s' % (where, pair[0], pair[1], r['note']))
+            # the pair that sph.input gives now is a candidate and is marked: ngravtree and ngpusph as written, or ngpusph=-1 completed with what the code chooses for the gravity of the file
+            dflt = [r for r in rows if r['kind'] == 'default']
+            user_pair = (0, settings['ngpusph']) if 'ngpusph' in settings else ((0, int(dflt[0]['chose_ngpusph'])) if len(dflt) == 1 else None)
+            mine = [pair for pair, r in cand.items() if r['your_sph_input'] == '1']
+            if mine != [user_pair]:
+                raise Fail('%s: the pair of sph.input is %s, the table marks %s' % (where, user_pair, mine))
+            if not re.search(r'(?i)your sph\.input as it is now \(ngravtree=0, ngpusph=%d' % settings.get('ngpusph', -1), open(os.path.join(work[0], 'autotune.txt')).read()):
+                raise Fail('%s: autotune.txt has no line about sph.input as it is now' % where)
+            # what the code chooses with the automatic values, from its log
+            auto = [r for r in rows if r['kind'] == 'auto']
+            if len(auto) != 1 or not re.match(r'^\d$', auto[0]['chose_ngravtree']) or not re.match(r'^\d+$', auto[0]['chose_ngpusph']):
+                raise Fail('%s: the automatic choice was not read from log0.sph: %s' % (where, auto))
+            if cpu and auto[0]['chose_ngpusph'] != '0':
+                raise Fail('%s: the CPU build chose ngpusph=%s' % (where, auto[0]['chose_ngpusph']))
+            # the advice is a pair that was measured: the lines "ngravtree = N" and "ngpusph = M" of autotune.txt
+            text = open(os.path.join(work[0], 'autotune.txt')).read()
+            advised = [(int(a), int(b)) for a, b in re.findall(r'^ +ngravtree = (-?\d+)\n +ngpusph = (-?\d+)$', text, re.M)]
+            rec = [(int(r['ngravtree']), int(r['ngpusph'])) for r in rows if r['recommended'] == '1']
+            if not advised and 'Nothing to change' in text and len(rec) == 1:
+                advised = rec                  # nothing to change: the pair of the file is the one advised, there are no lines to write
+            if not advised or len(rec) != 1 or rec[0] not in advised or any(cand.get(a, {}).get('status') != 'ok' for a in advised):
+                raise Fail('%s: the advice %s (csv: %s) is not a measured pair\n%s' % (where, advised, rec, text[-1200:]))
+            # the pair of the file within 3% of the fastest (2.9, the table has two decimals): it is the one advised, the numbers of this run being what they are
+            if user_pair in cand and cand[user_pair]['status'] == 'ok' and float(cand[user_pair]['percent_vs_fastest']) <= 2.9 and rec[0] != user_pair:
+                raise Fail('%s: the pair of sph.input %s is within 3%% of the fastest but the advised pair is %s\n%s' % (where, user_pair, rec[0], text[-1200:]))
+            if label == 'only' and (rec != [(0, 0)] or 'Nothing to change' not in text):
+                raise Fail('%s: with the pair of the file the only candidate the advice should be that pair and "Nothing to change"\n%s' % (where, text[-1200:]))
+            out.append('%s %s: %s, advised %s' % (tag, label, ' '.join('%d/%d %s' % (a, b, st) for (a, b), st in sorted(want.items())), ','.join('%d/%d' % a for a in advised)))
+    # neither sph.init nor restartrad.sph: not a run that is ready to start, so the tool says so and stops (exit code 2), without making a work folder
+    exe0 = ctx.exe or ctx.cpu_exe
+    d = ctx.dir('at_nothing')
+    shutil.copy(exe0, os.path.join(d, 'run_sph'))
+    os.chmod(os.path.join(d, 'run_sph'), 0o755)
+    open(os.path.join(d, 'sph.input'), 'w').write(' &input\n%s\n &end\n' % '\n'.join(' %s=%s,' % (k, v) for k, v in star.items()))
+    before = tree_sha(d)
+    p = sh([sys.executable, AUTOTUNE, '--dir', d, '--exe', os.path.join(d, 'run_sph'), '--launch', 'mpirun --oversubscribe --bind-to none -np 1'], check=False, timeout=120)
+    if p.returncode != 2 or 'neither sph.init nor restartrad.sph' not in p.stderr:
+        raise Fail('a folder without sph.init and without restartrad.sph: sph_autotune exited with %d and said\n%s' % (p.returncode, (p.stdout + p.stderr)[-800:]))
+    if glob.glob(os.path.join(d, 'autotune_*')) or tree_sha(d) != before:
+        raise Fail('a folder without sph.init and without restartrad.sph: the tool made a work folder or changed the folder')
+    out.append('no sph.init and no restartrad.sph: exit code 2 and the message')
+    return 'sph_autotune measured the candidates, left the folder as it was and advised a measured pair: ' + '; '.join(out)
+
 def t_gpu_multidev(ctx):
     """The SPH and the forces with several devices for the rank (SPHGPU_NDEV: logical devices dealt out round the GPUs) run to the end and agree with one device.
 
@@ -1223,6 +1499,7 @@ TESTS = {
     'gpu_mixed':        t_gpu_mixed,
     'sph_auto':         t_sph_auto,
     'vdotsm':           t_vdotsm,
+    'autotune':         t_autotune,
     'gpu_multidev':     t_gpu_multidev,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
