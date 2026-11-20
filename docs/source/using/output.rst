@@ -165,6 +165,151 @@ this is the file that says what the code thought it was doing at the time.
    column, because reciprocals add, so do not read ``dt`` as the minimum of
    what precedes it.
 
+   **The Courant numbers and the energy.**  In a run with shared steps (``nblock=0``)
+   ``cn1`` and ``cn3`` set the step, because ``cn2`` and ``cn4`` are off by
+   default: ``dt1`` is ``cn1`` times the time a signal takes to cross a
+   smoothing length, and ``dt3`` is ``cn3`` times the time in which a
+   particle's internal energy would change by its own value at its present
+   rate.  The defaults are ``cn1=0.3`` and ``cn3=0.1``.  Larger numbers give
+   longer and fewer steps and a larger change of the total energy; what follows
+   is how much, as measured.
+
+   The first measure is the collision of two Suns of 99954 particles each, on a
+   parabolic orbit with ``sep0=15`` and ``rp=1`` (pericentre at t=20.7), with
+   shared steps and the gravity tree on the GPU (``ngravtree=2``,
+   ``treeacc=0.45``, ``nleafgrav=24``), run to ``tf=30``.  Here
+   :math:`\Delta E/E = (E(t)-E(0))/|E(0)|`, with :math:`E` the fifth column
+   of ``energy*.sph``:
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 20 20 30 30
+
+      * - ``cn1`` / ``cn3``
+        - steps
+        - :math:`\Delta E/E` at ``tf=30``
+        - first t with :math:`|\Delta E/E| > 10^{-3}`
+      * - 0.3 / 0.1 (default)
+        - 6837
+        - 5.4e-5
+        - never
+      * - 0.45 / 0.15
+        - 4513
+        - 2.7e-4
+        - never
+      * - 0.45 / 0.2
+        - 3871
+        - 3.9e-4
+        - never
+      * - 0.5 / 0.1667
+        - 4123
+        - 5.7e-4
+        - never
+      * - 0.55 / 0.1833
+        - 3773
+        - 1.3e-3
+        - 18.6
+      * - 0.6 / 0.2
+        - 3790
+        - 3.4e-3
+        - 0.2
+      * - 0.6 / 0.06
+        - 8596
+        - 1.7e-3
+        - 0.6
+
+   With 0.45 and 0.2 the steps of this run take 32.4 s instead of 54.7 s on one
+   H100 with 63 threads (five runs of each, alternated), and 70.2 s instead of
+   121.6 s on one L40S with 8 threads (three runs of each).
+
+   This page counts :math:`|\Delta E/E| \le 10^{-3}` as good and
+   :math:`|\Delta E/E| \le 5 \times 10^{-3}` as the limit.  Published StarSmasher
+   runs report the total energy conserved to 1.5e-5 at the end of a run
+   (Ballone et al. 2023, arXiv:2204.03493), to 0.004% in most runs and always
+   within 0.5% (Kremer et al. 2022, arXiv:2201.12368), and to about 0.2% over
+   the interval shown (Gaburov, Lombardi and Portegies Zwart 2010,
+   arXiv:0904.0997).  ``cn1`` should stay at 0.5 or below: with ``cn1=0.55``
+   the standard collision leaves the good range, with ``cn1=0.6`` the energy
+   jumps in the first steps, before the stars touch (1.5e-3 at t=0.2 for
+   ``cn3=0.2``), and with 0.75 and 0.25 the run stops at t=21.8 with
+   ``unreasonably small dt``.
+
+   Other collisions of two stars, the same code and shared steps, to the ``tf``
+   in the first column (the stars of 19938 and 50160 particles are relaxed
+   Suns made with the same recipe as the stars of 99954; the hyperbolic orbit
+   has ``rp=1`` and ``vinf2=1`` in code units):
+
+   .. list-table::
+      :header-rows: 1
+      :widths: 40 20 20 20
+
+      * - collision (``tf``)
+        - 0.3 / 0.1
+        - 0.45 / 0.2
+        - 0.6 / 0.06
+      * - standard, 99954 particles each (30)
+        - 6837 steps, 5.4e-5
+        - 3871 steps, 3.9e-4
+        - 8596 steps, 1.7e-3
+      * - 50160 particles each (30)
+        - 5661 steps, 4.4e-5
+        - 3174 steps, 7.3e-4
+        - 7388 steps, 1.5e-2
+      * - 19938 particles each (30)
+        - 3863 steps, 2.5e-5
+        - 2160 steps, 1.3e-3
+        - 4914 steps, 1.3e-2
+      * - hyperbolic, ``vinf2=1`` (40)
+        - 8261 steps, 5.1e-5
+        - 4760 steps, 1.6e-3
+        - 11137 steps, 1.6e-3
+      * - grazing, ``rp=1.6`` (60)
+        - 9017 steps, 2.1e-5
+        - 5414 steps, 6.7e-4
+        - 9621 steps, 3.3e-3
+      * - nearly head on, ``rp=0.25`` (45)
+        - 12430 steps, 1.7e-3
+        - stopped at t=19.7056, ``unreasonably small dt``
+        - 15368 steps, 9.9e-3
+
+   The pair 0.45 and 0.2 stays below :math:`10^{-3}` in three of the six
+   collisions and between :math:`10^{-3}` and :math:`5 \times 10^{-3}` in two
+   (the hyperbolic one and the one of 19938 particles); in the nearly head-on
+   collision it stops the run: the internal energy diverges at the largest
+   compression (t=19.70), with the SPH on the GPU and on the CPUs alike, while
+   the runs started from the same checkpoint with 0.3 and 0.1, 0.45 and 0.1 or
+   0.3 and 0.2 go through it.  In that collision the defaults give 1.7e-3, the first time above :math:`10^{-3}` is t=27.9, and none of the
+   pairs tried keeps it below :math:`10^{-3}`: with ``cn1`` and ``cn3`` equal to
+   0.3 and 0.2 it ends at 4.9e-3, with 0.45 and 0.1 at 4.3e-3, with 0.4 and 0.2
+   at 7.3e-3, with 0.45 and 0.15 at 8.7e-3.  In the hyperbolic collision and in
+   the one of 19938 particles 0.45 and 0.15 end at 1.2e-3 and 1.1e-3, and 0.4
+   and 0.2 at 6.8e-4 and 5.3e-4.
+
+   In every run with 0.45 and 0.2 that finished, :math:`\Delta E/E` was still
+   growing at ``tf``, by 7 to 25% over the last tenth of the time, so the
+   numbers belong to that ``tf``.
+
+   With the direct sum for the gravity (``ngravtree=0``) the standard collision
+   takes 6851 steps and ends at 4.6e-5 with 0.3 and 0.1, 3890 steps and 4.0e-4
+   with 0.45 and 0.2, and 8660 steps and 2.5e-3 with 0.6 and 0.06.  With
+   ``ngpusph=3`` instead of 7 it takes the same steps and gives the same dump.
+
+   The relaxed polytrope of the test ``energy`` (10000 particles, ``tf=10``)
+   drifts by 2.8e-5 with 0.3 and 0.1, by 2.5e-4 with 0.4 and 0.2 and by 1.4e-3
+   with 0.45 and 0.2.
+
+   The defaults therefore stay ``cn1=0.3`` and ``cn3=0.1``, the only pair of
+   the table below :math:`10^{-3}` in every case but the nearly head-on
+   collision.  For a parabolic or grazing collision of well resolved stars
+   ``cn1=0.45d0`` and ``cn3=0.2d0`` in ``sph.input`` give the run in 0.56 to
+   0.60 of the steps within :math:`10^{-3}`; it is not a pair for a nearly
+   head-on or a hyperbolic encounter, nor for stars of a few tens of thousands
+   of particles.  These numbers are for collisions of two stars with shared
+   steps: for another problem read the energy column of ``energy*.sph`` and
+   take smaller numbers if it moves by more than you accept.  The files in
+   ``example_input`` write their own values (``cn1=.6d0`` or ``.4d0`` and
+   ``cn3=0.06d0``) and do not use the defaults.
+
    **When energy conservation is strongly violated.**  It should vary by about a percent
    or less over a run, and the trace in ``energy*.sph`` is where you see this.  If
    it does not, the usual response is to take smaller steps by tightening the
