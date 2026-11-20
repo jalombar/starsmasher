@@ -19,13 +19,33 @@
 !        9  the first step of the run (dt=0: the guess of the smoothing length can be far off)
 !     ngpusphcheck=1 makes the CPU do its work too and compares: the run stops at the first particle that differs, with the
 !     quantity and the two values.
+!
+!     Bit 2 (value 2) puts the pair sums of uvdots on the GPU: div v and curl v (getderivs), the accelerations, du/dt and
+!     uijmax (uvchunk, uvpairs, Balsara's viscosity of balAV3.f).  It needs bit 1 (ngpusph is 0, 1 or 3): the lists and the
+!     sums it reads are the ones of that step.  Every term of a pair is formed with the operations, tables and order of the
+!     CPU, and the sums are made in the order of the CPU (the gather part in the order of the list, the scatter part chunk by
+!     chunk), with no atomic operation on floating-point numbers, so that the results are the same bits in every run.  The
+!     one difference is the root of the viscosity term, which the CPU takes with pow (r2**0.5d0) and the GPU with sqrt: the
+!     bits of the CPU are given where no pair moves towards each other (the viscosity off, or nothing approaching), and
+!     differ in the last bit of some terms otherwise.  Block steps (nblock=1) are done: the same particles as the CPU.  The
+!     reasons for the CPU to do the whole step, for the forces (log line "ngpusph: the pair sums (forces)"):
+!        1, 2, 3, 4, 6, 7  as above
+!       10  nav=4 (the Riemann solver is on the CPU)
+!       11  nintvar=3
+!     ngpusphcheck=2 runs the CPU pair sums after the GPU ones on the same data, compares them, and writes one line to log0.sph
+!     for each call with the differences (the run goes on with the CPU results); 3 is 1 and 2.
 !***********************************************************************
       module gpusph_mod
       implicit none
 !     0: the library has not been asked yet, 1: ready, 2: not usable (gs_why says why)
       integer, save :: gs_state=0, gs_why=0
-!     the reason written last
-      integer, save :: gs_said=-1
+!     the reason written last, for the smoothing lengths (1) and the forces (2)
+      integer, save :: gs_said(2)=(/-1,-1/)
+!     ngpusphcheck=2: calls of the forces compared
+      integer, save :: gs_ncheck=0
+!     the smoothing lengths, sums and lists of this step were just made on the GPU, all of them (the forces use what the
+!     devices hold)
+      logical, save :: gs_fresh=.false.
 !     1 for the particles of the rank (i-n_lower+1) that the GPU did not do
       integer, allocatable, save :: gs_flag(:)
 !     ngpusphcheck: what the GPU made, kept to compare with what the CPU makes
@@ -36,13 +56,13 @@
       contains
 
 !     one line in log0.sph when the reason why the CPU does the work changes (0: the GPU does it)
-      subroutine gpusph_say(what,why)
+      subroutine gpusph_say(what,why,part)
       include 'starsmasher.h'
       character(*) what
-      integer why
+      integer why,part
       character(len=120) text
-      if(why.eq.gs_said) return
-      gs_said=why
+      if(why.eq.gs_said(part)) return
+      gs_said(part)=why
       if(myrank.ne.0) return
       select case(why)
       case(0)
@@ -65,6 +85,10 @@
          text='on the CPUs: the lists do not fit in list()'
       case(9)
          text='on the CPUs: the first step of the run'
+      case(10)
+         text='on the CPUs: nav=4 (Riemann solver)'
+      case(11)
+         text='on the CPUs: nintvar=3'
       case default
          text='on the CPUs'
       end select
@@ -72,10 +96,10 @@
       call flush(69)
       end subroutine gpusph_say
 
-!     why=0 if the GPU can be used for this step, else the number of the reason
-      subroutine gpusph_usable(why)
+!     why=0 if the GPU can be used for this step, else the number of the reason; part 1: the smoothing lengths, 2: the forces
+      subroutine gpusph_usable(why,part)
       include 'starsmasher.h'
-      integer why,ok,ierr
+      integer why,part,ok,ierr
       if(gs_state.eq.0) then
          call gpu_sph_available(ok)
          if(ok.eq.0) then
@@ -87,6 +111,7 @@
          else
             call gpu_sph_setup(myrank/((nprocs+ppn-1)/ppn),ngpuperrank,ngravprocs,ierr)
             if(ierr.eq.0) call gpu_sph_tables(ntab,gtab,dgdhtab,wtab,dwdhtab,dphidhtab,ctab,ierr)
+            if(ierr.eq.0) call gpu_sph_ftables(ntab,dwtab,dgtab,ierr)
             if(ierr.eq.0) then
                gs_state=1
             else
@@ -103,6 +128,12 @@
          why=3
       else if(dynhco.ne.0 .or. hcolim) then
          why=4
+      else if(part.eq.2) then
+         if(nav.eq.4) then
+            why=10
+         else if(nintvar.eq.3) then
+            why=11
+         endif
       else if(nblock.eq.1) then
          why=5
       else if(dt.le.0.d0) then
@@ -134,11 +165,12 @@
       what='h, rho and neighbour lists'
       done=.false.
       checking=.false.
+      gs_fresh=.false.
       nflag=0
       ltot=0
-      call gpusph_usable(why)
+      call gpusph_usable(why,1)
       if(why.ne.0) then
-         call gpusph_say(what,why)
+         call gpusph_say(what,why,1)
          return
       endif
       nown=n_upper-n_lower+1
@@ -161,23 +193,24 @@
            gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,ierr)
       if(ierr.ne.0) then
          if(ierr.eq.2) then
-            call gpusph_say(what,8)
+            call gpusph_say(what,8,1)
          else
             call gpusph_fail(7)
-            call gpusph_say(what,7)
+            call gpusph_say(what,7,1)
          endif
          ltot=0
 !        (the results may have been put in the arrays before the lists were found not to fit)
          hp(n_lower:n_upper)=hp0(1:nown)
          return
       endif
-      call gpusph_say(what,0)
+      call gpusph_say(what,0,1)
       nflag=0
       do io=1,nown
          if(gs_flag(io).ne.0) nflag=nflag+1
       enddo
       done=.true.
-      if(ngpusphcheck.ne.0) then
+      gs_fresh=(nflag.eq.0)
+      if(iand(ngpusphcheck,1).ne.0) then
 !        keep what the GPU made and put back what the CPU starts from
          if(allocated(ck_hp)) deallocate(ck_hp,ck_rho,ck_om,ck_om0,ck_psi,ck_wn,ck_nn,ck_first,ck_list)
          allocate(ck_hp(nown),ck_rho(nown),ck_om(nown),ck_om0(nown),ck_psi(nown),ck_wn(nown),ck_nn(nown),ck_first(nown))
@@ -198,6 +231,7 @@
          hp(n_lower:n_upper)=hp0(1:nown)
          done=.false.
          checking=.true.
+         gs_fresh=.false.
          ltot=0
       endif
       end subroutine gpusph_rhoh
@@ -260,5 +294,237 @@
          endif
       enddo
       end subroutine gpusph_compare
+
+!***********************************************************************
+!     The pair sums of uvdots on the GPU (bit 2 of ngpusph): the terms of getderivs and uvchunk for the particles of the work of
+!     the rank (nloop places: the own range, or wmine with block steps; only the particles that take part in the substep,
+!     actblk or refblk, are done), in mvx..mgz (the sums of the rank, over all the particles it has terms for), udot, uijmax and
+!     divv, as uvpairs leaves them.  done=.false. (nothing changed): the CPU does it.  With ngpusphcheck=2 the CPU does it too,
+!     after the GPU, on the same data; the two are compared (one line in log0.sph) and the arrays hold the results of the CPU.
+!***********************************************************************
+      subroutine gpusph_forces(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz,done)
+      include 'starsmasher.h'
+      include 'mpif.h'
+      integer nloop
+      real*8 alpha1,beta1
+      real*8 mvx(*),mvy(*),mvz(*),mgx(*),mgy(*),mgz(*)
+      logical done
+      real*8 uijmax(nmax)
+      common/uijmax/ uijmax
+      double precision divv(nmax)
+      common/commdivv/divv
+      integer, allocatable, save :: gtp(:),gtiw(:)
+      real*8, allocatable, save :: sv(:,:),sudot(:),suij(:),sdiv(:)
+      integer why,ierr,nt,iw,i,k,ncontig,nlarge,blocks,relaxnoheat,udotother,listcap,useb
+      logical allact
+      character(len=32) what
+      what='the pair sums (forces)'
+      done=.false.
+      call gpusph_usable(why,2)
+      if(why.ne.0) then
+         call gpusph_say(what,why,2)
+         return
+      endif
+      if(nloop.le.0) then
+         done=.true.
+         return
+      endif
+      blocks=0
+      if(nblock.eq.1) blocks=1
+      if(allocated(gtp)) then
+         if(size(gtp).lt.nloop) deallocate(gtp,gtiw)
+      endif
+      if(.not.allocated(gtp)) allocate(gtp(max(nloop,1)),gtiw(max(nloop,1)))
+!     every particle of the range takes part (shared steps): the targets are consecutive and nothing is listed
+      ncontig=0
+      nt=0
+      if(.not.blkdist) then
+         allact=.true.
+         do i=n_lower,n_upper
+            if(.not.(actblk(i) .or. refblk(i))) then
+               allact=.false.
+               exit
+            endif
+         enddo
+         if(allact) then
+            ncontig=1
+            nt=nloop
+            gtp(1)=n_lower
+            gtiw(1)=1
+         endif
+      endif
+      if(ncontig.eq.0) then
+         do iw=1,nloop
+            if(blkdist) then
+               i=wmine(iw)
+            else
+               i=n_lower+iw-1
+            endif
+            if(actblk(i) .or. refblk(i)) then
+               nt=nt+1
+               gtp(nt)=i
+               gtiw(nt)=iw
+            endif
+         enddo
+      endif
+      relaxnoheat=0
+      if(nrelax.eq.1 .and. t.lt.treloff) relaxnoheat=1
+      udotother=0
+      if(nrelax.eq.0 .or. t.ge.treloff) udotother=1
+      listcap=nnmax*nmax
+!     the devices hold the data of the smoothing-length kernel of this step (shared steps, every particle done on the GPU)
+      useb=0
+      if(gs_fresh .and. ncontig.eq.1 .and. blocks.eq.0) useb=1
+      gs_fresh=.false.
+      if(nt.gt.0) then
+         call gpu_sph_forces(n,nmax,nt,nloop,ncontig,gtp,gtiw,x,y,z,vx,vy,vz,am,u,hp,rho,por2,bonet_omega,bonet_0mega,bonet_psi,&
+              nn,first,list,listcap,actblk,blocks,alpha1,beta1,hfloor,gam,nav,nintvar,relaxnoheat,udotother,ngr,useb,&
+              mvx,mvy,mvz,mgx,mgy,mgz,udot,uijmax,divv,nlarge,ierr)
+         if(ierr.ne.0) then
+            call gpusph_fail(7)
+            call gpusph_say(what,7,2)
+            return
+         endif
+      else
+         nlarge=0
+      endif
+      call gpusph_say(what,0,2)
+      done=.true.
+!     the terms the viscosity gave a huge value (uvchunk writes one line for each and stops a run with a tiny time step)
+      if(nlarge.gt.0) then
+         write(69,*)'c warning large udbij: ',nlarge,' terms'
+         if(dt.lt.1d-17) then
+            write(69,*)'unreasonably small dt. abort run.'
+            call flush(69)
+            call mpi_abort(mpi_comm_world,1,ierr)
+         endif
+      endif
+!     the factor of the variable that is integrated (uvchunk): nintvar=1 here (nintvar=3 is done on the CPU)
+      if(nintvar.eq.1) then
+!$omp parallel do schedule(static) private(k,i)
+         do k=1,nt
+            if(ncontig.eq.1) then
+               i=n_lower+k-1
+            else
+               i=gtp(k)
+            endif
+            if(u(i).ne.0.d0) udot(i)=udot(i)*0.5d0*(gam-1.d0)*rho(i)**(1.d0-gam)
+         enddo
+      endif
+      if(iand(ngpusphcheck,2).eq.0) return
+!     ngpusphcheck=2: keep the GPU's results, let the CPU make its own and compare
+      if(allocated(sv)) then
+         if(size(sv,2).lt.n) deallocate(sv,sudot,suij,sdiv)
+      endif
+      if(.not.allocated(sv)) allocate(sv(6,n),sudot(n),suij(n),sdiv(n))
+      do i=1,n
+         sv(1,i)=mvx(i)
+         sv(2,i)=mvy(i)
+         sv(3,i)=mvz(i)
+         sv(4,i)=mgx(i)
+         sv(5,i)=mgy(i)
+         sv(6,i)=mgz(i)
+         sudot(i)=udot(i)
+         suij(i)=uijmax(i)
+         sdiv(i)=divv(i)
+      enddo
+      do i=1,n
+         mvx(i)=0.d0
+         mvy(i)=0.d0
+         mvz(i)=0.d0
+         mgx(i)=0.d0
+         mgy(i)=0.d0
+         mgz(i)=0.d0
+         udot(i)=0.d0
+         if(actblk(i)) uijmax(i)=0.d0
+      enddo
+      call uvpairs(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
+      call gpusph_fcompare(mvx,mvy,mvz,mgx,mgy,mgz,sv,sudot,suij,sdiv)
+      end subroutine gpusph_forces
+
+!     ngpusphcheck=2: the sums of the CPU (the arguments, and udot, uijmax and divv) against those of the GPU (sv, sudot, suij,
+!     sdiv), over the active particles of the rank; one line in log0.sph with the largest and rms differences.  The
+!     accelerations are compared as the sums of the hydrodynamic terms of all the ranks (the gather and scatter parts and the
+!     gravity-correction parts added), relative to the size of a of the particle and to the largest a; du/dt, uijmax and div v
+!     relative to the largest.
+      subroutine gpusph_fcompare(cvx,cvy,cvz,cgx,cgy,cgz,sv,sudot,suij,sdiv)
+      include 'starsmasher.h'
+      include 'mpif.h'
+      real*8 cvx(*),cvy(*),cvz(*),cgx(*),cgy(*),cgz(*)
+      real*8 sv(6,*),sudot(*),suij(*),sdiv(*)
+      real*8 uijmax(nmax)
+      common/uijmax/ uijmax
+      double precision divv(nmax)
+      common/commdivv/divv
+      real*8, allocatable :: ag(:,:),ac(:,:)
+!     amx: 1 largest |da|/|a| of a particle, 2 largest |a|, 3 largest |da|, 4 largest |d udot|, 5 largest |udot|, 6 largest
+!     |d uijmax|, 7 largest uijmax, 8 largest |d div v|, 9 largest |div v|; s2: sums of the squares of |da|/|a|, |da|, d udot
+      real*8 amx(9),gmx(9),s2(3),gs2(3),cn(2),gcn(2)
+      real*8 ax,ay,az,bx,by,bz,an,dn,r,ddiff
+      integer i,k,ierr,nbit
+      allocate(ag(6,n),ac(6,n))
+      do i=1,n
+         ag(1:6,i)=sv(1:6,i)
+         ac(1,i)=cvx(i)
+         ac(2,i)=cvy(i)
+         ac(3,i)=cvz(i)
+         ac(4,i)=cgx(i)
+         ac(5,i)=cgy(i)
+         ac(6,i)=cgz(i)
+      enddo
+      if(nprocs.gt.1) then
+         call mpi_allreduce(mpi_in_place,ag,6*n,mpi_double_precision,mpi_sum,mpi_comm_world,ierr)
+         call mpi_allreduce(mpi_in_place,ac,6*n,mpi_double_precision,mpi_sum,mpi_comm_world,ierr)
+      endif
+      amx=0.d0
+      s2=0.d0
+      cn=0.d0
+      do i=n_lower,n_upper
+         if(.not.actblk(i)) cycle
+         ax=ag(1,i)+ag(4,i)
+         ay=ag(2,i)+ag(5,i)
+         az=ag(3,i)+ag(6,i)
+         bx=ac(1,i)+ac(4,i)
+         by=ac(2,i)+ac(5,i)
+         bz=ac(3,i)+ac(6,i)
+         an=sqrt(bx*bx+by*by+bz*bz)
+         dn=sqrt((ax-bx)**2+(ay-by)**2+(az-bz)**2)
+         if(an.gt.0.d0) then
+            r=dn/an
+            amx(1)=max(amx(1),r)
+            s2(1)=s2(1)+r*r
+         endif
+         amx(2)=max(amx(2),an)
+         amx(3)=max(amx(3),dn)
+         s2(2)=s2(2)+dn*dn
+         cn(1)=cn(1)+1.d0
+         ddiff=abs(sudot(i)-udot(i))
+         amx(4)=max(amx(4),ddiff)
+         amx(5)=max(amx(5),abs(udot(i)))
+         s2(3)=s2(3)+ddiff*ddiff
+         amx(6)=max(amx(6),abs(suij(i)-uijmax(i)))
+         amx(7)=max(amx(7),abs(uijmax(i)))
+         amx(8)=max(amx(8),abs(sdiv(i)-divv(i)))
+         amx(9)=max(amx(9),abs(divv(i)))
+         nbit=0
+         do k=1,6
+            if(transfer(ag(k,i),0_8).eq.transfer(ac(k,i),0_8)) nbit=nbit+1
+         enddo
+         if(nbit.eq.6 .and. transfer(sudot(i),0_8).eq.transfer(udot(i),0_8)) cn(2)=cn(2)+1.d0
+      enddo
+      call mpi_allreduce(amx,gmx,9,mpi_double_precision,mpi_max,mpi_comm_world,ierr)
+      call mpi_allreduce(s2,gs2,3,mpi_double_precision,mpi_sum,mpi_comm_world,ierr)
+      call mpi_allreduce(cn,gcn,2,mpi_double_precision,mpi_sum,mpi_comm_world,ierr)
+      deallocate(ag,ac)
+      gs_ncheck=gs_ncheck+1
+      if(myrank.ne.0) return
+      r=max(gcn(1),1.d0)
+!     (key value pairs; the differences of du/dt, uijmax and div v are relative to the largest value)
+      write(69,*)'ngpusphcheck forces: call',gs_ncheck,' t',t,' n',nint(gcn(1)),' bit_equal',nint(gcn(2)),&
+           ' a_rel_max',gmx(1),' a_rel_rms',sqrt(gs2(1)/r),' a_max',gmx(2),' da_max',gmx(3),' da_rms',sqrt(gs2(2)/r),&
+           ' du_max',gmx(4),' du_rms',sqrt(gs2(3)/r),' du_ref',gmx(5),' uij_max',gmx(6),' uij_ref',gmx(7),&
+           ' div_max',gmx(8),' div_ref',gmx(9)
+      call flush(69)
+      end subroutine gpusph_fcompare
 
       end module gpusph_mod

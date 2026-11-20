@@ -99,3 +99,27 @@ c     SPH on the GPU (ngpusph): the CUDA library has it, this build does not (gp
       ierr=1
       return
       end
+
+      subroutine gpu_sph_ftables(ntab,dwtab,dgtab,ierr)
+      integer ntab,ierr
+      real*8 dwtab(*),dgtab(*)
+      ierr=1
+      return
+      end
+
+      subroutine gpu_sph_forces(n,nmaxarr,nt,nloop,contig,tp,tiw,x,y,z,
+     $     vx,vy,vz,am,u,hp,rho,por2,om,om0,psi,nn,first,list,listcap,
+     $     act,blocks,alpha1,beta1,hfloor,gam,nav,nintvar,relaxnoheat,
+     $     udotother,ngr,useb,mvx,mvy,mvz,mgx,mgy,mgz,udot,uijmax,
+     $     divv,nlarge,ierr)
+      integer n,nmaxarr,nt,nloop,contig,tp(*),tiw(*),nn(*),first(*)
+      integer list(*),listcap,act(*),blocks,nav,nintvar,relaxnoheat
+      integer udotother,ngr,useb,nlarge,ierr
+      real*8 x(*),y(*),z(*),vx(*),vy(*),vz(*),am(*),u(*),hp(*),rho(*)
+      real*8 por2(*),om(*),om0(*),psi(*),alpha1,beta1,hfloor,gam
+      real*8 mvx(*),mvy(*),mvz(*),mgx(*),mgy(*),mgz(*),udot(*)
+      real*8 uijmax(*),divv(*)
+      nlarge=0
+      ierr=1
+      return
+      end

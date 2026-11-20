@@ -582,6 +582,64 @@ def t_gpu_sph(ctx):
                     raise Fail('%s build, np=%d: ngpusph mode %s changes a dump' % (tag, np_, mode))
             out.append('%s np=%d: %d rows, %d dumps' % (tag, np_, len(res['0'][0]), len(res['0'][1])))
     return 'ngpusph=0, 1 and 1 with the check give the same bits: ' + '; '.join(out)
+
+def t_gpu_forces(ctx):
+    """ngpusph=3 (the pair sums of the forces on the GPU too) agrees with ngpusph=1, to the rounding of the sums.
+
+    Bit 2 of ngpusph puts div v, curl v, the accelerations and du/dt on the GPU, with the terms and the order of
+    the sums of the CPU; they can differ from the CPU's in the last bit of a term (sqrt against pow in the
+    viscosity).  An unrelaxed polytrope, whose particles approach each other and several time-step bins, is run
+    with shared and with block steps: the energies of every row must agree with ngpusph=1 to 1e-9, and a run
+    with ngpusphcheck=2 (the CPUs make the sums too and the differences go to log0.sph) must report
+    differences of the accelerations below 1e-12 of the particle's and of du/dt below 1e-10 of the largest.
+    The CPU build says that it has no GPU code and gives the same bits.
+    """
+    out = []
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        if not exe:
+            continue
+        for np_ in (1, ctx.np):
+            for blk in (0, 1):
+                res = {}
+                for mode, extra in (('1', dict(ngpusph=1)), ('3', dict(ngpusph=3)), ('3c', dict(ngpusph=3, ngpusphcheck=2))):
+                    d = ctx.dir('gf_%s_%d_%d_%s' % (tag, np_, blk, mode))
+                    p, e = run(exe, d, np=np_, **dict(POLY, nrelax=0, nblock=blk, tf=1, dtout=0.5, **extra))
+                    log = open(os.path.join(d, 'log0.sph')).read() if os.path.exists(os.path.join(d, 'log0.sph')) else ''
+                    if mode != '1':
+                        want = ('ngpusph: the pair sums (forces) on the CPUs: this build has no GPU code' if tag == 'cpu'
+                                else 'ngpusph: the pair sums (forces) on the GPU')
+                        if want not in log:
+                            raise Fail('%s build, np=%d, nblock=%d, ngpusph mode %s: log0.sph does not say "%s"\n%s'
+                                       % (tag, np_, blk, mode, want, (p.stdout + p.stderr)[-600:]))
+                    res[mode] = energies(e)
+                    if mode == '3c' and tag == 'gpu':
+                        lines = [l for l in log.splitlines() if l.startswith(' ngpusphcheck forces:') or l.startswith('ngpusphcheck forces:')]
+                        if not lines:
+                            raise Fail('np=%d, nblock=%d: ngpusphcheck=2 wrote no line of differences' % (np_, blk))
+                        worst = 0.0
+                        worstdu = 0.0
+                        for l in lines:
+                            f = l.split()
+                            a = float(f[f.index('a_rel_max') + 1])
+                            du = float(f[f.index('du_max') + 1]) / max(float(f[f.index('du_ref') + 1]), 1e-300)
+                            worst, worstdu = max(worst, a), max(worstdu, du)
+                        if worst > 1e-12 or worstdu > 1e-10:
+                            raise Fail('np=%d, nblock=%d: the forces on the GPU differ from the CPU by %.2e of a (limit 1e-12) '
+                                       'and %.2e of du/dt (limit 1e-10)' % (np_, blk, worst, worstdu))
+                for mode in ('3', '3c'):
+                    if len(res['1']) != len(res[mode]):
+                        raise Fail('%s build, np=%d, nblock=%d: ngpusph mode %s gives another number of rows' % (tag, np_, blk, mode))
+                    tol = 0.0 if tag == 'cpu' else 1e-9
+                    for r1, r3 in zip(res['1'], res[mode]):
+                        for k, name in ((1, 'W'), (3, 'U'), (4, 'Etot')):
+                            if tol == 0.0:
+                                if r1[k] != r3[k]:
+                                    raise Fail('%s build, np=%d, nblock=%d: ngpusph mode %s changes %s' % (tag, np_, blk, mode, name))
+                            else:
+                                close(r3[k], r1[k], tol, '%s, np=%d, nblock=%d, ngpusph=%s against 1' % (name, np_, blk, mode))
+                out.append('%s np=%d nblock=%d: %d rows' % (tag, np_, blk, len(res['1'])))
+    return 'ngpusph=3 agrees with 1 (and the check of the forces is clean): ' + '; '.join(out)
+
 # --------------------------------------------------------------- HDF5 -----
 
 def t_hdf5_dump(ctx):
@@ -681,6 +739,7 @@ TESTS = {
     'gpu_tree':         t_gpu_tree,
     'gravity_auto':     t_gravity_auto,
     'gpu_sph':          t_gpu_sph,
+    'gpu_forces':       t_gpu_forces,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

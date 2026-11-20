@@ -477,11 +477,11 @@ Parallelism and GPUs
    * - ``ngpusph``
      - ``0``
      - every run
-     - SPH work done on the GPUs, a bit mask.  0: all on the CPUs.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, block steps, the first step of a run); a particle with more than 128 candidates is solved by the CPU
+     - SPH work done on the GPUs, a bit mask: 0, 1 or 3.  0: all on the CPUs.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  Bit 2 (value 2, always with bit 1, so ngpusph=3): the pair sums of the forces (div v and curl v, the accelerations, du/dt, with Balsara's viscosity) are made on the GPU too, with the terms and the order of the sums of the CPU, so that the bits are those of the CPU except where a pair approaches and the root of its viscosity term is taken (sqrt on the GPU, pow on the CPU).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, nav=4 or nintvar=3 for the forces, block steps and the first step of a run for bit 1); a particle with more than 128 candidates is solved by the CPU
    * - ``ngpusphcheck``
      - ``0``
      - every run
-     - 1: whatever ngpusph puts on the GPU is also done on the CPUs and compared, and the run stops at the first particle that differs.  A diagnostic, slower than either alone
+     - 0, 1, 2 or 3 (a bit mask).  Bit 1 (value 1): whatever ngpusph=1 puts on the GPU is also done on the CPUs and compared, and the run stops at the first particle that differs.  Bit 2 (value 2): the forces of ngpusph=3 are also made by the CPUs, on the same data, and the differences are written to log0.sph at each step (the run goes on with the CPU results).  A diagnostic, slower than either alone
 
 .. _sph-input-units:
 

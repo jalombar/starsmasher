@@ -754,6 +754,15 @@ struct Dev
 std::vector<Dev> g_dev;
 bool g_ready = false;
 
+// what the last call of the smoothing-length kernel left on the devices (the forces can use it if it is for the same particles): valid after a call
+// that made every particle on the GPU
+struct BState
+{
+  bool valid;
+  int n, nlow, nown, ch;
+};
+BState g_bs = {false, 0, 0, 0, 0};
+
 template <class T> void dfree(T *&p) { if (p) { cudaFree(p); p = 0; } }
 
 void freedev(Dev &d)
@@ -1072,6 +1081,484 @@ void drain(int nown, int nlow, int ch, const Host &H, int *ltot, int *ierr, long
   if (nflagged) *nflagged = nfl;
 }
 
+
+// ====================================================================================================================== the forces
+// Bit 2 of ngpusph: the pair sums of uvdots (balAV3.f: getderivs, uvchunk and uvpairs) on the GPU, for nav=0..3 (the Riemann solver of
+// nav=4 stays on the CPU), without periodic boxes and with dynhco=0.  Every term is formed here with the operations, in the order and
+// with the tables of the CPU code (one multiplication or addition at a time, --fmad=false), so that each term of a pair is the number the
+// CPU computes; the one difference is the root of the viscosity term, r2**0.5d0, which gfortran compiles as a call to pow and which is
+// the correctly rounded sqrt here (it differs from pow's result in the last bit now and then).
+//
+// How the sums are made.  The CPU makes the term of the pair (i,j) for each j in the list of i and adds it to i (the "gather" part, in
+// the order of the list) and to j (the "scatter" part, in a buffer of the chunk of pb_chunk=512 consecutive particles i, the buffers being
+// added to j one chunk after the other: pairbuf.f90).  Here the same terms are made once, by one thread for each particle i (k_fpair:
+// div v and curl v, then the pair loop, which keeps the terms of the pairs, csij and csijgc, in a place of its own for each entry of the
+// lists).  The entries are then sorted by the particle they act on (a stable radix sort by j of the entries listed by i: for each j its
+// entries come out in the order of i) and one thread for each j (k_fscat) adds them in that order, chunk by chunk, to what the gather
+// part gave, exactly as the CPU does.  There is no atomic operation on floating-point numbers and the order of every sum is fixed by the
+// index of the particles, whatever the order in which the threads run: the same bits in every run, with any number of devices (a device
+// takes whole chunks).  With the viscosity off, or where no term goes through the root of the viscosity, the sums are the bits of the CPU.
+constexpr int PBCHUNK = 512;   // pb_chunk of pairbuf.f90
+#ifndef SPH_FTHR
+#define SPH_FTHR 128
+#endif
+#ifndef SPH_FMINB
+#define SPH_FMINB 1
+#endif
+constexpr int FTHR = SPH_FTHR;   // threads of a block of the kernels of the forces (-DSPH_FTHR, -DSPH_FMINB: tests of the launch)
+
+struct FPar
+{
+  double alpha1, beta1, hfloor, gam, ctab, c4;
+  int nav3;          // nav=3 (else the other viscosities of uvchunk)
+  int nintvar2;      // nintvar=2
+  int relaxnoheat;   // nrelax=1 and t<treloff: no heating by the viscosity
+  int udotother;     // nrelax=0 or t>=treloff
+  int ngr;           // the gravity correction is on
+  int blocks;        // block steps: only the active particles take part
+};
+
+struct FOut
+{
+  double udot, uij, divv;
+  int p;      // the particle (from 0); -1: no particle at this place of the work (the device does not take it)
+  int pad;
+};
+
+// what the pair loop of a particle of the work needs: its smoothing length and sums, where its list starts in the list of the device and
+// how long it is (valid=0: this device does not do this place of the work)
+struct TPar
+{
+  double hp, rho, om, om0, psi;
+  int p, nn, off, valid;
+};
+
+struct FView
+{
+  int n, nts, t0;                  // particles; targets of this device and the first one of them (in the arrays of all targets)
+  const D4 *pos;                   // x y z mass
+  const D4 *vel;                   // vx vy vz u
+  const double *por2;
+  const TPar *tpar;                // for each place of the work of this device (or, with inv, nothing)
+  const int *inv;                  // with the records of the smoothing-length kernel: the record of each place of the work (-1: not done by this device)
+  const SphOut *sout;              // those records
+  int sch;                         // and the places of a chunk of its lists
+  const int *list;
+  const int *act;
+  const int *tp, *tiw;             // the particle (from 1) and its place in the work of the rank (from 1), for all targets
+  const int *eoff;                 // where the entries of the targets of this device start (nts+1 of them)
+  const double *dw, *dg;
+  FPar P;
+  double2 *c;                      // csij and csijgc of every entry
+  int *key, *et, *val;             // for every entry: the particle it acts on (n: none), its target, its number
+  const int *skey, *sval;          // the same sorted by key
+  int nent;
+  double *acc;                     // 6 arrays of n: the gather sums, then the sums with the scatter parts
+  FOut *out;
+  int *nlarge;
+};
+
+// the data of place tl of the work of this device: false if the device does not do it
+__device__ __forceinline__ bool load_place(const FView &V, int tl, TPar &q)
+{
+  if (!V.inv)
+  {
+    q = V.tpar[tl];
+    return q.valid != 0;
+  }
+  const int o = V.inv[tl];
+  if (o < 0) return false;
+  const SphOut s = V.sout[o];
+  q.hp = s.hp; q.rho = s.rho; q.om = s.omega; q.om0 = s.om0; q.psi = s.psi;
+  q.p = s.idx; q.nn = s.nn; q.off = (o / V.sch) * V.sch * CAP + s.first; q.valid = 1;
+  return true;
+}
+
+// the term of the pairs of each particle p of the work: div v and curl v of p, then csij and csijgc of each entry of its list
+__global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair(FView V)
+{
+  const int tl = blockIdx.x * FTHR + threadIdx.x;
+  if (tl >= V.nts) return;
+  const int t = V.t0 + tl;
+  TPar tq;
+  if (!load_place(V, tl, tq))
+  {
+    FOut o;
+    o.udot = 0.0; o.uij = 0.0; o.divv = 0.0; o.p = -1; o.pad = 0;
+    V.out[tl] = o;
+    return;
+  }
+  const int p = tq.p;
+  const FPar &P = V.P;
+  const int nn = tq.nn, fo = tq.off;
+  const int e0 = V.eoff[tl];
+  const D4 pp = V.pos[p], pv = V.vel[p];
+  const double hpi = tq.hp, rhoi = tq.rho, por2i = V.por2[p], omi = tq.om, om0i = tq.om0, psii = tq.psi;
+  const bool actp = P.blocks ? (V.act[p] != 0) : true;
+  const double h2 = hpi * hpi;
+  const double h5 = hpi * (h2 * h2);
+  // getderivs.f
+  double cx = 0.0, cy = 0.0, cz = 0.0, dvv = 0.0;
+  if (rhoi > 0.0)
+  {
+    const double ctoh2 = P.ctab / h2;
+    for (int k = 0; k < nn; k++)
+    {
+      const int j = V.list[fo + k] - 1;
+      const D4 vj = V.vel[j];
+      if (vj.w != 0.0)
+      {
+        const D4 pj = V.pos[j];
+        const double dx = pp.x - pj.x, dy = pp.y - pj.y, dz = pp.z - pj.z;
+        const double r2 = (dx * dx + dy * dy) + dz * dz;
+        double xq = ctoh2 * r2;
+        xq = xq < P.c4 ? xq : P.c4;
+        const int it = (int)xq;
+        const double fq = xq - (double)it;
+        const double dwi = V.dw[it] + fq * (V.dw[it + 1] - V.dw[it]);
+        const double dvx = pv.x - vj.x, dvy = pv.y - vj.y, dvz = pv.z - vj.z;
+        const double cxi = dz * dvy - dy * dvz;
+        const double cyi = dx * dvz - dz * dvx;
+        const double czi = dy * dvx - dx * dvy;
+        cx = cx + (pj.w * dwi) * cxi;
+        cy = cy + (pj.w * dwi) * cyi;
+        cz = cz + (pj.w * dwi) * czi;
+        const double divin = (dx * dvx + dy * dvy) + dz * dvz;
+        const double tij = dwi * divin;
+        dvv = dvv - pj.w * tij;
+      }
+    }
+    const double den = rhoi * h5;
+    cx = cx / den;
+    cy = cy / den;
+    cz = cz / den;
+    dvv = dvv / den;
+  }
+  const double abscurl = sqrt((cx * cx + cy * cy) + cz * cz);
+  const double ci2 = (P.gam * por2i) * rhoi;
+  const double ci = sqrt(ci2);
+  // uvchunk
+  const double hpt = hpi - P.hfloor;
+  const double h2t = hpt * hpt;
+  const double invh = 1.0 / hpi, invh2 = 1.0 / h2, invh2t = 1.0 / h2t, invh5 = 1.0 / h5;
+  const bool gasp = pv.w != 0.0;
+  double gx = 0.0, gy = 0.0, gz = 0.0, ggx = 0.0, ggy = 0.0, ggz = 0.0, ud = 0.0, um = 0.0;
+  for (int k = 0; k < nn; k++)
+  {
+    const int j = V.list[fo + k] - 1;
+    const D4 vj = V.vel[j];
+    int keyv = j;
+    double csij = 0.0, csijgc = 0.0;
+    bool term = gasp && vj.w != 0.0;
+    if (P.blocks)
+    {
+      const bool actj = V.act[j] != 0;
+      if (!(actp || actj)) term = false;   // not a term of this substep (the CPU skips it)
+      if (!actj) keyv = V.n;               // the particle it acts on does not keep what it gets
+    }
+    if (term)
+    {
+      const D4 pj = V.pos[j];
+      const double dx = pp.x - pj.x, dy = pp.y - pj.y, dz = pp.z - pj.z;
+      const double dvx = pv.x - vj.x, dvy = pv.y - vj.y, dvz = pv.z - vj.z;
+      const double r2 = (dx * dx + dy * dy) + dz * dz;
+      const double q4 = r2 * invh2;
+      const double xq = P.ctab * (q4 < 4.0 ? q4 : 4.0);
+      const int it = (int)xq;
+      const double fq = xq - (double)it;
+      double diwkin = 0.0;
+      if (r2 < 4.0 * h2t)
+      {
+        const double xqt = (P.ctab * r2) * invh2t;
+        const int itt = (int)xqt;
+        const double fqt = xqt - (double)itt;
+        diwkin = (V.dg[itt] + fqt * (V.dg[itt + 1] - V.dg[itt])) * invh2t;
+      }
+      const double dwijin = (V.dw[it] + fq * (V.dw[it + 1] - V.dw[it])) * invh5;
+      const double divin = (dx * dvx + dy * dvy) + dz * dvz;
+      double pijin = 0.0;
+      if (divin < 0.0)
+      {
+        const double fi = fabs(dvv) / ((fabs(dvv) + abscurl) + (0.00001 * ci) * invh);
+        double udbij = 0.0;
+        if (r2 > 0.0)
+        {
+          if (P.nav3) udbij = divin / (ci * sqrt(r2)) * fi;
+          else udbij = (hpi * divin) / (ci * r2) * fi;
+        }
+        if (fabs(udbij) > 1.0e8) atomicAdd(V.nlarge, 1);
+        pijin = (por2i * (P.alpha1 + P.beta1 * udbij)) * udbij;
+      }
+      const double invbonnet = 1.0 / (om0i * pj.w);
+      csij = por2i * (-(omi * invbonnet * diwkin) + dwijin);
+      csijgc = (0.5 * pijin) * dwijin;
+      const double csiju = P.relaxnoheat ? csij : csij + csijgc;
+      if (P.nintvar2) ud = ud + (pj.w * csiju) * divin;
+      else if (P.udotother) ud = ud + ((pj.w * pijin) * dwijin) * divin;
+      if (actp)
+      {
+        const double uv = (por2i + 0.5 * pijin) * rhoi;
+        um = um > uv ? um : uv;
+      }
+      if (P.ngr) csijgc = csijgc - ((0.5 * diwkin) * psii) * invbonnet;
+      const double sx = csij * dx, sy = csij * dy, sz = csij * dz;
+      const double sgx = csijgc * dx, sgy = csijgc * dy, sgz = csijgc * dz;
+      gx = gx - pj.w * sx;
+      gy = gy - pj.w * sy;
+      gz = gz - pj.w * sz;
+      ggx = ggx - pj.w * sgx;
+      ggy = ggy - pj.w * sgy;
+      ggz = ggz - pj.w * sgz;
+    }
+    else
+    {
+      // no term (a point particle, or a pair that the substep leaves out): the entry does not go to the sums on the neighbours
+      keyv = V.n;
+    }
+    V.c[e0 + k] = make_double2(csij, csijgc);
+    V.key[e0 + k] = keyv;
+    V.et[e0 + k] = t;
+    V.val[e0 + k] = e0 + k;
+  }
+  const size_t n = (size_t)V.n;
+  V.acc[0 * n + p] = gx;
+  V.acc[1 * n + p] = gy;
+  V.acc[2 * n + p] = gz;
+  V.acc[3 * n + p] = ggx;
+  V.acc[4 * n + p] = ggy;
+  V.acc[5 * n + p] = ggz;
+  FOut o;
+  o.udot = ud; o.uij = um; o.divv = dvv; o.p = p; o.pad = 0;
+  V.out[tl] = o;
+}
+
+// the first entry with key >= q in the sorted keys
+__device__ __forceinline__ int lower_key(const int *key, int m, int q)
+{
+  int lo = 0, hi = m;
+  while (lo < hi)
+  {
+    const int mid = (lo + hi) >> 1;
+    if (key[mid] < q) lo = mid + 1; else hi = mid;
+  }
+  return lo;
+}
+
+// the terms that act on each particle q as the scatter part: for each q the entries that name it, in the order of the work (the
+// particle i, then the place in its list), added chunk by chunk to the gather sum that is in acc
+__global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fscat(FView V)
+{
+  const int q = blockIdx.x * FTHR + threadIdx.x;
+  if (q >= V.n) return;
+  const int lo = lower_key(V.skey, V.nent, q);
+  if (lo >= V.nent || V.skey[lo] != q) return;
+  const int hi = lower_key(V.skey, V.nent, q + 1);
+  const size_t n = (size_t)V.n;
+  double tot[6];
+  for (int a = 0; a < 6; a++) tot[a] = V.acc[a * n + q];
+  double b[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+  int chunk = -1;
+  const D4 pq = V.pos[q];
+  for (int s = lo; s < hi; s++)
+  {
+    const int e = V.sval[s];
+    const int t = V.et[e];
+    const int ch = (V.tiw[t] - 1) / PBCHUNK;
+    if (ch != chunk)
+    {
+      if (chunk >= 0) for (int a = 0; a < 6; a++) tot[a] = tot[a] + b[a];
+      for (int a = 0; a < 6; a++) b[a] = 0.0;
+      chunk = ch;
+    }
+    const int p = V.tp[t] - 1;
+    const D4 pp = V.pos[p];
+    const double dx = pp.x - pq.x, dy = pp.y - pq.y, dz = pp.z - pq.z;
+    const double2 c = V.c[e];
+    const double sx = c.x * dx, sy = c.x * dy, sz = c.x * dz;
+    const double sgx = c.y * dx, sgy = c.y * dy, sgz = c.y * dz;
+    b[0] = b[0] + pp.w * sx;
+    b[1] = b[1] + pp.w * sy;
+    b[2] = b[2] + pp.w * sz;
+    b[3] = b[3] + pp.w * sgx;
+    b[4] = b[4] + pp.w * sgy;
+    b[5] = b[5] + pp.w * sgz;
+  }
+  for (int a = 0; a < 6; a++) tot[a] = tot[a] + b[a];
+  for (int a = 0; a < 6; a++) V.acc[a * n + q] = tot[a];
+}
+
+__global__ void k_fpack(int n, const double *x, const double *y, const double *z, const double *am, const double *vx, const double *vy,
+                        const double *vz, const double *u, D4 *pos, D4 *vel)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i >= n) return;
+  pos[i] = make_d4(x[i], y[i], z[i], am[i]);
+  vel[i] = make_d4(vx[i], vy[i], vz[i], u[i]);
+}
+
+__global__ void k_fcontig(int nt, int p0, int *tp, int *tiw)
+{
+  const int t = blockIdx.x * blockDim.x + threadIdx.x;
+  if (t >= nt) return;
+  tp[t] = p0 + t;
+  tiw[t] = t + 1;
+}
+
+__global__ void k_fcount(FView V, int *cnt)
+{
+  const int tl = blockIdx.x * blockDim.x + threadIdx.x;
+  if (tl > V.nts) return;
+  TPar q;
+  cnt[tl] = (tl < V.nts && load_place(V, tl, q)) ? q.nn : 0;
+}
+
+#ifndef SPH_FTPAR_SCATTER
+// the inverse of the order of the records: the record of each place of the work
+__global__ void k_finv(int sl, int nlow, const SphOut *out, int *inv)
+{
+  const int o = blockIdx.x * blockDim.x + threadIdx.x;
+  if (o >= sl) return;
+  inv[out[o].idx - nlow] = o;
+}
+#endif
+
+// the data of the places of the work from arrays indexed by the particle (the CPU's), for the targets t0.. of the arrays of all targets
+__global__ void k_ftpar_u(int nts, int t0, const int *tp, const double *hp, const double *rho, const double *om, const double *om0, const double *psi,
+                          const int *nn, const int *first, TPar *tpar)
+{
+  const int tl = blockIdx.x * blockDim.x + threadIdx.x;
+  if (tl >= nts) return;
+  const int p = tp[t0 + tl] - 1;
+  TPar q;
+  q.hp = hp[p]; q.rho = rho[p]; q.om = om[p]; q.om0 = om0[p]; q.psi = psi[p];
+  q.p = p; q.nn = nn[p]; q.off = first[p]; q.valid = 1;
+  tpar[tl] = q;
+}
+
+#ifdef SPH_FTPAR_SCATTER
+// the same from what the smoothing-length kernel left on this device (the records of its slice, whose lists are in chunks of ch places of
+// CAP entries): the place of the work of a particle is its index minus the first of the rank
+__global__ void k_ftpar_r(int sl, int nlow, int ch, const SphOut *out, TPar *tpar)
+{
+  const int o = blockIdx.x * blockDim.x + threadIdx.x;
+  if (o >= sl) return;
+  const SphOut s = out[o];
+  TPar q;
+  q.hp = s.hp; q.rho = s.rho; q.om = s.omega; q.om0 = s.om0; q.psi = s.psi;
+  q.p = s.idx; q.nn = s.nn; q.off = (o / ch) * ch * CAP + s.first; q.valid = 1;
+  tpar[s.idx - nlow] = q;
+}
+#endif
+
+// the buffers of one device for the forces (the particles of the call are uploaded whole: the arrays of the CPU are the source)
+struct FDev
+{
+  int ncap = 0, ntcap = 0;
+  size_t ecap = 0, lcap = 0;
+  double *x = 0, *y = 0, *z = 0, *vx = 0, *vy = 0, *vz = 0, *am = 0, *u = 0, *hp = 0, *rho = 0, *por2 = 0, *om = 0, *om0 = 0, *psi = 0;
+  D4 *pos = 0, *vel = 0;
+  int *nn = 0, *first = 0, *act = 0;
+  TPar *tpar = 0;
+  int *inv = 0;
+  int *hE = 0;           // pinned: the entries of the lists of this device
+  double *acc = 0;
+  int *tp = 0, *tiw = 0, *eoff = 0, *cnt = 0;
+  FOut *out = 0;
+  int *list = 0;
+  double2 *c = 0;
+  int *ka = 0, *kb = 0, *va = 0, *vb = 0, *et = 0;
+  double *dw = 0, *dg = 0;
+  void *tmp = 0;
+  size_t tmpbytes = 0;
+  double *hacc = 0;      // pinned: the 6 arrays of n that come back
+  size_t haccn = 0;
+  FOut *hout = 0;        // pinned
+  size_t houtn = 0;
+  int *nlarge = 0, *hnlarge = 0;
+};
+std::vector<FDev> g_fdev;
+
+void ffree(FDev &f)
+{
+  double **dd[] = {&f.x, &f.y, &f.z, &f.vx, &f.vy, &f.vz, &f.am, &f.u, &f.hp, &f.rho, &f.por2, &f.om, &f.om0, &f.psi, &f.acc};
+  for (size_t k = 0; k < sizeof dd / sizeof dd[0]; k++) dfree(*dd[k]);
+  dfree(f.tpar); dfree(f.inv); if (f.hE) { cudaFreeHost(f.hE); f.hE = 0; }
+  dfree(f.pos); dfree(f.vel); dfree(f.nn); dfree(f.first); dfree(f.act); dfree(f.tp); dfree(f.tiw); dfree(f.eoff); dfree(f.cnt); dfree(f.out);
+  dfree(f.list); dfree(f.c); dfree(f.ka); dfree(f.kb); dfree(f.va); dfree(f.vb); dfree(f.et); dfree(f.tmp); dfree(f.nlarge);
+  if (f.hacc) { cudaFreeHost(f.hacc); f.hacc = 0; }
+  if (f.hout) { cudaFreeHost(f.hout); f.hout = 0; }
+  if (f.hnlarge) { cudaFreeHost(f.hnlarge); f.hnlarge = 0; }
+  f.ncap = f.ntcap = 0; f.ecap = f.lcap = 0; f.tmpbytes = 0; f.haccn = f.houtn = 0;
+}
+
+// The arrays of the CPU that the forces send are not registered with the driver (cudaHostRegister makes whole pages of the memory pinned, and the pages
+// at the ends of an array are shared with the arrays next to it in the common blocks: a later copy of one of those, by the gravity for instance, then
+// starts in a registered page and ends in a page that is not, which the driver refuses): they are copied by the threads of the rank into a pinned buffer
+// of ours, and sent from it.
+char *g_stage = 0;
+size_t g_stagecap = 0;
+struct StageItem
+{
+  const void *src;
+  size_t bytes, off;
+};
+struct Stager
+{
+  std::vector<StageItem> items;
+  size_t total = 0;
+  size_t put(const void *src, size_t bytes)
+  {
+    const size_t o = total;
+    total += (bytes + 255) / 256 * 256;
+    StageItem it = {src, bytes, o};
+    items.push_back(it);
+    return o;
+  }
+  // allocates the buffer if it is too small and copies everything into it
+  void fill()
+  {
+    if (total > g_stagecap || !g_stage)
+    {
+      if (g_stage) cudaFreeHost(g_stage);
+      g_stage = 0;
+      g_stagecap = total + total / 8 + 4096;
+      CK(cudaHostAlloc((void **)&g_stage, g_stagecap, cudaHostAllocPortable));
+    }
+    const size_t blk = 1 << 20;
+    std::vector<std::pair<int, size_t> > tasks;
+    for (size_t i = 0; i < items.size(); i++)
+      for (size_t b = 0; b < items[i].bytes; b += blk) tasks.push_back(std::make_pair((int)i, b));
+#pragma omp parallel for schedule(static)
+    for (long long t = 0; t < (long long)tasks.size(); t++)
+    {
+      const StageItem &it = items[tasks[t].first];
+      const size_t b = tasks[t].second;
+      memcpy(g_stage + it.off + b, (const char *)it.src + b, std::min(blk, it.bytes - b));
+    }
+  }
+};
+// the copy of one staged array to a device (what: its name, for the message of an error)
+inline void h2d_staged(void *dst, size_t off, size_t bytes, cudaStream_t st, const char *what)
+{
+  if (!bytes) return;
+  const cudaError_t e = cudaMemcpyAsync(dst, g_stage + off, bytes, cudaMemcpyHostToDevice, st);
+  if (e != cudaSuccess)
+  {
+    char b_[256];
+    snprintf(b_, sizeof b_, "CUDA error in the copy of %s (%zu bytes) to the device: %s", what, bytes, cudaGetErrorString(e));
+    throw SphError(e == cudaErrorMemoryAllocation ? 4 : 3, b_);
+  }
+}
+#define H2S(dst, off, bytes) h2d_staged(dst, off, bytes, st, #dst)
+
+// the sorted-by-key bits: enough for the keys 0..n (n = no key)
+inline int key_bits(int n)
+{
+  int b = 1;
+  while ((1LL << b) <= (long long)n) b++;
+  return b;
+}
+
 }  // namespace
 
 extern "C"
@@ -1168,6 +1655,7 @@ extern "C"
   {
     *ierr = 0;
     *ltot = 0;
+    g_bs.valid = false;
     const int n = *n_, nlow = *nlow_ - 1, nup = *nup_, nown = nup - nlow;
     const size_t listcap = *listcap_;
     try
@@ -1219,6 +1707,10 @@ extern "C"
       H.nn = nn; H.first = first; H.sflag = sflag; H.list = list; H.listcap = listcap;
       long nfl = 0;
       drain(nown, nlow, ch, H, ltot, ierr, &nfl);
+      if (*ierr == 0 && nfl == 0)
+      {
+        g_bs.valid = true; g_bs.n = n; g_bs.nlow = nlow; g_bs.nown = nown; g_bs.ch = ch;
+      }
       CK(cudaSetDevice(g_dev[0].id));
       if (plev)
       {
@@ -1247,6 +1739,320 @@ extern "C"
         }
 #endif
         if (plev >= 2) print_marks("build phases (ms)");
+      }
+    }
+    catch (const SphError &e)
+    {
+      fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
+      *ierr = e.code;
+      if (!g_dev.empty()) cudaSetDevice(g_dev[0].id);
+    }
+  }
+
+  // The tables dw/dh (dwtab) and dg (dgtab) of the kernel that the forces read (kernels.f), with the guard entry (ntab+1 each), copied to
+  // every device of the process, once.  ierr: 0 ok, 3 error of CUDA, 4 no memory.
+  void gpu_sph_ftables_(int *ntab, double *dwtab, double *dgtab, int *ierr)
+  {
+    *ierr = 0;
+    try
+    {
+      if (!g_ready) throw SphError(3, "gpu_sph_ftables_ called before gpu_sph_setup_");
+      if (g_fdev.size() != g_dev.size()) g_fdev.resize(g_dev.size());
+      const size_t nt = (size_t)*ntab + 1;
+      for (size_t k = 0; k < g_dev.size(); k++)
+      {
+        FDev &f = g_fdev[k];
+        CK(cudaSetDevice(g_dev[k].id));
+        dfree(f.dw); dfree(f.dg);
+        dmalloc(f.dw, nt); dmalloc(f.dg, nt);
+        CK(cudaMemcpy(f.dw, dwtab, nt * sizeof(double), cudaMemcpyHostToDevice));
+        CK(cudaMemcpy(f.dg, dgtab, nt * sizeof(double), cudaMemcpyHostToDevice));
+      }
+      CK(cudaSetDevice(g_dev[0].id));
+    }
+    catch (const SphError &e)
+    {
+      fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
+      *ierr = e.code;
+    }
+  }
+
+  // The pair sums of uvdots for the targets tp(1:nt) (particles from 1, in the order of the work of the rank, tiw(t) being the place of
+  // target t in that work, from 1; contig=1: the targets are the particles tp(1)..tp(1)+nt-1 and tiw(t)=t), with the lists, smoothing
+  // lengths and sums that rho_and_h left in the arrays of the CPU.  On return the arrays of the CPU named in the last line hold, for every
+  // particle of 1..n, the sums mvx..mgz of getderivs/uvchunk (the "gather" and "scatter" parts, the same terms in the same order as the
+  // CPU), and for each target udot (before the factor of nintvar=1 and 3), uijmax (only where act, or if blocks=0) and divv.
+  // useb=1: the smoothing lengths and lists were just made by gpu_sph_rhoh_ for the same particles (shared steps, all of them on the
+  // GPU): the positions, masses, smoothing lengths, sums and lists that are on the devices are used, and only the velocities, u and
+  // the pressure term are sent.  ierr: 0 ok, 3 error of CUDA, 4 no memory; a return with ierr not 0 has changed none of the arrays of
+  // the CPU.
+  void gpu_sph_forces_(int *n_, int *nmaxarr, int *nt_, int *nloop_, int *contig_, int *tp, int *tiw, double *x, double *y, double *z,
+                       double *vx, double *vy, double *vz, double *am, double *u, double *hp, double *rho, double *por2, double *om,
+                       double *om0, double *psi, int *nn, int *first, int *list, int *listcap_, int *act, int *blocks_, double *alpha1,
+                       double *beta1, double *hfloor, double *gam, int *nav, int *nintvar, int *relaxnoheat, int *udotother, int *ngr,
+                       int *useb_, double *mvx, double *mvy, double *mvz, double *mgx, double *mgy, double *mgz, double *udot,
+                       double *uijmax, double *divv, int *nlarge, int *ierr)
+  {
+    *ierr = 0;
+    *nlarge = 0;
+    const int n = *n_, nt = *nt_, nloop = *nloop_, contig = *contig_, blocks = *blocks_;
+    try
+    {
+      if (!g_ready) throw SphError(3, "gpu_sph_forces_ called before gpu_sph_setup_");
+      const int ndev = (int)g_dev.size();
+      if ((int)g_fdev.size() != ndev) g_fdev.resize(ndev);
+      for (int k = 0; k < ndev; k++)
+        if (!g_fdev[k].dw) throw SphError(3, "the tables of the forces were not sent to the device");
+      if (nt <= 0) return;
+      const double tstart = now_ms();
+      const int plev = prof_level();
+      const int p0 = tp[0];
+      // the data of the smoothing-length kernel on the devices can be used if it was just made for these particles
+      const bool useb = (*useb_ != 0) && contig && !blocks && g_bs.valid && g_bs.n == n && g_bs.nown == nt && g_bs.nlow == p0 - 1 && nloop == nt;
+      // the longest list reached (the part of list() to send), and the work of each device: whole chunks of pb_chunk places (or, with the
+      // data of the smoothing-length kernel, its slice of the particles)
+      long long listlen = 0, ebound = 0;
+      std::vector<int> t0(ndev + 1, nt), nts(ndev, 0);
+      std::vector<long long> ent(ndev, 0);
+      if (!useb)
+      {
+#pragma omp parallel for schedule(static) reduction(max : listlen)
+        for (int t = 0; t < nt; t++)
+        {
+          const int p = (contig ? p0 + t : tp[t]) - 1;
+          const long long v = (long long)first[p] + nn[p];
+          if (v > listlen) listlen = v;
+        }
+        const int nchk = (nloop + PBCHUNK - 1) / PBCHUNK;
+        for (int k = 0; k < ndev; k++)
+        {
+          const long long cb = ((long long)nchk * k) / ndev;
+          const long long iw0 = cb * PBCHUNK + 1;   // the first place of the work that the device takes
+          if (k == 0) t0[k] = 0;
+          else if (contig) t0[k] = (int)std::min<long long>(nt, iw0 - 1);
+          else t0[k] = (int)(std::lower_bound(tiw, tiw + nt, (int)std::min<long long>(iw0, 2000000000LL)) - tiw);
+        }
+        for (int k = 0; k < ndev; k++)
+        {
+          long long e = 0;
+#pragma omp parallel for schedule(static) reduction(+ : e)
+          for (int t = t0[k]; t < t0[k + 1]; t++) e += nn[(contig ? p0 + t : tp[t]) - 1];
+          ent[k] = e;
+          nts[k] = t0[k + 1] - t0[k];
+          ebound = std::max(ebound, e);
+        }
+      }
+      else
+      {
+        long long e = 0;
+#pragma omp parallel for schedule(static) reduction(+ : e)
+        for (int t = 0; t < nt; t++) e += nn[p0 - 1 + t];
+        ebound = e;      // (what a device does is a part of it)
+        for (int k = 0; k < ndev; k++)
+        {
+          t0[k] = 0;
+          nts[k] = slice_of(nt, ndev, k) > 0 ? nt : 0;
+        }
+      }
+      if (ebound >= 2000000000LL) throw SphError(4, "too many entries in the lists for the forces on the GPU");
+      // what is sent: the velocities, u and the pressure term always; the rest unless the devices hold it
+      Stager stg;
+      const size_t o_vx = stg.put(vx, (size_t)n * 8), o_vy = stg.put(vy, (size_t)n * 8), o_vz = stg.put(vz, (size_t)n * 8), o_u = stg.put(u, (size_t)n * 8),
+                   o_por2 = stg.put(por2, (size_t)n * 8);
+      size_t o_x = 0, o_y = 0, o_z = 0, o_am = 0, o_hp = 0, o_rho = 0, o_om = 0, o_om0 = 0, o_psi = 0, o_nn = 0, o_first = 0, o_list = 0, o_act = 0, o_tp = 0, o_tiw = 0;
+      if (!useb)
+      {
+        o_x = stg.put(x, (size_t)n * 8); o_y = stg.put(y, (size_t)n * 8); o_z = stg.put(z, (size_t)n * 8); o_am = stg.put(am, (size_t)n * 8);
+        o_hp = stg.put(hp, (size_t)n * 8); o_rho = stg.put(rho, (size_t)n * 8); o_om = stg.put(om, (size_t)n * 8); o_om0 = stg.put(om0, (size_t)n * 8);
+        o_psi = stg.put(psi, (size_t)n * 8); o_nn = stg.put(nn, (size_t)n * 4); o_first = stg.put(first, (size_t)n * 4);
+        o_list = stg.put(list, (size_t)listlen * 4);
+        if (blocks) o_act = stg.put(act, (size_t)n * 4);
+        if (!contig) { o_tp = stg.put(tp, (size_t)nt * 4); o_tiw = stg.put(tiw, (size_t)nt * 4); }
+      }
+      stg.fill();
+      FPar P;
+      P.alpha1 = *alpha1; P.beta1 = *beta1; P.hfloor = *hfloor; P.gam = *gam;
+      P.nav3 = (*nav == 3); P.nintvar2 = (*nintvar == 2); P.relaxnoheat = *relaxnoheat; P.udotother = *udotother; P.ngr = (*ngr != 0);
+      P.blocks = blocks;
+      const int kb = key_bits(n);
+      std::vector<FView> views(ndev);
+      std::vector<int> used(ndev, 0);
+      // phase A on every device: the buffers, the data, the places of the work, the entries of the lists
+      for (int k = 0; k < ndev; k++)
+      {
+        if (nts[k] <= 0) continue;
+        used[k] = 1;
+        Dev &d = g_dev[k];
+        FDev &f = g_fdev[k];
+        CK(cudaSetDevice(d.id));
+        const size_t E = (size_t)std::max(1LL, ebound);
+        const bool mk = (k == 0);
+        if (n > f.ncap || nt > f.ntcap || E > f.ecap || (size_t)listlen > f.lcap || !f.x)
+        {
+          cudaStreamSynchronize(d.st);
+          ffree(f);
+          CK(cudaSetDevice(d.id));
+          const size_t ncap = (size_t)n + n / 8 + 1024, ntcap = (size_t)nt + nt / 8 + 1024, ecap = E + E / 8 + 1024,
+                       lcap = (size_t)listlen + listlen / 8 + 1024;
+          double **dd[] = {&f.x, &f.y, &f.z, &f.vx, &f.vy, &f.vz, &f.am, &f.u, &f.hp, &f.rho, &f.por2, &f.om, &f.om0, &f.psi};
+          for (size_t q = 0; q < sizeof dd / sizeof dd[0]; q++) dmalloc(*dd[q], ncap);
+          dmalloc(f.acc, 6 * ncap);
+          dmalloc(f.pos, ncap); dmalloc(f.vel, ncap);
+          dmalloc(f.nn, ncap); dmalloc(f.first, ncap); dmalloc(f.act, ncap);
+          dmalloc(f.tp, ntcap); dmalloc(f.tiw, ntcap); dmalloc(f.eoff, ntcap + 2); dmalloc(f.cnt, ntcap + 2); dmalloc(f.out, ntcap);
+          dmalloc(f.tpar, ntcap);
+          dmalloc(f.inv, ntcap);
+          dmalloc(f.list, lcap);
+          dmalloc(f.c, ecap);
+          dmalloc(f.ka, ecap); dmalloc(f.kb, ecap); dmalloc(f.va, ecap); dmalloc(f.vb, ecap); dmalloc(f.et, ecap);
+          dmalloc(f.nlarge, 4);
+          size_t b1 = 0, b2 = 0;
+          CK(cub::DeviceRadixSort::SortPairs(NULL, b1, (int *)0, (int *)0, (int *)0, (int *)0, (int)ecap, 0, 32));
+          CK(cub::DeviceScan::ExclusiveSum(NULL, b2, (int *)0, (int *)0, (int)ntcap + 1));
+          f.tmpbytes = std::max(b1, b2) + 256;
+          CK(cudaMalloc(&f.tmp, f.tmpbytes));
+          CK(cudaMallocHost((void **)&f.hacc, 6 * ncap * sizeof(double)));
+          CK(cudaMallocHost((void **)&f.hout, ntcap * sizeof(FOut)));
+          CK(cudaMallocHost((void **)&f.hnlarge, 4 * sizeof(int)));
+          CK(cudaMallocHost((void **)&f.hE, 4 * sizeof(int)));
+          f.haccn = ncap; f.houtn = ntcap;
+          f.ncap = (int)ncap; f.ntcap = (int)ntcap; f.ecap = ecap; f.lcap = lcap;
+        }
+        cudaStream_t st = d.st;
+        if (mk) mark("f start", st);
+        CK(cudaMemsetAsync(f.acc, 0, 6 * (size_t)n * sizeof(double), st));
+        CK(cudaMemsetAsync(f.nlarge, 0, sizeof(int), st));
+        H2S(f.vx, o_vx, (size_t)n * 8); H2S(f.vy, o_vy, (size_t)n * 8); H2S(f.vz, o_vz, (size_t)n * 8);
+        H2S(f.u, o_u, (size_t)n * 8); H2S(f.por2, o_por2, (size_t)n * 8);
+        const double *dx_ = f.x, *dy_ = f.y, *dz_ = f.z, *dam_ = f.am;
+        if (!useb)
+        {
+          H2S(f.x, o_x, (size_t)n * 8); H2S(f.y, o_y, (size_t)n * 8); H2S(f.z, o_z, (size_t)n * 8);
+          H2S(f.am, o_am, (size_t)n * 8);
+          H2S(f.hp, o_hp, (size_t)n * 8); H2S(f.rho, o_rho, (size_t)n * 8);
+          H2S(f.om, o_om, (size_t)n * 8); H2S(f.om0, o_om0, (size_t)n * 8); H2S(f.psi, o_psi, (size_t)n * 8);
+          H2S(f.nn, o_nn, (size_t)n * 4); H2S(f.first, o_first, (size_t)n * 4);
+          H2S(f.list, o_list, (size_t)listlen * 4);
+          if (blocks) H2S(f.act, o_act, (size_t)n * 4);
+          if (contig) k_fcontig<<<nblocks(nt, 256), 256, 0, st>>>(nt, p0, f.tp, f.tiw);
+          else { H2S(f.tp, o_tp, (size_t)nt * 4); H2S(f.tiw, o_tiw, (size_t)nt * 4); }
+        }
+        else
+        {
+          dx_ = d.x; dy_ = d.y; dz_ = d.z; dam_ = d.am;
+          k_fcontig<<<nblocks(nt, 256), 256, 0, st>>>(nt, p0, f.tp, f.tiw);
+        }
+        if (mk) mark("f h2d", st);
+        k_fpack<<<nblocks(n, 256), 256, 0, st>>>(n, dx_, dy_, dz_, dam_, f.vx, f.vy, f.vz, f.u, f.pos, f.vel);
+        if (mk) mark("f pack", st);
+        FView &V = views[k];
+        memset(&V, 0, sizeof V);
+        V.n = n; V.nts = nts[k]; V.t0 = t0[k];
+        V.pos = f.pos; V.vel = f.vel; V.por2 = f.por2; V.tpar = f.tpar;
+        V.list = useb ? d.list : f.list; V.act = f.act; V.tp = f.tp; V.tiw = f.tiw; V.eoff = f.eoff;
+        V.dw = f.dw; V.dg = f.dg;
+        V.P = P; V.P.ctab = d.ctab; V.P.c4 = 4.0 * d.ctab;
+        V.c = f.c; V.key = f.ka; V.et = f.et; V.val = f.va; V.skey = f.kb; V.sval = f.vb;
+        V.acc = f.acc; V.out = f.out; V.nlarge = f.nlarge;
+        if (!useb)
+        {
+          k_ftpar_u<<<nblocks(nts[k], 256), 256, 0, st>>>(nts[k], t0[k], f.tp, f.hp, f.rho, f.om, f.om0, f.psi, f.nn, f.first, f.tpar);
+        }
+        else
+        {
+          const int sl = slice_of(nt, ndev, k);
+#ifdef SPH_FTPAR_SCATTER
+          CK(cudaMemsetAsync(f.tpar, 0, (size_t)nt * sizeof(TPar), st));
+          k_ftpar_r<<<nblocks(sl, 256), 256, 0, st>>>(sl, g_bs.nlow, g_bs.ch, d.out, f.tpar);
+#else
+          CK(cudaMemsetAsync(f.inv, 0xff, (size_t)nt * sizeof(int), st));
+          k_finv<<<nblocks(sl, 256), 256, 0, st>>>(sl, g_bs.nlow, d.out, f.inv);
+          V.inv = f.inv; V.sout = d.out; V.sch = g_bs.ch;
+#endif
+        }
+        if (mk) mark("f places", st);
+        k_fcount<<<nblocks(nts[k] + 1, 256), 256, 0, st>>>(V, f.cnt);
+        size_t bytes = f.tmpbytes;
+        CK(cub::DeviceScan::ExclusiveSum(f.tmp, bytes, f.cnt, f.eoff, nts[k] + 1, st));
+        CK(cudaMemcpyAsync(f.hE, f.eoff + nts[k], sizeof(int), cudaMemcpyDeviceToHost, st));
+        if (mk) mark("f count+scan", st);
+      }
+      // phase B: the pair terms, the sort, the sums on the neighbours, the results back
+      for (int k = 0; k < ndev; k++)
+      {
+        if (!used[k]) continue;
+        Dev &d = g_dev[k];
+        FDev &f = g_fdev[k];
+        CK(cudaSetDevice(d.id));
+        cudaStream_t st = d.st;
+        const bool mk = (k == 0);
+        FView &V = views[k];
+        CK(cudaStreamSynchronize(st));
+        ent[k] = f.hE[0];
+        if ((size_t)ent[k] > f.ecap) throw SphError(4, "the lists of the forces do not fit in the buffers");
+        V.nent = (int)ent[k];
+        k_fpair<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
+        CK(cudaGetLastError());
+        if (mk) mark("f pairs", st);
+        if (ent[k] > 0)
+        {
+          size_t bytes = f.tmpbytes;
+          CK(cub::DeviceRadixSort::SortPairs(f.tmp, bytes, f.ka, f.kb, f.va, f.vb, (int)ent[k], 0, kb, st));
+          if (mk) mark("f sort", st);
+          k_fscat<<<nblocks(n, FTHR), FTHR, 0, st>>>(V);
+          CK(cudaGetLastError());
+          if (mk) mark("f scatter", st);
+        }
+        CK(cudaMemcpyAsync(f.hacc, f.acc, 6 * (size_t)n * sizeof(double), cudaMemcpyDeviceToHost, st));
+        CK(cudaMemcpyAsync(f.hout, f.out, (size_t)nts[k] * sizeof(FOut), cudaMemcpyDeviceToHost, st));
+        CK(cudaMemcpyAsync(f.hnlarge, f.nlarge, sizeof(int), cudaMemcpyDeviceToHost, st));
+        if (mk) mark("f d2h", st);
+      }
+      for (int k = 0; k < ndev; k++)
+      {
+        if (!used[k]) continue;
+        CK(cudaSetDevice(g_dev[k].id));
+        CK(cudaStreamSynchronize(g_dev[k].st));
+      }
+      const double tdev = now_ms();
+      // nothing of the CPU has been changed up to here: the results now (the devices in order, so the sums do not depend on timing)
+      double *outs[6] = {mvx, mvy, mvz, mgx, mgy, mgz};
+      int first_used = -1;
+      for (int k = 0; k < ndev; k++)
+        if (used[k]) { first_used = k; break; }
+      for (int a = 0; a < 6; a++)
+      {
+        double *dst = outs[a];
+#pragma omp parallel for schedule(static)
+        for (int q = 0; q < n; q++)
+        {
+          double s = g_fdev[first_used].hacc[(size_t)a * n + q];
+          for (int k = first_used + 1; k < ndev; k++)
+            if (used[k]) s = s + g_fdev[k].hacc[(size_t)a * n + q];
+          dst[q] = s;
+        }
+      }
+      for (int k = 0; k < ndev; k++)
+      {
+        if (!used[k]) continue;
+        const FDev &f = g_fdev[k];
+        *nlarge += *f.hnlarge;
+#pragma omp parallel for schedule(static)
+        for (int o = 0; o < nts[k]; o++)
+        {
+          const FOut s = f.hout[o];
+          if (s.p < 0) continue;
+          udot[s.p] = s.udot;
+          divv[s.p] = s.divv;
+          if (!blocks || act[s.p]) uijmax[s.p] = s.uij;
+        }
+      }
+      CK(cudaSetDevice(g_dev[0].id));
+      if (plev)
+      {
+        fprintf(stderr, "SPHGPU forces: %d targets, %lld entries, %d devices%s: devices %.2f ms, host %.2f ms, all %.2f ms\n", nt, ent[first_used], ndev,
+                useb ? " (data of the smoothing-length kernel)" : "", tdev - tstart, now_ms() - tdev, now_ms() - tstart);
+        if (plev >= 2) print_marks("forces phases (ms)");
       }
     }
     catch (const SphError &e)

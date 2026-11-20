@@ -136,8 +136,9 @@
 !     hgroup (input): particles per group of the neighbour search of the smoothing-length solve (hgroup.f90); 0: one search for each particle
       integer hgroup
       common/hgrouppars/ hgroup
-!     ngpusph (input): the SPH work done on the GPUs, a bit mask (gpusph.f90, SPHgrav_lib2/sph_gpu.cu); ngpusphcheck: do it on the
-!     CPUs too and compare (a diagnostic, stops at the first difference)
+!     ngpusph (input): the SPH work done on the GPUs, a bit mask: 1 the smoothing lengths, densities and lists, 2 (with 1) the pair
+!     sums of the forces (gpusph.f90, SPHgrav_lib2/sph_gpu.cu); ngpusphcheck: do it on the CPUs too and compare (a diagnostic;
+!     bit 1 stops at the first difference, bit 2 writes the differences of the forces to log0.sph)
       integer ngpusph,ngpusphcheck
       common/gpusphpars/ ngpusph,ngpusphcheck
       integer stellarevolutioncodetype	
