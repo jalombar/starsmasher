@@ -75,6 +75,10 @@ module gravtree
   integer :: nsave = 0
   real(dp), allocatable, save :: gxyz(:,:), gpos(:,:)
   integer, allocatable, save :: gind(:)
+  ! the place of each particle in tree order (ginv(gind(i)) = i): made with the structure of the tree when the visit is on the gpus (ginv_want), which is the only
+  ! one that reads it; ginv_ok says that it is the one of the tree that stands
+  integer, allocatable, save :: ginv(:)
+  logical, save :: ginv_want = .false., ginv_ok = .false.
   ! the particles in tree order
   real(dp), allocatable, save :: xt(:), yt(:), zt(:), mt(:), ht(:), h2t(:), ft(:)
   real(dp), allocatable, save :: nd(:,:)
@@ -149,6 +153,15 @@ contains
        yt(i) = gpos(2,i)
        zt(i) = gpos(3,i)
     end do
+    ginv_ok = .false.
+    if (ginv_want) then
+!      (gind is a permutation of 1..n: the places are written once each)
+!$omp parallel do schedule(static)
+       do i = 1, n
+          ginv(gind(i)) = i
+       end do
+       ginv_ok = .true.
+    end if
   end subroutine make_tree_struct
 
 !     The masses, 2h and the flag of a point particle in tree order, and the moments of the nodes (after make_tree_struct).
@@ -181,6 +194,7 @@ contains
     real(dp), intent(in) :: x(n), y(n), z(n), am(n), u(n)
     logical, intent(in) :: act(n), blk
     integer :: i, j
+    ginv_want = .true.
     call make_tree_struct(n, x, y, z, nleaf)
     ! the masses and the flags of the point particles in tree order, 2h not known yet (zero: the moments do not use it but for the
     ! largest 2h of the nodes, which visit_hfill makes)
@@ -218,6 +232,7 @@ contains
        gz(i) = 0.d0
        gpot(i) = 0.d0
     end do
+    if (gt_gpu) ginv_want = .true.
     call make_tree(n, x, y, z, am, hp, u, nleaf)
     if (gt_gpu) then
        ! the visit on the gpus
@@ -245,6 +260,7 @@ contains
     integer, intent(in) :: n, ilow, ihigh, nk, nleaf
     real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n), theta
     logical, intent(in) :: act(n), blk
+    ginv_want = .true.
     if (st_early .and. st_early_n == n) then
        ! the tree and the buffers were made while the gpus solved the smoothing lengths: what comes from h is added
        st_early = .false.
@@ -270,8 +286,8 @@ contains
     integer :: nthr, ncap
     ncap = 2*n + 4*(n/2048) + 64
     if (nsave < n .or. .not. allocated(gxyz)) then
-       if (allocated(gxyz)) deallocate (gxyz, gpos, gind, xt, yt, zt, mt, ht, h2t, ft, nd, leaves, leafcnt, leafoff)
-       allocate (gxyz(3,n), gpos(3,n), gind(n), xt(n), yt(n), zt(n), mt(n), ht(n), h2t(n), ft(n))
+       if (allocated(gxyz)) deallocate (gxyz, gpos, gind, ginv, xt, yt, zt, mt, ht, h2t, ft, nd, leaves, leafcnt, leafoff)
+       allocate (gxyz(3,n), gpos(3,n), gind(n), ginv(n), xt(n), yt(n), zt(n), mt(n), ht(n), h2t(n), ft(n))
        allocate (nd(nfd,ncap))
        allocate (leaves(n), leafcnt(4*(n/2048)+64), leafoff(4*(n/2048)+64))
        nsave = n
@@ -726,22 +742,28 @@ contains
     end if
     gt_pend = .false.
 
-    ! the results back to the order of the particles
-!$omp parallel do schedule(static) private(i)
-    do i = ps_ilow, ps_ihigh
-       gx(i) = 0.d0
-       gy(i) = 0.d0
-       gz(i) = 0.d0
-       gpot(i) = 0.d0
-    end do
+    if (.not. ginv_ok) then
+!$omp parallel do schedule(static)
+       do i = 1, ps_n
+          ginv(gind(i)) = i
+       end do
+       ginv_ok = .true.
+    end if
+    ! the results back to the order of the particles: each particle ig takes its record in tree order (a read of one record at a place that is
+    ! not in order, and the four arrays written in order), the particles of ilow..ihigh that have none get zero
 !$omp parallel do schedule(static) private(i, ig)
-    do i = 1, ps_n
+    do ig = 1, ps_n
+       i = ginv(ig)
        if (ps_needf(i) /= 0) then
-          ig = gind(i)
           gx(ig) = ps_out(1,i)
           gy(ig) = ps_out(2,i)
           gz(ig) = ps_out(3,i)
           gpot(ig) = ps_out(4,i)
+       else if (ig >= ps_ilow .and. ig <= ps_ihigh) then
+          gx(ig) = 0.d0
+          gy(ig) = 0.d0
+          gz(ig) = 0.d0
+          gpot(ig) = 0.d0
        end if
     end do
   end subroutine gpu_visit_finish
