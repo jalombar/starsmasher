@@ -89,7 +89,7 @@
 !*********************************************************
       subroutine advance
 !     implements second-order accurate leap-frog sph step
-      use gpusph_mod, only: gw_tree,gv_ok,gv_done,gw_enout,gw_vkept
+      use gpusph_mod, only: gw_tree,gv_ok,gv_done,gw_enout,gw_vkept,gi_pending,gi_hash,gi_go,gi_drop,gi_allowed
       use enout_early_mod, only: eo_ready
       include 'starsmasher.h'
       include 'mpif.h'
@@ -97,6 +97,14 @@
       common/oldarrays/uo,vxo,vyo,vzo
       integer i
       real*8 dthnew
+!     the integration on the device (gpusph.f90, gi_*): the sum of the check made in the predictor loop
+      double precision divv(nmax)
+      common/commdivv/divv
+      integer(8) ghash,gq
+      integer gk
+      real*8 gw(14)
+      logical gsend
+      integer(8), parameter :: gm1=-7046029254386353131_8, gm2=-4417276706812531889_8, gk1=-2960836687051489901_8
 !     for the nintvar=12 handover below
       integer mylength,irank,ierr
       real*8 tswitchuse,rhocgsswitch,tswitch
@@ -174,6 +182,57 @@
          endif
       endif
 
+!     the device goes on by itself after the step (gi_go below): this step's tree of the gravity sends it the order of the particles, and its visit is counted
+      gsend=.false.
+      if(ngr.ne.0) gsend=gi_allowed()
+      call gt_int_mark(gsend)
+      if(gi_pending) then
+!        the same loop, with the sum of the check of what the device made in advance (gi_hash14 in gpusph.f90, written out here: a call for each particle would not be
+!        inlined).  The device has done the corrector and the predictor already; the sum is added over the particles modulo 2**64, in any order.  (the integration on the device
+!        is only started with ncooling=0 and nintvar=2)
+         ghash=0_8
+!$omp parallel do schedule(static) private(i,gq,gk,gw) reduction(+:ghash)
+         do i=1,n
+            x(i)=x(i)+dt*vx(i)    ! update x to half-timestep
+            y(i)=y(i)+dt*vy(i)    ! update y to half-timestep
+            z(i)=z(i)+dt*vz(i)    ! update z to half-timestep
+            vxo(i)=vx(i)           ! store old value of vx
+            vyo(i)=vy(i)           ! store old value of vy
+            vzo(i)=vz(i)           ! store old value of vz
+            vx(i)=vx(i)+dth*vxdot(i) ! update vx to half-timestep
+            vy(i)=vy(i)+dth*vydot(i) ! update vy to half-timestep
+            vz(i)=vz(i)+dth*vzdot(i) ! update vz to half-timestep
+            if(u(i).ne.0.d0) then
+               uo(i)=u(i)             ! store old value of u
+               u(i)=u(i)+dth*udot(i)  ! update u to half-timestep
+            else if(udot(i).ne.0.d0) then
+               write(6,*)'warning: black hole particle has udot=',udot(i),i,myrank
+               if(myrank.eq.0) write(69,*)'warning: black hole particle has udot=',udot(i),i
+               stop
+            endif
+            gw(1)=x(i)
+            gw(2)=y(i)
+            gw(3)=z(i)
+            gw(4)=vx(i)
+            gw(5)=vy(i)
+            gw(6)=vz(i)
+            gw(7)=u(i)
+            gw(8)=vxo(i)
+            gw(9)=vyo(i)
+            gw(10)=vzo(i)
+            gw(11)=uo(i)
+            gw(12)=hp(i)
+            gw(13)=divv(i)
+            gw(14)=am(i)
+            gq=int(i,8)*gk1
+            do gk=1,14
+               gq=ieor(ishftc(gq,27),transfer(gw(gk),0_8))*gm1
+            enddo
+            gq=ieor(gq,ishft(gq,-32))*gm2
+            ghash=ghash+gq
+         enddo
+         gi_hash=ghash
+      else
 !$omp parallel do schedule(static) private(i,ttherm)
       do i=1,n
          x(i)=x(i)+dt*vx(i)    ! update x to half-timestep
@@ -201,6 +260,7 @@
          endif
 
       enddo
+      endif
 
       t=t+dth
 
@@ -226,6 +286,7 @@
       gw_vkept=.true.
       call rho_and_h            ! evaluate rho and h at half-timestep
       gw_vkept=.false.
+      call gi_drop
       gw_tree=.false.
       gv_ok=.false.
 
@@ -254,6 +315,8 @@
 
       call tstep
       dthnew=0.5d0*dt
+!     the device goes on by itself (the corrector of this step, the predictor and the smoothing lengths of the next one) while the CPU does the same below
+      call gi_go
 
 !     advance velocities:
 !$omp parallel do simd schedule(static)

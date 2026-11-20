@@ -47,7 +47,7 @@ module gravtree
   use gravpair
   implicit none
   private
-  public :: gt_forces, gt_gpu, gt_start, gt_finish, gt_pend, gt_early
+  public :: gt_forces, gt_gpu, gt_start, gt_finish, gt_pend, gt_early, gt_int_mark_m, gt_int_ok_m, gt_int_early_ok_m
   integer, parameter :: dp = kind(1.d0)
   integer, parameter :: lenf = 20
   ! node data: 1:3 centre of mass, 4 size, 5 hmax, 6 mass, 7:12 second moments (xx,xy,xz,yy,yz,zz)
@@ -79,6 +79,10 @@ module gravtree
   ! one that reads it; ginv_ok says that it is the one of the tree that stands
   integer, allocatable, save :: ginv(:)
   logical, save :: ginv_want = .false., ginv_ok = .false.
+  ! the integration on the device (gpusph.f90, gi_*) needs the particle at each place of the tree (gind) to add the gravity to the accelerations: gt_ginv_send makes the structure of the
+  ! tree give the address of gind to the library (gpu_sph_int_gind); gt_visits counts the visits queued on the gpus, gt_visits_mark is the count at the start of the step
+  logical, save :: gt_ginv_send = .false.
+  integer, save :: gt_visits = 0, gt_visits_mark = 0
   ! the particles in tree order
   real(dp), allocatable, save :: xt(:), yt(:), zt(:), mt(:), ht(:), h2t(:), ft(:)
   real(dp), allocatable, save :: nd(:,:)
@@ -110,6 +114,11 @@ module gravtree
        import :: c_int
        integer(c_int), intent(out) :: ierr
      end subroutine gpu_tree_wait
+     subroutine gpu_sph_int_gind(g, n) bind(C, name='gpu_sph_int_gind_')
+       import :: c_int
+       integer(c_int), intent(in) :: g(*)
+       integer(c_int), intent(in) :: n
+     end subroutine gpu_sph_int_gind
   end interface
   ! work arrays of gpu_visit: the first particle of the leaf that starts at a place (the number of the node plus 1), the
   ! subtrees' offsets
@@ -161,6 +170,8 @@ contains
           ginv(gind(i)) = i
        end do
        ginv_ok = .true.
+       ! the integration on the device adds the gravity to the accelerations itself and needs the order of the particles in the tree: it keeps the address of gind
+       if (gt_ginv_send) call gpu_sph_int_gind(gind, int(n, c_int))
     end if
   end subroutine make_tree_struct
 
@@ -654,6 +665,7 @@ contains
     if (ps_nwork > 0) &
          call gpu_tree_launch(int(n, c_int), int(ps_nnode, c_int), int(ps_nwork, c_int), int(nk, c_int), real(theta2, c_double))
     gt_pend = .true.
+    gt_visits = gt_visits + 1
   end subroutine gpu_visit_launch
 
 !     Both halves: the buffers are filled and the visit is queued on the gpus (the call returns before it is done).
@@ -1357,6 +1369,38 @@ contains
          - t3/3.d0
   end subroutine expand_taylor
 
+!     The integration on the device (gpusph.f90, gi_*), at the start of a step: whether this step's tree has to send the order of its particles to the device, and the count of the
+!     visits queued so far.
+  subroutine gt_int_mark_m(send)
+    logical, intent(in) :: send
+    gt_ginv_send = send
+    gt_visits_mark = gt_visits
+  end subroutine gt_int_mark_m
+
+!     At the end of a step: ok=1 if the visit of this step (one, since gt_int_mark_m) was for all the n particles and has been collected, and its order of the particles is the one the
+!     device holds, so that the device can add the gravity to the accelerations itself.
+  subroutine gt_int_ok_m(n, ok)
+    integer, intent(in) :: n
+    integer, intent(out) :: ok
+    ok = 0
+    if (gt_pend .or. .not. ginv_ok) return
+    if (ps_n /= n .or. ps_ilow /= 1 .or. ps_ihigh /= n .or. ps_nwork <= 0) return
+    if (gt_visits /= gt_visits_mark + 1) return
+    ok = 1
+  end subroutine gt_int_ok_m
+
+!     Before the forces: ok=1 if the visit of this step has been queued on the gpus (and not collected: the device waits for its second pass) for all the n particles, with the order
+!     of its particles in tree order the one the device holds.
+  subroutine gt_int_early_ok_m(n, ok)
+    integer, intent(in) :: n
+    integer, intent(out) :: ok
+    ok = 0
+    if (.not. gt_pend .or. .not. ginv_ok) return
+    if (ps_n /= n .or. ps_ilow /= 1 .or. ps_ihigh /= n .or. ps_nwork <= 0) return
+    if (gt_visits /= gt_visits_mark + 1) return
+    ok = 1
+  end subroutine gt_int_early_ok_m
+
 end module gravtree
 
 !***********************************************************************
@@ -1430,3 +1474,27 @@ subroutine grav_collect(ntot_in, gxo, gyo, gzo, grpoto)
   end if
   return
 end subroutine grav_collect
+
+!***********************************************************************
+!     The integration on the device (gpusph.f90, gi_*): the calls of the fixed-form code (see gt_int_mark_m and gt_int_ok_m)
+!***********************************************************************
+subroutine gt_int_mark(send)
+  use gravtree
+  logical send
+  call gt_int_mark_m(send)
+  return
+end subroutine gt_int_mark
+
+subroutine gt_int_ok(n, ok)
+  use gravtree
+  integer n, ok
+  call gt_int_ok_m(n, ok)
+  return
+end subroutine gt_int_ok
+
+subroutine gt_int_early_ok(n, ok)
+  use gravtree
+  integer n, ok
+  call gt_int_early_ok_m(n, ok)
+  return
+end subroutine gt_int_early_ok
