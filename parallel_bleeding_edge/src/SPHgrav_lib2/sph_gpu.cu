@@ -1897,10 +1897,12 @@ struct FView
   const float *dwf, *dgf;          // the same tables in single precision (ngpusphprec=1)
   int prec;                        // 1: the terms of the pairs in single precision
   FPar P;
-  double2 *c;                      // csij and csijgc of every entry
+  double2 *c;                      // csij and csijgc of every entry: at e (the entries of the places in order), or with cil at wbase[place / 32] + 32 * (place in the list) + place % 32
   int *key, *et, *val;             // for every entry: the particle it acts on (n: none), its target, its number (see vpack)
   const int *skey, *sval;          // the same sorted by key
   int nent;
+  int cil;                         // 1: c is laid out by warps (see c): the 32 threads of a warp write 32 neighbouring numbers at a time
+  const int *wbase;                // for every warp of 32 places of the work: where its part of c starts (the sum of 32 times the longest list of the warps before it)
   int wkeys;                       // 1: the pair kernels write the key, the target and the number of each entry (0: k_fkeys has written them)
   int vpack, kshift;               // vpack=1: the number of an entry is (its target << kshift) | its place in the list (and there is no et), else the number of the entry
   int q0, q1;                      // k_fscat: the particles q0..q1-1 of this launch
@@ -1943,6 +1945,7 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair(FView V)
   const FPar &P = V.P;
   const int nn = tq.nn, fo = tq.off;
   const int e0 = V.eoff[tl];
+  const int cb = V.cil ? V.wbase[tl >> 5] + (tl & 31) : e0, cs = V.cil ? 32 : 1;      // where the terms of this thread go in c, and the distance between two of them
   const D4 pp = V.pos[p], pv = V.vel[p];
   const double hpi = tq.hp, rhoi = tq.rho, por2i = V.por2[p], omi = tq.om, om0i = tq.om0, psii = tq.psi;
   const bool actp = P.blocks ? (V.act[p] != 0) : true;
@@ -2068,7 +2071,7 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair(FView V)
       // no term (a point particle, or a pair that the substep leaves out): the entry does not go to the sums on the neighbours
       keyv = V.n;
     }
-    V.c[e0 + k] = make_double2(csij, csijgc);
+    V.c[cb + k * cs] = make_double2(csij, csijgc);
     if (V.wkeys)
     {
       V.key[e0 + k] = keyv;
@@ -2110,6 +2113,7 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair_mix(FView V)
   const FPar &P = V.P;
   const int nn = tq.nn, fo = tq.off;
   const int e0 = V.eoff[tl];
+  const int cb = V.cil ? V.wbase[tl >> 5] + (tl & 31) : e0, cs = V.cil ? 32 : 1;      // where the terms of this thread go in c, and the distance between two of them
   const D4 pp = V.pos[p], pv = V.vel[p];
   const double hpi = tq.hp, rhoi = tq.rho, por2i = V.por2[p], omi = tq.om, om0i = tq.om0, psii = tq.psi;
   const bool actp = P.blocks ? (V.act[p] != 0) : true;
@@ -2240,7 +2244,7 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair_mix(FView V)
     {
       keyv = V.n;
     }
-    V.c[e0 + k] = make_double2(csij_d, csijgc_d);
+    V.c[cb + k * cs] = make_double2(csij_d, csijgc_d);
     if (V.wkeys)
     {
       V.key[e0 + k] = keyv;
@@ -2326,7 +2330,8 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fscat(FView V)
     if (V.vpack)
     {
       t = v >> V.kshift;
-      e = V.eoff[t - V.t0] + (v & ((1 << V.kshift) - 1));
+      const int tp = t - V.t0, kk = v & ((1 << V.kshift) - 1);
+      e = V.cil ? V.wbase[tp >> 5] + kk * 32 + (tp & 31) : V.eoff[tp] + kk;
     }
     else
     {
@@ -2425,7 +2430,7 @@ __global__ void k_fcontig(int nt, int p0, int *tp, int *tiw)
   tiw[t] = t + 1;
 }
 
-__global__ void k_fcount(FView V, int *cnt, int *maxnn)
+__global__ void k_fcount(FView V, int *cnt, int *maxnn, int *wsz)
 {
   const int tl = blockIdx.x * blockDim.x + threadIdx.x;
   int nn = 0;
@@ -2437,7 +2442,11 @@ __global__ void k_fcount(FView V, int *cnt, int *maxnn)
   }
   // the longest list: the maximum of the warp, then one atomic operation for the warp
   for (int o = 16; o > 0; o >>= 1) nn = max(nn, __shfl_down_sync(0xffffffffu, nn, o));
-  if ((threadIdx.x & 31) == 0 && nn > 0) atomicMax(maxnn, nn);
+  if ((threadIdx.x & 31) == 0)
+  {
+    if (wsz) wsz[tl >> 5] = nn * 32;     // (lane 0 has the longest list of the 32 places of the warp)
+    if (nn > 0) atomicMax(maxnn, nn);
+  }
 }
 
 #ifndef SPH_FTPAR_SCATTER
@@ -2482,7 +2491,8 @@ __global__ void k_ftpar_r(int sl, int nlow, int ch, const SphOut *out, TPar *tpa
 struct FDev
 {
   int ncap = 0, ntcap = 0;
-  size_t ecap = 0, lcap = 0;
+  size_t ecap = 0, lcap = 0, ccap = 0;
+  int *wsz = 0, *wbase = 0;            // for every warp of places: 32 times its longest list, and the sum of those before it
   double *x = 0, *y = 0, *z = 0, *vx = 0, *vy = 0, *vz = 0, *am = 0, *u = 0, *hp = 0, *rho = 0, *por2 = 0, *om = 0, *om0 = 0, *psi = 0;
   D4 *pos = 0, *vel = 0;
   int *nn = 0, *first = 0, *act = 0;
@@ -2525,6 +2535,7 @@ void ffree(FDev &f)
   for (size_t k = 0; k < sizeof dd / sizeof dd[0]; k++) dfree(*dd[k]);
   dfree(f.tpar); dfree(f.inv); if (f.hE) { cudaFreeHost(f.hE); f.hE = 0; }
   dfree(f.pos); dfree(f.vel); dfree(f.nn); dfree(f.first); dfree(f.act); dfree(f.tp); dfree(f.tiw); dfree(f.eoff); dfree(f.cnt); dfree(f.out);
+  dfree(f.wsz); dfree(f.wbase);
   dfree(f.list); dfree(f.c); dfree(f.ka); dfree(f.kb); dfree(f.va); dfree(f.vb); dfree(f.et); dfree(f.tmp); dfree(f.nlarge);
   if (f.hacc) { cudaFreeHost(f.hacc); f.hacc = 0; }
   if (f.hout) { cudaFreeHost(f.hout); f.hout = 0; }
@@ -3221,6 +3232,7 @@ extern "C"
           cudaStreamSynchronize(d.st);
           ffree(f);
           CK(cudaSetDevice(d.id));
+          size_t ccap = 0;
           const size_t ncap = (size_t)n + n / 8 + 1024, ntcap = (size_t)nt + nt / 8 + 1024, ecap = E + E / 8 + 1024,
                        lcap = (size_t)listlen + listlen / 8 + 1024;
           double **dd[] = {&f.x, &f.y, &f.z, &f.vx, &f.vy, &f.vz, &f.am, &f.u, &f.hp, &f.rho, &f.por2, &f.om, &f.om0, &f.psi};
@@ -3232,7 +3244,9 @@ extern "C"
           dmalloc(f.tpar, ntcap);
           dmalloc(f.inv, ntcap);
           dmalloc(f.list, lcap);
-          dmalloc(f.c, ecap);
+          ccap = ecap + ecap / 2 + 4096;
+          dmalloc(f.c, ccap);
+          dmalloc(f.wsz, ntcap / 32 + 64); dmalloc(f.wbase, ntcap / 32 + 64);
           dmalloc(f.ka, ecap); dmalloc(f.kb, ecap); dmalloc(f.va, ecap); dmalloc(f.vb, ecap); dmalloc(f.et, ecap);
           dmalloc(f.nlarge, 4);
           dmalloc(f.tmask, ncap); dmalloc(f.tpos, ncap); dmalloc(f.tidx, ncap); dmalloc(f.tcnt, 4);
@@ -3251,7 +3265,7 @@ extern "C"
           CK(cudaMallocHost((void **)&f.hidx, ncap * sizeof(int)));
           CK(cudaMallocHost((void **)&f.hcnt, 4 * sizeof(int)));
           f.haccn = ncap; f.houtn = ntcap;
-          f.ncap = (int)ncap; f.ntcap = (int)ntcap; f.ecap = ecap; f.lcap = lcap;
+          f.ncap = (int)ncap; f.ntcap = (int)ntcap; f.ecap = ecap; f.lcap = lcap; f.ccap = ccap;
         }
         cudaStream_t st = d.st;
         if (mk) mark("f start", st);
@@ -3328,13 +3342,35 @@ extern "C"
 #endif
         }
         if (mk) mark("f places", st);
-        k_fcount<<<nblocks(nts[k] + 1, 256), 256, 0, st>>>(V, f.cnt, f.nlarge + 1);
+        if (f.fastdp < 0)
+        {
+          // does the device make double precision at a good fraction of single (see the use of k_fkeys)?
+          int ratio = 0;
+          CK(cudaDeviceGetAttribute(&ratio, cudaDevAttrSingleToDoublePrecisionPerfRatio, d.id));
+          f.fastdp = (ratio > 0 && ratio <= 8) ? 1 : 0;
+        }
+        // What only the devices with fast double precision use (the layout by warps with one device, the sort beside the pair kernel) is not prepared for the others, or with
+        // several devices: the host that launches the work of a device after another loses the time of every launch.
+        const bool lay = f.fastdp > 0 && ndev == 1;
+        const int nw = (nts[k] + 1 + 31) / 32;
+        if (lay) CK(cudaMemsetAsync(f.wsz, 0, ((size_t)nw + 1) * sizeof(int), st));
+        k_fcount<<<nblocks(nts[k] + 1, 256), 256, 0, st>>>(V, f.cnt, f.nlarge + 1, lay ? f.wsz : (int *)0);
         size_t bytes = f.tmpbytes;
         CK(cub::DeviceScan::ExclusiveSum(f.tmp, bytes, f.cnt, f.eoff, nts[k] + 1, st));
         CK(cudaMemcpyAsync(f.hE, f.eoff + nts[k], sizeof(int), cudaMemcpyDeviceToHost, st));
         CK(cudaMemcpyAsync(f.hE + 1, f.nlarge + 1, sizeof(int), cudaMemcpyDeviceToHost, st));
-        k_fnogas<<<nblocks(n, 256), 256, 0, st>>>(n, f.vel, f.nlarge + 2);
-        CK(cudaMemcpyAsync(f.hE + 2, f.nlarge + 2, sizeof(int), cudaMemcpyDeviceToHost, st));
+        if (lay)
+        {
+          // where the terms of each warp of places start in c (see FView::c)
+          size_t bytes2 = f.tmpbytes;
+          CK(cub::DeviceScan::ExclusiveSum(f.tmp, bytes2, f.wsz, f.wbase, nw + 1, st));
+          CK(cudaMemcpyAsync(f.hE + 3, f.wbase + nw, sizeof(int), cudaMemcpyDeviceToHost, st));
+        }
+        if (f.fastdp > 0 && !cmp)
+        {
+          k_fnogas<<<nblocks(n, 256), 256, 0, st>>>(n, f.vel, f.nlarge + 2);
+          CK(cudaMemcpyAsync(f.hE + 2, f.nlarge + 2, sizeof(int), cudaMemcpyDeviceToHost, st));
+        }
         if (mk) mark("f count+scan", st);
       }
       // phase B: the pair terms, the sort, the sums on the neighbours, the results back
@@ -3351,13 +3387,6 @@ extern "C"
         ent[k] = f.hE[0];
         if ((size_t)ent[k] > f.ecap) throw SphError(4, "the lists of the forces do not fit in the buffers");
         V.nent = (int)ent[k];
-        if (f.fastdp < 0)
-        {
-          // does the device make double precision at a good fraction of single (see below)?
-          int ratio = 0;
-          CK(cudaDeviceGetAttribute(&ratio, cudaDevAttrSingleToDoublePrecisionPerfRatio, d.id));
-          f.fastdp = (ratio > 0 && ratio <= 8) ? 1 : 0;
-        }
         {
           // The number of an entry that goes with the key through the sort is its target and its place in the list, when they fit in the 31 bits that are left (they do unless
           // there are more than 16 million particles): the scatter then finds the entry from the table of the starts of the lists, and no array of the targets is written or read.
@@ -3366,6 +3395,8 @@ extern "C"
           while ((1LL << tb2) <= (long long)nt) tb2++;
           V.vpack = (kb2 + tb2 <= 31) ? 1 : 0;
           V.kshift = kb2;
+          V.cil = (f.fastdp > 0 && ndev == 1 && V.vpack && ent[k] < 1000000000LL && f.hE[3] >= 0 && (size_t)f.hE[3] <= f.ccap) ? 1 : 0;
+          V.wbase = f.wbase;
         }
         // On a device that makes double precision at least an eighth as fast as single (the Tesla and the A100, H100 and the like; not the GeForce and the Ada and Blackwell
         // cards of the workstations, where the pair kernel is limited by the double precision and the sort that runs beside it only takes the room of its blocks: on an L40S
