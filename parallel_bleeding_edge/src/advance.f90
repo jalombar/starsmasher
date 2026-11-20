@@ -52,7 +52,7 @@
 !*********************************************************
       subroutine advance
 !     implements second-order accurate leap-frog sph step
-      use gpusph_mod, only: gw_tree
+      use gpusph_mod, only: gw_tree,gv_ok,gv_done
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
@@ -181,12 +181,16 @@
 !     ngravtree=2 with ngravoverlap=1: gravforce makes the tree of the gravity, whose structure (it depends on the positions only) the
 !     CPUs can make while the GPUs solve the smoothing lengths
       gw_tree=ngr.ne.0 .and. nusegpus.ne.0 .and. ngravtree.eq.2 .and. ngravoverlap.eq.1
+!     in the same case rho_and_h starts the gravity itself, as soon as the smoothing lengths are final (before it does the pressure)
+      gv_ok=gw_tree
+      gv_done=.false.
       call rho_and_h            ! evaluate rho and h at half-timestep
       gw_tree=.false.
+      gv_ok=.false.
 
 !     get potential energy at half-timestep:
 !      if( ngr.ne.0 .and. mod(nit,nitpot).eq.0 ) call gravpot
-      if(ngr.ne.0) call gravforce
+      if(ngr.ne.0 .and. .not.gv_done) call gravforce
 
       if(myrank.eq.nprocs-1) call wall_time(time1)
       call uvdots                ! evaluate udot and accelerations at half-timestep
@@ -738,6 +742,13 @@
            recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
 
       nnvalid=.true.
+!     The smoothing lengths are final: the gravity starts here (ngravtree=2 with ngravoverlap=1: its tree is made and its visit queued
+!     on the GPUs), so that the GPUs work on it while the CPUs do the pressure
+      if(gv_ok) then
+         gv_ok=.false.
+         gv_done=.true.
+         call gravforce
+      endif
       call pressure
       if(blkdist) then
 !     each listed particle's values from the rank that solved it
