@@ -247,6 +247,7 @@ hgroup.o: FFLAGS += -ffp-contract=off $(HGFLAGS)
 hgcpu.o: FFLAGS += -cpp $(HGDEFS)
 hgroup.o: kdtree2.o
 advance.o: hgroup.o gpusph.o
+tstep.o: dtlimit.inc
 
 CPUOBJS = $(FOBJS) cpu_grav.o
 GPUOBJS = $(FOBJS) $(GPU_GRAV_OBJ)

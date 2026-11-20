@@ -24,6 +24,9 @@ c     minimum whatever the number of threads (the minima themselves would be
 c     the same anyway; the index goes to the log)
       integer ib,nb,nown,npoint
       real*8 bvl,bvi,bal,bai,bul,bui,b4l,b4i,bdt,bcvl,bcvi,bcal,bcai,bdtp
+      real*8 bdti,blim
+      real*8 hpi,vxi,vyi,vzi,uiji,axi,ayi,azi,ui,udoti
+      logical dtcommon
 c     start-up ramp (see below)
       logical ramp,firstcall
       real*8 dtlast
@@ -68,7 +71,11 @@ c     written, are then made with the acceleration itself
       nown=n_upper-n_lower+1
       nb=nblk(nown,redblock_fine)
       call reserve_rpart(9,nb)
-!$omp parallel do schedule(static) private(ib,i,dtivel,dtiacc,dtiu,dtiacc4,bvl,bvi,bal,bai,bul,bui,b4l,b4i,bdt)
+c     the limits of one particle come from dtlimit (below) unless there is cooling or nintvar=3: gi_dtcand_cb (gpusph.f90) makes the step the device
+c     goes on with from the candidates it sends with the same routine
+      dtcommon=ncooling.eq.0 .and. nintvar.ne.3
+!$omp parallel do schedule(static) private(ib,i,dtivel,dtiacc,dtiu,dtiacc4,bdti,blim,hpi,vxi,vyi,vzi,uiji,axi,ayi,azi,
+!$omp$ ui,udoti,bvl,bvi,bal,bai,bul,bui,b4l,b4i,bdt)
       do ib=1,nb
       bvl=1.d30
       bvi=0.d0
@@ -82,6 +89,20 @@ c     written, are then made with the acceleration itself
       do i=n_lower+(ib-1)*redblock_fine,
      $     min(n_lower+ib*redblock_fine-1,n_upper)
          if(u(i).ne.0.d0) then
+         if(dtcommon) then
+            hpi=hp(i)
+            vxi=vx(i)
+            vyi=vy(i)
+            vzi=vz(i)
+            uiji=uijmax(i)
+            axi=vxdot(i)-vxdotsm(i)
+            ayi=vydot(i)-vydotsm(i)
+            azi=vzdot(i)-vzdotsm(i)
+            ui=u(i)
+            udoti=udot(i)
+            include 'dtlimit.inc'
+            bdti=blim
+         else
 c            dtivel=cn1*hp(i)/sqrt(uijmax(i))
             dtivel=cn1*hp(i)/sqrt(max(uijmax(i),
      $           (vx(i)**2+vy(i)**2+vz(i)**2)/16))
@@ -106,6 +127,8 @@ c               dtiu=cn3*u(i)/dabs(udot(i) + (ueq(i)-u(i))*(1-exp(-dth/tthermal(
             dtiacc4=cn4*sqrt(uijmax(i))/((vxdot(i)-vxdotsm(i))**2
      $           +(vydot(i)-vydotsm(i))**2
      $           +(vzdot(i)-vzdotsm(i))**2)**0.5d0
+            bdti=(1.d0/dtivel+1.d0/dtiacc+1.d0/dtiu+1.d0/dtiacc4)**(-1.d0)
+         endif
             if(dtivel.lt.bvl) then
                bvl=dtivel
                bvi=i
@@ -122,10 +145,8 @@ c               dtiu=cn3*u(i)/dabs(udot(i) + (ueq(i)-u(i))*(1-exp(-dth/tthermal(
                b4l=dtiacc4
                b4i=i
             endif
-            bdt=min(bdt,(1.d0/dtivel+1.d0/dtiacc+1.d0/dtiu
-     $            +1.d0/dtiacc4)**(-1.d0))
-            if(nblock.eq.1) dtpart(i)=min(dtpart(i),(1.d0/dtivel
-     $           +1.d0/dtiacc+1.d0/dtiu+1.d0/dtiacc4)**(-1.d0))
+            bdt=min(bdt,bdti)
+            if(nblock.eq.1) dtpart(i)=min(dtpart(i),bdti)
          endif
       enddo
       rpart(1,ib)=bvl
@@ -322,5 +343,20 @@ c     the particle that set it) and write them once per dtmaxblk.
          write(69,'(a4,9g10.3)') 'indx',indnow
       endif
 
+      return
+      end
+
+c***********************************************************************
+c     The limits of the step of one gas particle (no cooling, nintvar not 3): the four times and the step they give together, 1/(1/dtivel+1/dtiacc+1/dtiu+1/dtiacc4).
+c     axi, ayi, azi: the acceleration less the smoothed one (vxdot-vxdotsm).  The statements are in dtlimit.inc, which tstep includes in its loop (a call for each particle
+c     costs 0.2 ms of the step with 8 threads) and this routine includes too: it is what gi_dtcand_cb (gpusph.f90) calls for the candidates of the step that the device sends,
+c     so that the step the device goes on with is made with this very code.
+c***********************************************************************
+      subroutine dtlimit(hpi,vxi,vyi,vzi,uiji,axi,ayi,azi,ui,udoti,
+     $     dtivel,dtiacc,dtiu,dtiacc4,blim)
+      include 'starsmasher.h'
+      real*8 hpi,vxi,vyi,vzi,uiji,axi,ayi,azi,ui,udoti
+      real*8 dtivel,dtiacc,dtiu,dtiacc4,blim
+      include 'dtlimit.inc'
       return
       end
