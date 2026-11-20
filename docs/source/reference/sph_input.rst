@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **115** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **116** settings.
 
 
 .. _sph-input-time-and-output:
@@ -661,6 +661,10 @@ Other settings
      - ``0d0``
      - ``erg``
      - twozone=1 only: >0 places the transition at this radius instead of finding it from A.  <=0: 90% of the first radius beyond 10% of the star's where A=P/rho^(5/3) decreases outward
+   * - ``ngravrebuild``
+     - ``1``
+     - every run
+     - ngravtree=1 or 2: how often the structure of the gravity tree (which particles share a node, and which node is the parent of which) is made, in steps.  1: every step.  k from 2 to 16: every k steps; in between the old structure is used with the positions, masses and smoothing lengths of the step (the sizes and moments of the nodes are made again each step, so the nodes only get less compact: more of them are opened, the accuracy of treeacc is kept).  The steps of a cycle use the structure made in its first one, at most k-1 steps old.  The structure is also made at the first step after the checkpoint restartrad.sph is written (every 1000 steps), so a run that goes on and one that starts from that file give the same bits; the result does not depend on how often out\*.sph are written.  The result differs from k=1 in the last digits of the forces, and does not depend on the number of threads, the gpus or ngravoverlap.  It makes the step of the gpu shorter where the cpus are what the gpu waits for (few threads for each gpu).  Not used with block steps (nblock=1) or the direct sum (ngravtree=0), which give 1
    * - ``rjumppercent``
      - ``95d0``
      - every run

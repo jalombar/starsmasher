@@ -13,7 +13,7 @@ c *****************************************
 
       real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
-      integer i,ierr
+      integer i,ierr,nbld,nreu
       common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
      $     reentryfactor
       logical autotf,autojump
@@ -120,6 +120,11 @@ c     only a run with a negative tf, or with rjump set, is allowed to make.
             if(myrank.eq.0) then
                write (69,*) 'main: end of integration, t=',t,tf
                call gi_report
+               if(ngravrebuild.gt.1) then
+                  call gt_report(nbld,nreu)
+                  write(69,*) 'gravity: the structure of the tree was made',nbld,' times and kept for',nreu,' calls (ngravrebuild=',
+     $                 ngravrebuild,')'
+               endif
                close(22)
                close(69)
                if(reat.gt.0) close(43)
@@ -227,6 +232,26 @@ c     ngpusph=-1: chosen here too, from the gravity just chosen, the threads and
       if(ngravprocs.gt.ngravprocsmax)then
          write(69,*)'increase ngravprocsmax in starsmasher.h'
          stop
+      endif
+
+c     ngravrebuild>1: the structure of the gravity tree is made every ngravrebuild steps (gravtree.f90).  It needs a tree (ngravtree 1 or 2) and shared steps:
+c     with the direct sum or with block steps the value is 1, and the log says so
+      if(ngravrebuild.gt.1 .and. ngravtree.eq.0) then
+         ngravrebuild=1
+         if(myrank.eq.0) then
+            write(69,'(a)') 'gravity: ngravrebuild>1 is not used with the direct sum (ngravtree=0): ngravrebuild=1'
+            write(6,'(a)') 'gravity: ngravrebuild>1 is not used with the direct sum (ngravtree=0): ngravrebuild=1'
+         endif
+      endif
+      if(ngravrebuild.gt.1 .and. nblock.eq.1) then
+         ngravrebuild=1
+         if(myrank.eq.0) then
+            write(69,'(a)') 'gravity: ngravrebuild>1 is not used with block steps (nblock=1): ngravrebuild=1'
+            write(6,'(a)') 'gravity: ngravrebuild>1 is not used with block steps (nblock=1): ngravrebuild=1'
+         endif
+      endif
+      if(ngravrebuild.gt.1 .and. myrank.eq.0) then
+         write(69,'(a,i0,a)') 'gravity: ngravrebuild=',ngravrebuild,': the structure of the tree is made every that many steps'
       endif
 
 c     ngravoverlap=-1 (automatic): the overlap of the gpus with the smoothing-length solve is on, except for the direct sum on more

@@ -640,7 +640,7 @@ c      end
      $     omega_spin,neos,nselfgravity,gam,reat,starmass,starradius,
      $     ncooling,teq,tjumpahead,startfile1,startfile2,eosfile,
      $     opacityfile,profilefile,nkernel,ngravhilo,throwaway,
-     $     ngravtree,ngravtreeauto,treeacc,nleafgrav,ngravoverlap,
+     $     ngravtree,ngravtreeauto,treeacc,nleafgrav,ngravoverlap,ngravrebuild,
      $     internal_energy_fraction,
      $     startfile3,binaryfile,triplefile,bpbhfile,
      $     imagefile,advectedfile,
@@ -748,6 +748,7 @@ c     set some default values, so that they don't necessarily have to be set in 
       treeacc=0.45d0 ! opening angle theta of the tree (ngravtree=1 or 2): a node is used as a whole if theta^2 r^2 > (size_A + size_B)^2 and the nodes are farther apart than their softening lengths.  Smaller is more accurate and slower; 0 gives the direct sum
       nleafgrav=24 ! most particles in a leaf of the gravity tree (ngravtree=1 or 2; at most 32 for 2, a leaf being one warp of the gpu); the particles of a leaf share one Taylor series of the far field
       ngravoverlap=-1 ! 1 lets the gpus work while the cpus do something else, 0 does not; -1: 1, except for the direct sum on more than one gpu (ngravprocs>1 or ngpuperrank not 1), where it costs a little.  ngravtree=0: the far tiles start on the gpus before the smoothing lengths are solved; the result differs from 0 in the last bits of the force.  ngravtree=2: the visit of the tree is queued when the tree is made and collected after the pair loop; the same bits as 0.  Not used with nblock=1 for ngravtree=0, or with ngravtree=1
+      ngravrebuild=1 ! ngravtree=1 or 2: how often the structure of the gravity tree (which particles share a node, and which node is the parent of which) is made, in steps.  1: every step.  k from 2 to 16: every k steps; in between the old structure is used with the positions, masses and smoothing lengths of the step (the sizes and moments of the nodes are made again each step, so the nodes only get less compact: more of them are opened, the accuracy of treeacc is kept).  The steps of a cycle use the structure made in its first one, at most k-1 steps old.  The structure is also made at the first step after the checkpoint restartrad.sph is written (every 1000 steps), so a run that goes on and one that starts from that file give the same bits; the result does not depend on how often out*.sph are written.  The result differs from k=1 in the last digits of the forces, and does not depend on the number of threads, the gpus or ngravoverlap.  It makes the step of the gpu shorter where the cpus are what the gpu waits for (few threads for each gpu).  Not used with block steps (nblock=1) or the direct sum (ngravtree=0), which give 1
       teq=100d0 ! background temperature the cooling relaxes towards, in K.  Only used when ncooling>0
       tjumpahead=1d30 ! time after which a wide orbit is skipped rather than integrated, by advancing it analytically around the Kepler two-body solution.  The default never fires; any other value is honoured
       ndtoutafter=100 ! once a jump-ahead run (automatic jumping on) has lost its star, leaving a point mass as the only body, run on for this many dtout and stop, unless tf comes first
@@ -865,6 +866,7 @@ c     own range of particles
       if(ngpuperrank.lt.0) stop 'init: ngpuperrank must not be negative'
       if(ngravhilo.ne.0 .and. ngravhilo.ne.1) stop 'init: ngravhilo must be 0 or 1'
       if(ngravoverlap.lt.-1 .or. ngravoverlap.gt.1) stop 'init: ngravoverlap must be -1, 0 or 1'
+      if(ngravrebuild.lt.1 .or. ngravrebuild.gt.16) stop 'init: ngravrebuild must be from 1 to 16'
 c     ngravtree=-1 (automatic): which of 0, 1 and 2 is used is decided in gravtree_auto, called by the first gravquant, when the number of
 c     particles is known; here only whether there is a gpu that can walk the tree is found (ngravgpuok, in the block below)
       ngravgpuok=0
