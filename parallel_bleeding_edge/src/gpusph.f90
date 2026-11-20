@@ -89,8 +89,9 @@
 !     the device is told dt (gi_go) and goes on by itself with the corrector of this step, the predictor of the next one and the smoothing lengths of the next step, while the CPU
 !     does what it always did.  gi_pending: it was told, and the next smoothing lengths have to decide whether to collect what it made; gi_hash: the sum of the bits of the CPU's
 !     data (made in the predictor loop of advance) that the device's has to equal.  gi_on: the integration on the device is on (the library has it, SPHGPU_NOINT is not set and the
-!     test of the sum passed).
-      logical, save :: gi_pending=.false., gi_on=.false., gi_set=.false., gi_dbg=.false.
+!     test of the sum passed).  gi_fresh: gi_hash was made by the predictor of this step; rho_and_h is also called outside advance (eatem, skipahead), and there is no sum of this
+!     state then: what the device made is dropped without being compared.
+      logical, save :: gi_pending=.false., gi_on=.false., gi_set=.false., gi_dbg=.false., gi_fresh=.false.
       integer(8), save :: gi_hash=0
 !     the steps in which it was asked and the reasons for which it was not made
       integer, save :: gi_ncall=0, gi_nrefused=0, gi_narm(0:4)=0
@@ -265,7 +266,8 @@
       gw_fsend=gw_vkept .and. skiplist.eq.1 .and. nblock.eq.0 .and. nrelax.eq.0
       if(gw_tree .or. gw_kd .or. gw_fsend) workfn=c_funloc(gpusph_work)
 !     the integration on the device was started at the end of the step before: is what it made what this call would make?
-      if(gi_pending) call gi_check(skinarg,skiplist)
+      if(gi_pending .and. gi_fresh) call gi_check(skinarg,skiplist)
+      gi_fresh=.false.
       call gpu_sph_rhoh(n,n_lower,n_upper,nmax,x,y,z,am,u,hp,divv,rho,bonet_omega,bonet_0mega,bonet_psi,bonet_wn,zeta,nn,first,&
            gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,skinarg,skiplist,workfn,ierr)
       gi_pending=.false.
@@ -565,6 +567,7 @@
       subroutine gi_drop
       if(gi_pending) call gpu_sph_int_drop
       gi_pending=.false.
+      gi_fresh=.false.
       end subroutine gi_drop
 
 !     the counters, to log0.sph at the end of the run

@@ -89,7 +89,7 @@
 !*********************************************************
       subroutine advance
 !     implements second-order accurate leap-frog sph step
-      use gpusph_mod, only: gw_tree,gv_ok,gv_done,gw_enout,gw_vkept,gi_pending,gi_hash,gi_go,gi_drop,gi_allowed
+      use gpusph_mod, only: gw_tree,gv_ok,gv_done,gw_enout,gw_vkept,gi_pending,gi_hash,gi_fresh,gi_go,gi_drop,gi_allowed
       use enout_early_mod, only: eo_ready
       include 'starsmasher.h'
       include 'mpif.h'
@@ -232,6 +232,7 @@
             ghash=ghash+gq
          enddo
          gi_hash=ghash
+         gi_fresh=.true.
       else
 !$omp parallel do schedule(static) private(i,ttherm)
       do i=1,n
