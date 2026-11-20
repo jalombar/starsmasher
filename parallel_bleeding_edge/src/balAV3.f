@@ -23,7 +23,7 @@ c=======================================================================
       common/uijmax/ uijmax
       real*8 dwijin,pijin,sxijin,syijin,szijin,divin, diwkin
       real*8 sxijingc,syijingc,szijingc
-      logical switchedav,gdone
+      logical switchedav,gdone,fuseacc
       double precision divv(nmax)
       common/commdivv/divv
       integer mylength, mygravlength
@@ -90,6 +90,12 @@ c     rho_and_h, otherwise only this rank's own particles hold them.
             if(neos.ne.0) call sync_all(gam1p)
          endif
       endif
+
+c     the accelerations are summed in one pass when there is one rank, the gravity is the gpu's for all the particles (and is collected below)
+c     and nothing needs the hydrodynamic part alone (cooling)
+      fuseacc=nprocs.eq.1 .and. ngr.ne.0 .and. nusegpus.eq.1 .and.
+     $     ncooling.eq.0 .and. ngrav_lower.eq.1 .and. ngrav_upper.eq.n
+     $     .and. .not.(blkdist .and. nblock.eq.1)
 
       switchedav=.false.
       if(nrelax.eq.1
@@ -357,7 +363,11 @@ c     (with block steps the potential is needed only when every particle is acti
          if(myrank.eq.ngravprocs-1)then
             write(6,'(a,f6.3,a,g10.3,a,i4)')'2ndhalf:',time1-time0
          endif
-         if(nusegpus.eq.1)then
+         if(fuseacc) then
+c           (one rank, the gravity of the gpu for all the particles, no cooling: the three additions of the accelerations and the copy that
+c           sumvdot makes are one pass below, with each addition as it was)
+            continue
+         else if(nusegpus.eq.1)then
 !$omp parallel do simd schedule(static)
             do i=ngrav_lower,ngrav_upper
                myvxdot(i)=myvxdot(i)+gx(i)
@@ -383,6 +393,14 @@ c     to all processes
 
 c     Now that scaleheight has been calculated, we can include all
 c     relevant terms in the calculation of the acceleration:
+      if(fuseacc) then
+!$omp parallel do simd schedule(static)
+         do i=1,n
+            vxdot(i)=(myvxdot(i)+gx(i))+myvxdotgc(i)
+            vydot(i)=(myvydot(i)+gy(i))+myvydotgc(i)
+            vzdot(i)=(myvzdot(i)+gz(i))+myvzdotgc(i)
+         enddo
+      else
 !$omp parallel do simd schedule(static)
       do i=1,n
          myvxdot(i)=myvxdot(i)+myvxdotgc(i)
@@ -391,6 +409,7 @@ c     relevant terms in the calculation of the acceleration:
       enddo
 
       call sumvdot(myvxdot,myvydot,myvzdot)
+      endif
 
 cc     if this is a relaxation calculation, add centrifugal and drag forces:
 c      if (nrelax.ne.0 .and. .not. gonedynamic ) then
