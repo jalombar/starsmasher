@@ -2277,9 +2277,11 @@ extern "C"
   // CUDA, 4 no memory.  With ierr 2 the arrays hp... may have been changed (the caller keeps the guesses of h).
   // skin > 0 (one device for the rank): Verlet lists, the candidates of the first search kept from the call that built them with a margin of skin of the radius
   // and used while they are complete (the same lists and sums, the same bits); skin <= 0: every call searches from the root.
+  // work: a function (or NULL) that is called on the calling thread once the kernels are queued and before their results are collected.
   void gpu_sph_rhoh_(int *n_, int *nlow_, int *nup_, int *nmaxarr, double *x, double *y, double *z, double *am, double *u, double *hp,
                      double *divv, double *rho, double *omega, double *om0, double *psi, double *wn, double *zeta, int *nn, int *first,
-                     int *sflag, int *list, int *listcap_, int *ltot, double *dt, double *hfloor, int *nnopt, int *nselfg, double *skin_, int *skiplist_, int *ierr)
+                     int *sflag, int *list, int *listcap_, int *ltot, double *dt, double *hfloor, int *nnopt, int *nselfg, double *skin_, int *skiplist_,
+                     void (**work)(void), int *ierr)
   {
     *ierr = 0;
     *ltot = 0;
@@ -2376,6 +2378,9 @@ extern "C"
       // of a step do not depend on how the work is divided when it is not divided)
       const bool keepres = true;
       std::vector<std::vector<int> > flagrec(ndev);
+      // The work the caller has for its CPUs while the kernels run (the kernels are queued and the copies of the data are on their way: the
+      // work must read the arrays of the particles only, and write nothing that the kernels or the copies after them read)
+      if (work && *work) (*work)();
       drain(nown, nlow, ch, H, ltot, ierr, &nfl, keepres ? &flagrec : 0);
       // lists left on the device that the CPU needs after all (particles it has to solve itself): copy them now
       if (*ierr == 0 && *skiplist_ != 0 && nfl > 0 && !keepres) getlists(list, ierr);

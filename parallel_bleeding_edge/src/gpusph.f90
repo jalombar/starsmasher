@@ -50,7 +50,12 @@
 !     for each call with the differences (the run goes on with the CPU results); 3 is 1 and 2.
 !***********************************************************************
       module gpusph_mod
+      use iso_c_binding
       implicit none
+!     Work that the CPUs do while the devices solve the smoothing lengths (gpusph_work, called by the library between the launch of the
+!     kernels and the collection of their results): the structure of the tree of the gravity (gw_tree).  The caller sets what it wants
+!     done before rho_and_h and clears it after.
+      logical, save :: gw_tree=.false.
 !     0: the library has not been asked yet, 1: ready, 2: not usable (gs_why says why)
       integer, save :: gs_state=0, gs_why=0
 !     the reason written last, for the smoothing lengths (1) and the forces (2)
@@ -68,6 +73,12 @@
       integer, save :: ck_ltot=0
 
       contains
+
+!     What the CPUs do while the devices solve (called from gpu_sph_rhoh_, on the thread that calls it, with the data of the call
+!     unchanged: the work reads positions and masses and writes only what no one else reads)
+      subroutine gpusph_work() bind(C, name='gpusph_work_cb')
+      if(gw_tree) call tree_early_struct
+      end subroutine gpusph_work
 
 !     one line in log0.sph when the reason why the CPU does the work changes (0: the GPU does it)
       subroutine gpusph_say(what,why,part)
@@ -176,6 +187,7 @@
       integer nflag,ltot
       integer why,why2,ierr,nown,listcap,i,io,skiplist
       real*8 skinarg
+      type(c_funptr) :: workfn
       logical needvdotsm
       external needvdotsm
       character(len=32) what
@@ -217,8 +229,10 @@
          call gpusph_usable(why2,2)
          if(why2.eq.0) skiplist=1
       endif
+      workfn=c_null_funptr
+      if(gw_tree) workfn=c_funloc(gpusph_work)
       call gpu_sph_rhoh(n,n_lower,n_upper,nmax,x,y,z,am,u,hp,divv,rho,bonet_omega,bonet_0mega,bonet_psi,bonet_wn,zeta,nn,first,&
-           gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,skinarg,skiplist,ierr)
+           gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,skinarg,skiplist,workfn,ierr)
       if(ierr.ne.0) then
          if(ierr.eq.2) then
             call gpusph_say(what,8,1)

@@ -47,7 +47,7 @@ module gravtree
   use gravpair
   implicit none
   private
-  public :: gt_forces, gt_gpu, gt_start, gt_finish, gt_pend
+  public :: gt_forces, gt_gpu, gt_start, gt_finish, gt_pend, gt_early
   integer, parameter :: dp = kind(1.d0)
   integer, parameter :: lenf = 20
   ! node data: 1:3 centre of mass, 4 size, 5 hmax, 6 mass, 7:12 second moments (xx,xy,xz,yy,yz,zz)
@@ -60,6 +60,10 @@ module gravtree
   ! ngravoverlap=1 with ngravtree=2: gt_start has made the tree and queued the visit on the gpus, and gt_finish has not
   ! collected it yet
   logical, save :: gt_pend = .false.
+  ! gt_early has made the structure of the tree (its nodes and the order of the particles), which depends on the positions only, and the
+  ! next gt_start uses it instead of making it again; st_early_n is the number of particles it was made for
+  logical, save :: st_early = .false.
+  integer, save :: st_early_n = 0
   integer, save :: ps_n = 0, ps_ilow = 0, ps_ihigh = 0, ps_nwork = 0, ps_nnode = 0
   integer(c_signed_char), pointer, contiguous, save :: ps_needf(:) => null()
   real(c_double), pointer, contiguous, save :: ps_out(:,:) => null()
@@ -107,11 +111,22 @@ module gravtree
 
 contains
 
-!     The tree of the n particles, its moments, and the particles in tree order (xt.. ft).
+!     The tree of the n particles, its moments, and the particles in tree order (xt.. ft).  It is made in two parts: the structure
+!     (the nodes and the order of the particles, from the positions only) and what the masses, the smoothing lengths and u add to it
+!     (their values in tree order and the moments of the nodes).
   subroutine make_tree(n, x, y, z, am, hp, u, nleaf)
     integer, intent(in) :: n, nleaf
     real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n)
-    integer :: i, j
+    st_early = .false.
+    call make_tree_struct(n, x, y, z, nleaf)
+    call make_tree_fill(n, am, hp, u)
+  end subroutine make_tree
+
+!     The structure of the tree of the n particles: nodes, the order of the particles (gind) and their positions in that order.
+  subroutine make_tree_struct(n, x, y, z, nleaf)
+    integer, intent(in) :: n, nleaf
+    real(dp), intent(in) :: x(n), y(n), z(n)
+    integer :: i
     call reserve(n, nleaf)
 !$omp parallel do simd schedule(static)
     do i = 1, n
@@ -125,12 +140,22 @@ contains
        deallocate (nd)
        allocate (nd(nfd,gtw%nidmax))
     end if
-!$omp parallel do simd schedule(static) private(j)
+!$omp parallel do simd schedule(static)
     do i = 1, n
-       j = gind(i)
        xt(i) = gpos(1,i)
        yt(i) = gpos(2,i)
        zt(i) = gpos(3,i)
+    end do
+  end subroutine make_tree_struct
+
+!     The masses, 2h and the flag of a point particle in tree order, and the moments of the nodes (after make_tree_struct).
+  subroutine make_tree_fill(n, am, hp, u)
+    integer, intent(in) :: n
+    real(dp), intent(in) :: am(n), hp(n), u(n)
+    integer :: i, j
+!$omp parallel do simd schedule(static) private(j)
+    do i = 1, n
+       j = gind(i)
        mt(i) = am(j)
        ht(i) = 2*hp(j)
        h2t(i) = ht(i)*ht(i)
@@ -141,7 +166,17 @@ contains
        end if
     end do
     call moments()
-  end subroutine make_tree
+  end subroutine make_tree_fill
+
+!     The structure of the tree, for gt_start to find it made (it is the work that the cpus do while the gpus solve the smoothing lengths,
+!     see gpusph.f90): the positions must not change before gt_start.
+  subroutine gt_early(n, x, y, z, nleaf)
+    integer, intent(in) :: n, nleaf
+    real(dp), intent(in) :: x(n), y(n), z(n)
+    call make_tree_struct(n, x, y, z, nleaf)
+    st_early = .true.
+    st_early_n = n
+  end subroutine gt_early
 
 !     Gravity on the particles ilow..ihigh (and, with block steps, only the active ones: the others get zero).
   subroutine gt_forces(n, x, y, z, am, hp, u, act, blk, ilow, ihigh, nk, theta, nleaf, gx, gy, gz, gpot)
@@ -186,7 +221,13 @@ contains
     integer, intent(in) :: n, ilow, ihigh, nk, nleaf
     real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n), theta
     logical, intent(in) :: act(n), blk
-    call make_tree(n, x, y, z, am, hp, u, nleaf)
+    if (st_early .and. st_early_n == n) then
+       ! the structure was made while the gpus solved the smoothing lengths
+       st_early = .false.
+       call make_tree_fill(n, am, hp, u)
+    else
+       call make_tree(n, x, y, z, am, hp, u, nleaf)
+    end if
     call gpu_visit_start(n, ilow, ihigh, act, blk, nk, theta*theta)
   end subroutine gt_start
 
@@ -1221,6 +1262,19 @@ subroutine tree_grav_forces(ntot_in, gxo, gyo, gzo, grpoto)
        gxo, gyo, gzo, grpoto)
   return
 end subroutine tree_grav_forces
+
+!***********************************************************************
+!     The structure of the tree of the gravity, made while the gpus solve the smoothing lengths (gpusph_work in gpusph.f90); the
+!     particles must not move before tree_gpu_start, which finds it made.
+!***********************************************************************
+subroutine tree_early_struct
+  use gravtree
+  include 'starsmasher.h'
+  if (ngravtree.ne.2 .or. ngravoverlap.eq.0) return
+  if (myrank.ge.ngravprocs) return
+  call gt_early(ntot, x, y, z, nleafgrav)
+  return
+end subroutine tree_early_struct
 
 !***********************************************************************
 !     ngravtree=2 with ngravoverlap=1, to be called where the direct sum on the gpus is started (gravforce): the tree is made

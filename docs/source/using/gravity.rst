@@ -129,8 +129,10 @@ proportion to the speed each showed in its first pass.
 
 ``ngravoverlap = 1`` with ``ngravtree = 2`` makes the tree and queues the visit on the
 GPUs as soon as the smoothing lengths are solved, and collects the forces after the
-loop over the pairs, so that the CPUs and the GPUs work together.  The bits are those
-of ``ngravoverlap = 0``.
+loop over the pairs, so that the CPUs and the GPUs work together.  The structure of the
+tree (its nodes and the order of the particles) depends on the positions only, so the
+CPUs make it while the GPUs solve the smoothing lengths (see :doc:`gpu_sph`).  The bits are
+those of ``ngravoverlap = 0``.
 
 As the tree on the CPUs, the tree on the GPUs does not conserve the momentum and the
 angular momentum exactly, and conserves the energy as well as the direct sum does.  Use
