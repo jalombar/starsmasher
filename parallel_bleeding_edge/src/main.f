@@ -195,6 +195,12 @@ c     called by init,lfstart,setup1em,setup1es,setup2cm,setup2cs
       common/gravworkers/comm_worker
       integer ranks(nprocsmax)
       integer imax,itreeok
+      integer nthrgr,irb,rebuildthr,rebuildk
+      parameter (rebuildthr=32,rebuildk=16)
+      character*120 rebwhy
+      character*200 rebmsg
+      character*16 rebthr
+!$    integer omp_get_max_threads
       logical alreadyinitialized
       data alreadyinitialized /.false./
       save alreadyinitialized
@@ -234,6 +240,36 @@ c     ngpusph=-1: chosen here too, from the gravity just chosen, the threads and
          stop
       endif
 
+c     ngravrebuild=-1 (automatic): 16 for the tree on the gpus (ngravtree=2) with at most rebuildthr threads of the gravity process for each gpu, 1 otherwise.  With 8 and 16 threads on
+c     an H100 and 8 on an L40S the step was shorter by 14% to 25% in every window of the collision (the intervals of the repetitions apart), with 32 at the pericentre by 7.5%; with 63
+c     threads the change was between -9% and +1% and the intervals touched in one of the two jobs (see the user guide).  The choice is a function of the threads, the gpus and the
+c     options only, never of a time measured, so a run and its restart choose the same
+      if(ngravrebuild.lt.0) then
+         nthrgr=1
+!$       nthrgr=omp_get_max_threads()
+         if(ngpuperrank.gt.1) nthrgr=max(1,nthrgr/ngpuperrank)
+         write(rebthr,'(i0)') nthrgr
+         irb=1
+         rebwhy=trim(rebthr)//' threads for each gpu: not the tree on the gpus, or more than the limit measured'
+         if(ngravtree.eq.2 .and. ngpuperrank.ne.0 .and. nthrgr.le.rebuildthr) then
+            irb=rebuildk
+            rebwhy=trim(rebthr)//' threads for each gpu, the tree on the gpus'
+         endif
+         if(ngravtree.eq.0) rebwhy='no tree (ngravtree=0)'
+         if(nblock.eq.1) then
+            irb=1
+            rebwhy='block steps (nblock=1)'
+         endif
+         call mpi_bcast(irb,1,mpi_integer,0,mpi_comm_world,ierr)
+         ngravrebuild=irb
+         if(ngravtree.eq.0) ngravrebuild=1
+         if(myrank.eq.0) then
+            write(rebmsg,'(a,i0,a)') 'gravity: ngravrebuild=-1 (auto): '//trim(rebwhy)//' -> ngravrebuild=',ngravrebuild,
+     $           ': the structure of the tree is made every that many steps'
+            write(69,'(a)') trim(rebmsg)
+            write(6,'(a)') trim(rebmsg)
+         endif
+      endif
 c     ngravrebuild>1: the structure of the gravity tree is made every ngravrebuild steps (gravtree.f90).  It needs a tree (ngravtree 1 or 2) and shared steps:
 c     with the direct sum or with block steps the value is 1, and the log says so
       if(ngravrebuild.gt.1 .and. ngravtree.eq.0) then

@@ -230,7 +230,7 @@ GROUPS = [
                       'nblock','nbinmax','dtmaxblk','nblimit','nblockfull',
                       'dtforce','nstartramp']),
  ('Parallelism and GPUs',
-                     ['ngravprocs','ngpuperrank','ngravhilo','ngravoverlap','ngravtree','ngravtreeauto','treeacc','nleafgrav','qthreads','ppn',
+                     ['ngravprocs','ngpuperrank','ngravhilo','ngravoverlap','ngravrebuild','ngravtree','ngravtreeauto','treeacc','nleafgrav','qthreads','ppn',
                       'computeexclusivemode','gflag','ngpusph','ngpusphcheck','ngpusphskin','ngpusphprec','ngpuclass']),
  ('Units',           ['runit','munit','gravconst']),
  ('Periodic box',    ['boxx','boxy','boxz']),
