@@ -1727,6 +1727,49 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fscat(FView V)
   for (int a = 0; a < 6; a++) V.acc[a * n + q] = tot[a];
 }
 
+// The particles a device touches in the forces with the data of the smoothing-length kernel (useb): its own targets (the gather sums are written for them) and the keys of
+// the dispersion (the particles that get a scatter term).  Every other element of its sums is the +0.0 of the clearing, so the host adds only these.  The mask is
+// written by many threads with the same value; the list of the touched particles comes out in the order of the index.
+__global__ void k_tmark_own(int sl, const SphOut *out, int *mask)
+{
+  const int o = blockIdx.x * blockDim.x + threadIdx.x;
+  if (o >= sl) return;
+  mask[out[o].idx] = 1;
+}
+
+__global__ void k_tmark_keys(int nent, int n, const int *key, int *mask)
+{
+  const int e = blockIdx.x * blockDim.x + threadIdx.x;
+  if (e >= nent) return;
+  const int k = key[e];
+  if (k < n) mask[k] = 1;
+}
+
+// the touched particles in the order of the index (pos: the exclusive sum of the mask), and how many
+__global__ void k_tcompact(int n, const int *mask, const int *pos, int *idx, int *cnt)
+{
+  const int q = blockIdx.x * blockDim.x + threadIdx.x;
+  if (q >= n) return;
+  if (mask[q]) idx[pos[q]] = q;
+  if (q == n - 1) cnt[0] = pos[q] + mask[q];
+}
+
+// the sums of the touched particles, packed (six numbers for each, in the order of the list), and the results of the targets in the order of the records
+__global__ void k_tgather(int m, int n, const int *idx, const double *acc, double *v)
+{
+  const int j = blockIdx.x * blockDim.x + threadIdx.x;
+  if (j >= m) return;
+  const int q = idx[j];
+  for (int a = 0; a < 6; a++) v[(size_t)j * 6 + a] = acc[(size_t)a * n + q];
+}
+
+__global__ void k_foutc(int sl, int nlow, const SphOut *sout, const FOut *out, FOut *oc)
+{
+  const int o = blockIdx.x * blockDim.x + threadIdx.x;
+  if (o >= sl) return;
+  oc[o] = out[sout[o].idx - nlow];
+}
+
 __global__ void k_fpack(int n, const double *x, const double *y, const double *z, const double *am, const double *vx, const double *vy,
                         const double *vz, const double *u, D4 *pos, D4 *vel)
 {
@@ -1816,6 +1859,10 @@ struct FDev
   FOut *hout = 0;        // pinned
   size_t houtn = 0;
   int *nlarge = 0, *hnlarge = 0;
+  int *tmask = 0, *tpos = 0, *tidx = 0, *tcnt = 0;   // the particles this device touches (see k_tmark_own): mask, its exclusive sum, the list, how many
+  int *hidx = 0, *hcnt = 0;                           // pinned: the list and the count
+  double *tv = 0;                                     // the sums of the touched particles, six for each (see k_tgather)
+  FOut *oc = 0;                                       // the results of the targets in the order of the records
 };
 std::vector<FDev> g_fdev;
 
@@ -1829,6 +1876,9 @@ void ffree(FDev &f)
   if (f.hacc) { cudaFreeHost(f.hacc); f.hacc = 0; }
   if (f.hout) { cudaFreeHost(f.hout); f.hout = 0; }
   if (f.hnlarge) { cudaFreeHost(f.hnlarge); f.hnlarge = 0; }
+  dfree(f.tmask); dfree(f.tpos); dfree(f.tidx); dfree(f.tcnt); dfree(f.tv); dfree(f.oc);
+  if (f.hidx) { cudaFreeHost(f.hidx); f.hidx = 0; }
+  if (f.hcnt) { cudaFreeHost(f.hcnt); f.hcnt = 0; }
   f.ncap = f.ntcap = 0; f.ecap = f.lcap = 0; f.tmpbytes = 0; f.haccn = f.houtn = 0;
 }
 
@@ -2268,6 +2318,10 @@ extern "C"
       const bool useb = (*useb_ != 0) && contig && !blocks && g_bs.valid && g_bs.n == n && g_bs.nown == nt && g_bs.nlow == p0 - 1 && nloop == nt;
       // the longest list reached (the part of list() to send), and the work of each device: whole chunks of pb_chunk places (or, with the
       // data of the smoothing-length kernel, its slice of the particles)
+      // three or more devices with the data of the smoothing-length kernel: a device brings back only what it touched.  With one device that is everything, with two it is more than a
+      // half of the particles (the counters: 0.50-0.56 of n for each device in the collision and 0.52 in n500, 0.27-0.31 with four, 0.15 with eight) and the compaction does not pay
+      // (measured: 2 devices, n500: 1% slower): they use the plain copy and the plain sum.  Both ways give the same bits.
+      const bool cmp = useb && ndev > 2;
       long long listlen = 0, ebound = 0;
       std::vector<int> t0(ndev + 1, nt), nts(ndev, 0);
       std::vector<long long> ent(ndev, 0);
@@ -2363,15 +2417,21 @@ extern "C"
           dmalloc(f.c, ecap);
           dmalloc(f.ka, ecap); dmalloc(f.kb, ecap); dmalloc(f.va, ecap); dmalloc(f.vb, ecap); dmalloc(f.et, ecap);
           dmalloc(f.nlarge, 4);
-          size_t b1 = 0, b2 = 0;
+          dmalloc(f.tmask, ncap); dmalloc(f.tpos, ncap); dmalloc(f.tidx, ncap); dmalloc(f.tcnt, 4);
+          dmalloc(f.tv, 6 * ncap); dmalloc(f.oc, ntcap);
+          size_t b1 = 0, b2 = 0, b3 = 0;
           CK(cub::DeviceRadixSort::SortPairs(NULL, b1, (int *)0, (int *)0, (int *)0, (int *)0, (int)ecap, 0, 32));
           CK(cub::DeviceScan::ExclusiveSum(NULL, b2, (int *)0, (int *)0, (int)ntcap + 1));
+          CK(cub::DeviceScan::ExclusiveSum(NULL, b3, (int *)0, (int *)0, (int)ncap));
+          b2 = std::max(b2, b3);
           f.tmpbytes = std::max(b1, b2) + 256;
           CK(cudaMalloc(&f.tmp, f.tmpbytes));
           CK(cudaMallocHost((void **)&f.hacc, 6 * ncap * sizeof(double)));
           CK(cudaMallocHost((void **)&f.hout, ntcap * sizeof(FOut)));
           CK(cudaMallocHost((void **)&f.hnlarge, 4 * sizeof(int)));
           CK(cudaMallocHost((void **)&f.hE, 4 * sizeof(int)));
+          CK(cudaMallocHost((void **)&f.hidx, ncap * sizeof(int)));
+          CK(cudaMallocHost((void **)&f.hcnt, 4 * sizeof(int)));
           f.haccn = ncap; f.houtn = ntcap;
           f.ncap = (int)ncap; f.ntcap = (int)ntcap; f.ecap = ecap; f.lcap = lcap;
         }
@@ -2379,6 +2439,7 @@ extern "C"
         if (mk) mark("f start", st);
         CK(cudaMemsetAsync(f.acc, 0, 6 * (size_t)n * sizeof(double), st));
         CK(cudaMemsetAsync(f.nlarge, 0, sizeof(int), st));
+        if (cmp) CK(cudaMemsetAsync(f.tmask, 0, (size_t)n * sizeof(int), st));
         H2S(f.vx, o_vx, (size_t)n * 8); H2S(f.vy, o_vy, (size_t)n * 8); H2S(f.vz, o_vz, (size_t)n * 8);
         H2S(f.u, o_u, (size_t)n * 8); H2S(f.por2, o_por2, (size_t)n * 8);
         const double *dx_ = f.x, *dy_ = f.y, *dz_ = f.z, *dam_ = f.am;
@@ -2452,6 +2513,17 @@ extern "C"
         else k_fpair<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
         CK(cudaGetLastError());
         if (mk) mark("f pairs", st);
+        if (cmp)
+        {
+          // the particles this device touches: its targets and the keys of its dispersion (everything else in its sums is +0.0)
+          const int sl = slice_of(nt, ndev, k);
+          if (sl > 0) k_tmark_own<<<nblocks(sl, 128), 128, 0, st>>>(sl, d.out, f.tmask);
+          if (ent[k] > 0) k_tmark_keys<<<nblocks((int)ent[k], 256), 256, 0, st>>>((int)ent[k], n, f.ka, f.tmask);
+          size_t tb = f.tmpbytes;
+          CK(cub::DeviceScan::ExclusiveSum(f.tmp, tb, f.tmask, f.tpos, n, st));
+          k_tcompact<<<nblocks(n, 256), 256, 0, st>>>(n, f.tmask, f.tpos, f.tidx, f.tcnt);
+          CK(cudaMemcpyAsync(f.hcnt, f.tcnt, sizeof(int), cudaMemcpyDeviceToHost, st));
+        }
         if (ent[k] > 0)
         {
           size_t bytes = f.tmpbytes;
@@ -2461,10 +2533,34 @@ extern "C"
           CK(cudaGetLastError());
           if (mk) mark("f scatter", st);
         }
-        CK(cudaMemcpyAsync(f.hacc, f.acc, 6 * (size_t)n * sizeof(double), cudaMemcpyDeviceToHost, st));
-        CK(cudaMemcpyAsync(f.hout, f.out, (size_t)nts[k] * sizeof(FOut), cudaMemcpyDeviceToHost, st));
-        CK(cudaMemcpyAsync(f.hnlarge, f.nlarge, sizeof(int), cudaMemcpyDeviceToHost, st));
-        if (mk) mark("f d2h", st);
+        if (!cmp)
+        {
+          CK(cudaMemcpyAsync(f.hacc, f.acc, 6 * (size_t)n * sizeof(double), cudaMemcpyDeviceToHost, st));
+          CK(cudaMemcpyAsync(f.hout, f.out, (size_t)nts[k] * sizeof(FOut), cudaMemcpyDeviceToHost, st));
+          CK(cudaMemcpyAsync(f.hnlarge, f.nlarge, sizeof(int), cudaMemcpyDeviceToHost, st));
+          if (mk) mark("f d2h", st);
+        }
+      }
+      // with the data of the smoothing-length kernel only what a device touched comes back: the sums of those particles and the results of its targets
+      if (cmp)
+      {
+        for (int k = 0; k < ndev; k++)
+        {
+          if (!used[k]) continue;
+          Dev &d = g_dev[k];
+          FDev &f = g_fdev[k];
+          CK(cudaSetDevice(d.id));
+          cudaStream_t st = d.st;
+          CK(cudaStreamSynchronize(st));
+          const int m = f.hcnt[0], sl = slice_of(nt, ndev, k);
+          if (m > 0) k_tgather<<<nblocks(m, 128), 128, 0, st>>>(m, n, f.tidx, f.acc, f.tv);
+          if (sl > 0) k_foutc<<<nblocks(sl, 128), 128, 0, st>>>(sl, g_bs.nlow, d.out, f.out, f.oc);
+          CK(cudaMemcpyAsync(f.hacc, f.tv, (size_t)m * 6 * sizeof(double), cudaMemcpyDeviceToHost, st));
+          CK(cudaMemcpyAsync(f.hidx, f.tidx, (size_t)m * sizeof(int), cudaMemcpyDeviceToHost, st));
+          CK(cudaMemcpyAsync(f.hout, f.oc, (size_t)sl * sizeof(FOut), cudaMemcpyDeviceToHost, st));
+          CK(cudaMemcpyAsync(f.hnlarge, f.nlarge, sizeof(int), cudaMemcpyDeviceToHost, st));
+          if (k == 0) mark("f d2h", st);
+        }
       }
       for (int k = 0; k < ndev; k++)
       {
@@ -2478,16 +2574,51 @@ extern "C"
       int first_used = -1;
       for (int k = 0; k < ndev; k++)
         if (used[k]) { first_used = k; break; }
-      for (int a = 0; a < 6; a++)
+      if (!cmp)
       {
-        double *dst = outs[a];
-#pragma omp parallel for schedule(static)
-        for (int q = 0; q < n; q++)
+        for (int a = 0; a < 6; a++)
         {
-          double s = g_fdev[first_used].hacc[(size_t)a * n + q];
-          for (int k = first_used + 1; k < ndev; k++)
-            if (used[k]) s = s + g_fdev[k].hacc[(size_t)a * n + q];
-          dst[q] = s;
+          double *dst = outs[a];
+#pragma omp parallel for schedule(static)
+          for (int q = 0; q < n; q++)
+          {
+            double s = g_fdev[first_used].hacc[(size_t)a * n + q];
+            for (int k = first_used + 1; k < ndev; k++)
+              if (used[k]) s = s + g_fdev[k].hacc[(size_t)a * n + q];
+            dst[q] = s;
+          }
+        }
+      }
+      else
+      {
+        // With the data of the smoothing-length kernel a device holds +0.0 (the clearing) everywhere but at the particles it touched, so the sum of a particle is
+        // that of the devices that touched it, added in the order of the devices, from the first one's value.  (The devices that did not touch it would add +0.0,
+        // which changes a sum only if it is -0.0; no device's value is -0.0, see k_fpair and k_fscat: every sum there starts from +0.0 and a sum that comes out
+        // as zero in round-to-nearest is +0.0, unless both terms are -0.0.)  The particles of one device are distinct, so the threads do not meet.
+        for (int a = 0; a < 6; a++)
+        {
+          double *dst = outs[a];
+#pragma omp parallel for schedule(static)
+          for (int q = 0; q < n; q++) dst[q] = 0.0;
+        }
+        for (int k = first_used; k < ndev; k++)
+        {
+          if (!used[k]) continue;
+          const FDev &f = g_fdev[k];
+          const int m = f.hcnt[0];
+          const double *v = f.hacc;      // six numbers for each touched particle, in the order of the list
+          if (k == first_used)
+          {
+#pragma omp parallel for schedule(static)
+            for (int j = 0; j < m; j++)
+              for (int a = 0; a < 6; a++) outs[a][f.hidx[j]] = v[(size_t)j * 6 + a];
+          }
+          else
+          {
+#pragma omp parallel for schedule(static)
+            for (int j = 0; j < m; j++)
+              for (int a = 0; a < 6; a++) outs[a][f.hidx[j]] = outs[a][f.hidx[j]] + v[(size_t)j * 6 + a];
+          }
         }
       }
       for (int k = 0; k < ndev; k++)
@@ -2495,8 +2626,9 @@ extern "C"
         if (!used[k]) continue;
         const FDev &f = g_fdev[k];
         *nlarge += *f.hnlarge;
+        const int nres = cmp ? slice_of(nt, ndev, k) : nts[k];   // (with the data of the smoothing-length kernel only the targets of the device, in the order of its records)
 #pragma omp parallel for schedule(static)
-        for (int o = 0; o < nts[k]; o++)
+        for (int o = 0; o < nres; o++)
         {
           const FOut s = f.hout[o];
           if (s.p < 0) continue;
