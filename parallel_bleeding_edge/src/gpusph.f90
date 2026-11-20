@@ -65,6 +65,12 @@
       logical, save :: gw_kd=.false., gs_kdneed=.true.
 !     gw_enout: the sums of enout that do not need the gravity (enout_early in output.f) are made while the devices do the pair sums
       logical, save :: gw_enout=.false.
+!     gw_fsend: the velocities are sent to the device while it solves (gpu_sph_fearly), for the forces that follow (set by gpusph_rhoh when the
+!     lists stay on the device and the caller of rho_and_h has set gw_vkept)
+      logical, save :: gw_fsend=.false.
+!     gw_vkept: the caller of rho_and_h says that nothing writes the velocities and u between that call and the forces that follow it (advance
+!     does; eatem, which takes a half step back in between, does not, and its forces send them as they are then)
+      logical, save :: gw_vkept=.false.
 !     0: the library has not been asked yet, 1: ready, 2: not usable (gs_why says why)
       integer, save :: gs_state=0, gs_why=0
 !     the reason written last, for the smoothing lengths (1) and the forces (2)
@@ -89,6 +95,9 @@
 !     What the CPUs do while the devices solve (called from gpu_sph_rhoh_, on the thread that calls it, with the data of the call
 !     unchanged: the work reads positions and masses and writes only what no one else reads)
       subroutine gpusph_work() bind(C, name='gpusph_work_cb')
+      include 'starsmasher.h'
+      integer ierrf
+      if(gw_fsend) call gpu_sph_fearly(n,vx,vy,vz,u,ierrf)
       if(gw_kd) call rhoh_early_kd
       if(gw_tree) call tree_early_struct
       end subroutine gpusph_work
@@ -250,9 +259,11 @@
          if(why2.eq.0) skiplist=1
       endif
       workfn=c_null_funptr
-      if(gw_tree .or. gw_kd) workfn=c_funloc(gpusph_work)
+      gw_fsend=gw_vkept .and. skiplist.eq.1 .and. nblock.eq.0 .and. nrelax.eq.0
+      if(gw_tree .or. gw_kd .or. gw_fsend) workfn=c_funloc(gpusph_work)
       call gpu_sph_rhoh(n,n_lower,n_upper,nmax,x,y,z,am,u,hp,divv,rho,bonet_omega,bonet_0mega,bonet_psi,bonet_wn,zeta,nn,first,&
            gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,skinarg,skiplist,workfn,ierr)
+      gw_fsend=.false.
       if(ierr.ne.0) then
          if(ierr.eq.2) then
             call gpusph_say(what,8,1)

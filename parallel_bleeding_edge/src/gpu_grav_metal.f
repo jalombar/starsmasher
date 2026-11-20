@@ -115,6 +115,13 @@ c     SPH on the GPU (ngpusph): the CUDA library has it, this build does not (gp
       return
       end
 
+      subroutine gpu_sph_fearly(n,vx,vy,vz,u,ierr)
+      integer n,ierr
+      real*8 vx(*),vy(*),vz(*),u(*)
+      ierr=1
+      return
+      end
+
       subroutine gpu_sph_ftables(ntab,dwtab,dgtab,ierr)
       integer ntab,ierr
       real*8 dwtab(*),dgtab(*)

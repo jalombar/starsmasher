@@ -2510,6 +2510,31 @@ inline void h2d_staged(void *dst, size_t off, size_t bytes, cudaStream_t st, con
 }
 #define H2S(dst, off, bytes) h2d_staged(dst, off, bytes, st, #dst)
 
+// What the forces need that is known before the smoothing lengths are solved: the velocities and u, which the predictor made (nothing between it and the forces writes them).  They are
+// sent, and packed with the positions (k_fpack), while the devices solve (gpu_sph_fearly_, called by the work of gpu_sph_rhoh_), so that the forces send only the pressure term.  g_fe
+// says the devices hold them for n particles; the forces use them if they are there and say so by clearing it.  g_estage is the pinned buffer of the copies (not g_stage: the forces fill
+// that one while these copies may be on their way).
+struct FEarly
+{
+  bool valid = false;
+  int n = 0;
+};
+FEarly g_fe;
+bool g_rhoh_queued = false;     // the call of gpu_sph_rhoh_ that is running has queued its kernels and its results (the work may send)
+char *g_estage = 0;
+size_t g_estagecap = 0;
+bool fe_enabled()
+{
+  static const bool e = getenv("SPHGPU_NOEARLY") == NULL;
+  return e;
+}
+// SPHGPU_FECHECK=1 (a test): the forces compare the arrays of the CPU with what was sent early, and stop at a difference
+bool fe_check()
+{
+  static const bool e = getenv("SPHGPU_FECHECK") != NULL;
+  return e;
+}
+
 // the sorted-by-key bits: enough for the keys 0..n (n = no key)
 inline int key_bits(int n)
 {
@@ -2611,6 +2636,54 @@ extern "C"
   // number of devices of this process
   void gpu_sph_ndev_(int *nd) { *nd = (int)g_dev.size(); }
 
+  // What the forces will need and the CPU knows already, sent while the device solves the smoothing lengths: the velocities of the n particles (and u, which the device holds), packed
+  // with the positions the devices hold into the arrays the pair kernels read.  Called from the work of gpu_sph_rhoh_ (one device, the lists kept on it); does nothing in any other
+  // case.  The forces use it if the arrays of the CPU still hold these velocities and u (see FEarly); a call that cannot send leaves nothing changed that the forces read.
+  void gpu_sph_fearly_(int *n_, double *vx, double *vy, double *vz, double *u, int *ierr)
+  {
+    *ierr = 0;
+    g_fe.valid = false;
+    try
+    {
+      if (!g_ready || !g_rhoh_queued || g_dev.size() != 1 || !fe_enabled()) return;
+      const int n = *n_;
+      if (g_fdev.size() != 1 || !g_fdev[0].x || n > g_fdev[0].ncap || !g_fdev[0].dw) return;
+      Dev &d = g_dev[0];
+      FDev &f = g_fdev[0];
+      CK(cudaSetDevice(d.id));
+      const size_t bytes = (size_t)n * 8;
+      if (4 * bytes > g_estagecap || !g_estage)
+      {
+        if (g_estage) cudaFreeHost(g_estage);
+        g_estage = 0;
+        g_estagecap = 4 * bytes + 4 * bytes / 8 + 4096;
+        CK(cudaHostAlloc((void **)&g_estage, g_estagecap, cudaHostAllocPortable));
+      }
+      const double *src[3] = {vx, vy, vz};
+      const size_t blk = 1 << 20;
+#pragma omp parallel for schedule(static) collapse(2)
+      for (int a = 0; a < 3; a++)
+        for (long long b = 0; b < (long long)bytes; b += blk)
+          memcpy(g_estage + (size_t)a * bytes + b, (const char *)src[a] + b, std::min(blk, bytes - (size_t)b));
+      if (fe_check()) memcpy(g_estage + 3 * bytes, u, bytes);     // (for the check of the forces: the u that the device holds is the one of this call)
+      cudaStream_t st = d.st;
+      CK(cudaMemcpyAsync(f.vx, g_estage, bytes, cudaMemcpyHostToDevice, st));
+      CK(cudaMemcpyAsync(f.vy, g_estage + bytes, bytes, cudaMemcpyHostToDevice, st));
+      CK(cudaMemcpyAsync(f.vz, g_estage + 2 * bytes, bytes, cudaMemcpyHostToDevice, st));
+      CK(cudaMemcpyAsync(f.u, d.u, bytes, cudaMemcpyDeviceToDevice, st));
+      k_fpack<<<nblocks(n, 256), 256, 0, st>>>(n, d.x, d.y, d.z, d.am, f.vx, f.vy, f.vz, f.u, f.pos, f.vel);
+      CK(cudaGetLastError());
+      g_fe.valid = true;
+      g_fe.n = n;
+    }
+    catch (const SphError &e)
+    {
+      fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
+      g_fe.valid = false;
+      *ierr = e.code;
+    }
+  }
+
   // The tables of the kernel (kernels.f): g, dg/dh, w, dw/dh and dphi/dh with the guard entry (ntab+1 entries each), and ctab.  Copied to
   // every device of the process, once.  ierr: 0 ok, 3 error of CUDA, 4 no memory.
   void gpu_sph_tables_(int *ntab, double *gtab, double *dgdhtab, double *wtab, double *dwdhtab, double *dphidhtab, double *ctab, int *ierr)
@@ -2664,6 +2737,7 @@ extern "C"
     *ltot = 0;
     g_bs.valid = false;
     g_lazy.pending = false;
+    g_fe.valid = false;
     const int n = *n_, nlow = *nlow_ - 1, nup = *nup_, nown = nup - nlow;
     const size_t listcap = *listcap_;
     try
@@ -2762,7 +2836,9 @@ extern "C"
       // (with more than 8 chunks the kernels end one after the other over many milliseconds, and drain copies and spreads each chunk while the next is computed: that is the better way)
       const bool fastdrain = fast_drain_enabled() && ndev == 1 && H.skiplist && nown > 0 && keepres && (nown + ch - 1) / ch <= 8;
       if (fastdrain) queue_results(g_dev[0], nown, nlow, (nown + ch - 1) / ch);
+      g_rhoh_queued = fastdrain;
       if (work && *work) (*work)();
+      g_rhoh_queued = false;
       if (fastdrain) drain_fast(g_dev[0], nown, nlow, ch, (nown + ch - 1) / ch, H, ltot, ierr, &nfl, &flagrec);
       else drain(nown, nlow, ch, H, ltot, ierr, &nfl, keepres ? &flagrec : 0);
       // lists left on the device that the CPU needs after all (particles it has to solve itself): copy them now
@@ -2993,9 +3069,30 @@ extern "C"
         }
       }
       if (ebound >= 2000000000LL) throw SphError(4, "too many entries in the lists for the forces on the GPU");
-      // what is sent: the velocities, u and the pressure term always; the rest unless the devices hold it
+      // the velocities and u were sent and packed while the devices solved, if the devices still hold them (and no buffer has to be made larger: that frees them)
+      bool fe = useb && ndev == 1 && g_fe.valid && g_fe.n == n;
+      if (fe)
+      {
+        const FDev &f0 = g_fdev[0];
+        if (n > f0.ncap || nt > f0.ntcap || (size_t)std::max(1LL, ebound) > f0.ecap || (size_t)listlen > f0.lcap || !f0.x) fe = false;
+      }
+      if (fe && fe_check())
+      {
+        // (a test) the arrays of the CPU are what the devices were sent
+        const double *src[4] = {vx, vy, vz, u};
+        for (int a = 0; a < 4; a++)
+          if (memcmp(g_estage + (size_t)a * n * 8, src[a], (size_t)n * 8) != 0)
+          {
+            fprintf(stderr, "StarSmasher (SPH on the GPU): the velocities or u changed between the smoothing lengths and the forces (SPHGPU_FECHECK)\n");
+            abort();
+          }
+        static int nchecked = 0;
+        if (++nchecked == 1 || nchecked % 100 == 0) fprintf(stderr, "SPHGPU_FECHECK: the velocities and u sent early were the ones the CPU holds (%d calls)\n", nchecked);
+      }
+      g_fe.valid = false;
+      // what is sent: the velocities, u and the pressure term always (unless they were sent early); the rest unless the devices hold it
       Stager stg;
-      const size_t o_vx = stg.put(vx, (size_t)n * 8), o_vy = stg.put(vy, (size_t)n * 8), o_vz = stg.put(vz, (size_t)n * 8), o_u = stg.put(u, (size_t)n * 8),
+      const size_t o_vx = fe ? 0 : stg.put(vx, (size_t)n * 8), o_vy = fe ? 0 : stg.put(vy, (size_t)n * 8), o_vz = fe ? 0 : stg.put(vz, (size_t)n * 8), o_u = fe ? 0 : stg.put(u, (size_t)n * 8),
                    o_por2 = stg.put(por2, (size_t)n * 8);
       size_t o_x = 0, o_y = 0, o_z = 0, o_am = 0, o_hp = 0, o_rho = 0, o_om = 0, o_om0 = 0, o_psi = 0, o_nn = 0, o_first = 0, o_list = 0, o_act = 0, o_tp = 0, o_tiw = 0;
       if (!useb)
@@ -3092,8 +3189,12 @@ extern "C"
           if (!plist[k].empty()) h2d_staged(d.list + (size_t)slice_of(nt, ndev, k) * CAP, o_plist[k], plist[k].size() * sizeof(int), st, "the lists of the particles solved by the CPU");
           k_patch<<<nblocks((int)np, 128), 128, 0, st>>>((int)np, f.pidx, f.prec, d.out);
         }
-        H2S(f.vx, o_vx, (size_t)n * 8); H2S(f.vy, o_vy, (size_t)n * 8); H2S(f.vz, o_vz, (size_t)n * 8);
-        H2S(f.u, o_u, (size_t)n * 8); H2S(f.por2, o_por2, (size_t)n * 8);
+        if (!fe)
+        {
+          H2S(f.vx, o_vx, (size_t)n * 8); H2S(f.vy, o_vy, (size_t)n * 8); H2S(f.vz, o_vz, (size_t)n * 8);
+          H2S(f.u, o_u, (size_t)n * 8);
+        }
+        H2S(f.por2, o_por2, (size_t)n * 8);
         const double *dx_ = f.x, *dy_ = f.y, *dz_ = f.z, *dam_ = f.am;
         if (!useb)
         {
@@ -3113,7 +3214,7 @@ extern "C"
           k_fcontig<<<nblocks(nt, 256), 256, 0, st>>>(nt, p0, f.tp, f.tiw);
         }
         if (mk) mark("f h2d", st);
-        k_fpack<<<nblocks(n, 256), 256, 0, st>>>(n, dx_, dy_, dz_, dam_, f.vx, f.vy, f.vz, f.u, f.pos, f.vel);
+        if (!fe) k_fpack<<<nblocks(n, 256), 256, 0, st>>>(n, dx_, dy_, dz_, dam_, f.vx, f.vy, f.vz, f.u, f.pos, f.vel);
         if (mk) mark("f pack", st);
         FView &V = views[k];
         memset(&V, 0, sizeof V);
