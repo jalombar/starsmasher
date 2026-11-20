@@ -141,6 +141,31 @@ angular momentum exactly, and conserves the energy as well as the direct sum doe
 one process with the OpenMP build: every process builds the whole tree, so one process
 for each GPU repeats the work.
 
+The opening angle against time and accuracy
+-------------------------------------------
+
+The default opening angle is ``treeacc = 0.45``.  A larger angle opens fewer nodes: the step is shorter and the forces are less accurate.  The measure, on the collision of two Suns (two relaxed
+Suns, 199908 particles, parabolic orbit, ``sep0 = 15``, ``rp = 1``, to t = 30; ``ngravtree = 2``, ``nleafgrav = 24``, ``ngpusph = 7``, one H100, 63 threads, two runs of each):
+
+=========== ======= ====================== ================= ==================================
+``treeacc`` steps   time of the steps (s)  dE/E at t = 30    force error at the pericentre
+=========== ======= ====================== ================= ==================================
+0.45        6837    55.5, 55.8             5.4e-5            3.3e-4, 2.3e-3
+0.55        6758    51.3, 51.6             5.3e-5            4.5e-4, 2.8e-3
+0.65        6823    50.1, 50.3             8.1e-5            6.4e-4, 3.5e-3
+0.8         6842    50.2, 50.2             1.3e-4            1.1e-3, 4.4e-3
+=========== ======= ====================== ================= ==================================
+
+The error of the force is the relative error of the acceleration of a particle against the sum over all the pairs: the median and the 99th percentile of about 1000 particles, averaged over a probe every three steps
+of the window at the pericentre (measured with ``ngravtree = 1``, which gives the forces of ``ngravtree = 2`` but for the rounding).  In the other windows of the collision (the start, t = 8, late) the
+median goes from 3.5e-4 to 5.4e-4 with 0.45, from 5.2e-4 to 6.9e-4 with 0.55, from 7.4e-4 to 8.7e-4 with 0.65 and from 1.1e-3 to 1.3e-3 with 0.8.
+
+With 0.55 the run is 7.7% shorter, the energy is conserved as well, the median error of the force is 1.25 to 1.5 times larger, and the final state agrees with that of 0.45 as closely as two runs with different
+Courant numbers agree with each other (the distance of the two centres of mass to 6e-4, their orbital energy to 3e-3, the largest density to 1.3e-3).  With 0.65 the run is 10% shorter and the energy starts to
+move (8.1e-5).  With 0.8 nothing more is gained, and the orbital energy of the two centres of mass is shifted by 2e-3 to 3.6e-3, with the same sign for two pairs of Courant numbers.  The default stays 0.45, the more accurate
+value: the 4 s it costs in this run were not thought worth forces that are less accurate.  ``treeacc = 0.55`` in ``sph.input`` is the value to try where the time matters more.  This is one collision at one
+resolution; the error of a tree depends on the model.
+
 Making the structure of the tree less often
 -------------------------------------------
 
