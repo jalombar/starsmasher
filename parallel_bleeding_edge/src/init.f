@@ -722,9 +722,9 @@ c     set some default values, so that they don't necessarily have to be set in 
 !     the courant numbers cn1, cn2, cn3, and cn4 are for sph particles:
 !     dt_sph=1/(1/dt1 + 1/dt2 + 1/dt3 + 1/dt4)
       cn1=.3d0                 ! dt1=cn1*h/v_signal
-      cn2=1.d30                ! dt2=cn2*(h/|a-a_smoothed|)^0.5
+      cn2=1.d30                ! dt2=cn2*(h/|a-a_smoothed|)^0.5 (a_smoothed is made only if cn2 or cn4 < 1d29)
       cn3=0.1d0                ! dt3=cn3*u/|du/dt|
-      cn4=1.d30                ! dt4=cn4*v_signal/|a-a_smoothed|
+      cn4=1.d30                ! dt4=cn4*v_signal/|a-a_smoothed| (a_smoothed is made only if cn2 or cn4 < 1d29)
 !     the courant numbers cn5, cn6, and cn7 are for a particle i that is a compact object (co):
 !     dt_co=1/(1/dt5 + 1/dt6)
       cn5=0.02d0               ! dt5=cn5*r_ij/v_ij (minimized over all other particles j)

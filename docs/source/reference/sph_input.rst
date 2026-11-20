@@ -363,7 +363,7 @@ Timestep control
    * - ``cn2``
      - ``1.d30``
      - every run
-     - dt2=cn2\*(h/\|a-a\_smoothed\|)^0.5
+     - dt2=cn2\*(h/\|a-a\_smoothed\|)^0.5 (a\_smoothed is made only if cn2 or cn4 < 1d29)
    * - ``cn3``
      - ``0.1d0``
      - every run
@@ -371,7 +371,7 @@ Timestep control
    * - ``cn4``
      - ``1.d30``
      - every run
-     - dt4=cn4\*v\_signal/\|a-a\_smoothed\|
+     - dt4=cn4\*v\_signal/\|a-a\_smoothed\| (a\_smoothed is made only if cn2 or cn4 < 1d29)
    * - ``cn5``
      - ``0.02d0``
      - every run
