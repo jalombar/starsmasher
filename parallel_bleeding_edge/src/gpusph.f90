@@ -463,12 +463,15 @@
       nt=0
       if(.not.blkdist) then
          allact=.true.
-         do i=n_lower,n_upper
-            if(.not.(actblk(i) .or. refblk(i))) then
-               allact=.false.
-               exit
-            endif
-         enddo
+!        (with shared steps every particle is active: init makes actblk true and refblk false, and only the block-step code changes them)
+         if(nblock.ne.0) then
+            do i=n_lower,n_upper
+               if(.not.(actblk(i) .or. refblk(i))) then
+                  allact=.false.
+                  exit
+               endif
+            enddo
+         endif
          if(allact) then
             ncontig=1
             nt=nloop
