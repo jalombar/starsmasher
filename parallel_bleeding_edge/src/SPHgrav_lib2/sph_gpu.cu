@@ -737,77 +737,289 @@ __device__ bool bfun(const View &V, double xi, double yi, double zi, Cand &C, do
 }
 
 // The root of the function of the solve, starting from the guess of the CPU code, with the steps of solve_particle: the bracketing
-// by drifting (label 10), then Newton steps kept inside the bracket by bisection (label 12).  The smoothing length without the
-// floor hfloor is returned in h.  False if the candidates could not be made or the solve went on too long.
-__device__ bool solve_h(const View &V, double xi, double yi, double zi, Cand &C, double hin, double divvi, double &hsol)
+// by drifting (label 10), then Newton steps kept inside the bracket by bisection (label 12).  It is written as a machine that makes one
+// evaluation of the function at a time (SolveSt: where it stands between two evaluations), with the same operations in the same order
+// as the loops of solve_particle, so that a solve can be stopped after any evaluation and go on elsewhere with the same results.
+// bfun is called from one place only, so the threads of a warp that are at different stages of their solves evaluate together: with a call in each of the three
+// loops a warp paid the first evaluation, the most trips of the loop of label 10 and the most trips of the loop of label 12 one after the other.
+struct SolveSt
+{
+  double xl, xh, fl, dx, ezr, xacc, dxmax, h, hsol;
+  int neval, j;
+  int phase;     // 0: the next evaluation is the first one; 1: the loop of label 10; 2: the loop of label 12; 3: done (hsol is the smoothing length without the floor); 4: failed
+};
+
+__device__ __forceinline__ void solve_init(const View &V, double hin, double divvi, SolveSt &S)
 {
   const double h0 = hin - V.hfloor;
-  const double xacc = 2.0e-6 * h0;
+  S.xacc = 2.0e-6 * h0;
   const double a1 = h0 * (1.0 + (divvi * V.dt) / 3.0);
-  const double hpguess = a1 > xacc ? a1 : xacc;
+  const double hpguess = a1 > S.xacc ? a1 : S.xacc;
   const double b1 = V.dxfrac * h0, b2 = fabs((h0 * divvi) * V.dt);
   const double b3 = b1 > b2 ? b1 : b2, b4 = 0.5 * hpguess;
-  double dxmax = b3 < b4 ? b3 : b4;
-  double xl = hpguess;
-  dxmax = fabs(dxmax);
-  double h = xl, r2, fl, fh, ff, df, dx, ezr, xh, xtmp;
-  int neval = 0;
-  r2 = 4.0 * (h * h);
-  if (!bfun(V, xi, yi, zi, C, r2, h, fl, df)) return false;
-  neval++;
-  dx = fl / df;
-  if (fabs(dx) < xacc) { hsol = xl - dx; return true; }
-  if (fl == 0.0) { hsol = xl; return true; }
+  const double dxm = b3 < b4 ? b3 : b4;
+  S.xl = hpguess;
+  S.dxmax = fabs(dxm);
+  S.h = S.xl;
+  S.xh = 0.0; S.fl = 0.0; S.dx = 0.0; S.ezr = 0.0; S.hsol = 0.0;
+  S.neval = 0; S.j = 0; S.phase = 0;
+}
+
+// the start of an iteration of label 12 (the bisection when the Newton step leaves the bracket, the end of the solve when the step is small)
+__device__ __forceinline__ void solve_l12(SolveSt &S)
+{
+  if ((S.ezr - S.xh) * (S.ezr - S.xl) >= 0.0)
   {
-    const double c1 = fabs(dx) < dxmax ? fabs(dx) : dxmax;
-    const double c2 = fabs(0.5 * xl);
-    dx = copysign(c1 < c2 ? c1 : c2, dx);
+    S.dx = 0.5 * (S.xh - S.xl);
+    S.ezr = S.xl + S.dx;
   }
-  // label 10: the root is not yet bracketed, drift a little more
-  for (;;)
+  if (fabs(S.dx) < S.xacc) { S.hsol = S.ezr; S.phase = 3; return; }
+  S.h = S.ezr;
+  S.phase = 2;
+}
+
+// what is done with the value f of the function and its derivative df at S.h; sets S.h to the next point, or the phase to 3 or 4
+__device__ __forceinline__ void solve_post(SolveSt &S, double f, double df)
+{
+  if (S.phase == 0)
   {
-    xh = xl - dx;
-    h = xh;
-    r2 = 4.0 * (h * h);
-    if (!bfun(V, xi, yi, zi, C, r2, h, fh, df)) return false;
-    if (++neval > MAXEVAL) return false;
-    dx = fh / df;
-    if (fabs(dx) < xacc) { hsol = xh - dx; return true; }
-    if (fh == 0.0) { hsol = xh; return true; }
-    dx = copysign(fabs(dx) < dxmax ? fabs(dx) : dxmax, dx);
-    ezr = xh - dx;
-    if (fl * fh > 0.0)
+    S.neval++;
+    S.fl = f;
+    S.dx = f / df;
+    if (fabs(S.dx) < S.xacc) { S.hsol = S.xl - S.dx; S.phase = 3; return; }
+    if (S.fl == 0.0) { S.hsol = S.xl; S.phase = 3; return; }
     {
-      dx = copysign(dx, fh);
-      xl = xh;
-      continue;
+      const double c1 = fabs(S.dx) < S.dxmax ? fabs(S.dx) : S.dxmax;
+      const double c2 = fabs(0.5 * S.xl);
+      S.dx = copysign(c1 < c2 ? c1 : c2, S.dx);
     }
-    break;
+    // label 10: the root is not yet bracketed, drift a little more
+    S.xh = S.xl - S.dx;
+    S.h = S.xh;
+    S.phase = 1;
+    return;
   }
-  // the root is bracketed: xl must give a negative value
-  if (fl > 0.0) { xtmp = xh; xh = xl; xl = xtmp; }
+  if (S.phase == 1)
+  {
+    if (++S.neval > MAXEVAL) { S.phase = 4; return; }
+    S.dx = f / df;
+    if (fabs(S.dx) < S.xacc) { S.hsol = S.xh - S.dx; S.phase = 3; return; }
+    if (f == 0.0) { S.hsol = S.xh; S.phase = 3; return; }
+    S.dx = copysign(fabs(S.dx) < S.dxmax ? fabs(S.dx) : S.dxmax, S.dx);
+    S.ezr = S.xh - S.dx;
+    if (S.fl * f > 0.0)
+    {
+      S.dx = copysign(S.dx, f);
+      S.xl = S.xh;
+      S.xh = S.xl - S.dx;
+      S.h = S.xh;
+      return;
+    }
+    // the root is bracketed: xl must give a negative value
+    if (S.fl > 0.0) { const double xtmp = S.xh; S.xh = S.xl; S.xl = xtmp; }
+    S.j = 1;
+    solve_l12(S);
+    return;
+  }
   // label 12
-  for (;;)
+  if (++S.neval > MAXEVAL) { S.phase = 4; return; }
+  if (f < 0.0) S.xl = S.ezr; else S.xh = S.ezr;
+  S.dx = f / df;
+  S.ezr = S.ezr - S.dx;
+  if (++S.j > 50)
   {
-    for (int j = 1; j <= 50; j++)
-    {
-      if ((ezr - xh) * (ezr - xl) >= 0.0)
-      {
-        dx = 0.5 * (xh - xl);
-        ezr = xl + dx;
-      }
-      if (fabs(dx) < xacc) { hsol = ezr; return true; }
-      h = ezr;
-      r2 = 4.0 * (h * h);
-      if (!bfun(V, xi, yi, zi, C, r2, h, ff, df)) return false;
-      if (++neval > MAXEVAL) return false;
-      if (ff < 0.0) xl = ezr; else xh = ezr;
-      dx = ff / df;
-      ezr = ezr - dx;
-    }
     // the maximum number of iterations: the CPU code writes a warning and starts again from the middle of the bracket
-    dx = 0.5 * (xh - xl);
-    ezr = xl + dx;
+    S.dx = 0.5 * (S.xh - S.xl);
+    S.ezr = S.xl + S.dx;
+    S.j = 1;
+  }
+  solve_l12(S);
+}
+
+// one evaluation and what follows it; false if the candidates could not be made
+__device__ __forceinline__ bool solve_step(const View &V, double xi, double yi, double zi, Cand &C, SolveSt &S)
+{
+  double f, df;
+  const double r2 = 4.0 * (S.h * S.h);
+  if (!bfun(V, xi, yi, zi, C, r2, S.h, f, df)) { S.phase = 4; return false; }
+  solve_post(S, f, df);
+  return true;
+}
+
+// the candidates of the Verlet lists of the thread (the part of the start of k_solve that does not search)
+__device__ __forceinline__ void vl_setup(const View &V, int slot, Cand &C)
+{
+  if (V.vmode == 1)
+  {
+    C.vslot = slot;
+    C.vhas = V.vl_len[slot] >= 0;
+    if (C.vhas)
+    {
+      const double Rc = V.vl_R[slot] - 2.0 * (*V.dmaxp);
+      if (Rc > 0.0)
+      {
+        const double Rs = Rc * (1.0 - 1.0e-9);
+        C.vRc2 = Rs * Rs;
+      }
+    }
+  }
+}
+
+// what a thread makes of a particle once its smoothing length is solved
+struct Fin
+{
+  double hfin, r2f, rho, omg, om0, psi, wn;
+  int nn, flag;
+};
+
+// The smoothing length and the sums over the candidates (bonetsumwithphi) of a particle whose solve ended (ok: the search and the solve went well; hs the solution
+// without the floor).  A point particle (u=0, dynhco=0) keeps its smoothing length (hin) and gets the density.
+__device__ __forceinline__ void finish_particle(const View &V, Cand &C, bool ok, bool gas, double hin, double hs, const D4 &r, Fin &F)
+{
+  unsigned *ck = C.ck;
+  double *cd = C.cd;
+  F.nn = 0; F.flag = 0; F.rho = 0.0; F.omg = 0.0; F.om0 = 0.0; F.psi = 0.0; F.wn = 0.0;
+  if (gas)
+  {
+    if (ok)
+    {
+      F.hfin = hs + V.hfloor;
+      F.r2f = 4.0 * (F.hfin * F.hfin);
+      if (F.r2f > C.Rc2) ok = recollect(V, r.x, r.y, r.z, F.r2f, C);
+    }
+  }
+  else
+  {
+    F.hfin = hin;
+    F.r2f = 4.0 * (F.hfin * F.hfin);
+  }
+  if (!ok)
+  {
+    F.flag = 1;
+    F.hfin = hin;
+    return;
+  }
+  const double r2f = F.r2f;
+  int nn = 0;
+  for (int a = 0; a < C.m; a++)
+    if (cd[(a)] < r2f) nn++;
+  F.nn = nn;
+  const double hpi = F.hfin;
+  const double h2 = hpi * hpi;
+  const double ctoh2 = V.ctab / h2;
+  double rho = 0.0, omg = 0.0, om0 = 0.0, psi = 0.0, wn = 0.0;
+  if (!gas)
+  {
+    // bonetsumwithphi without the sums of the smoothing length (point particle, dynhco=0)
+    for (int a = 0; a < C.m; a++)
+    {
+      const double r2p = cd[(a)];
+      if (!(r2p < r2f)) continue;
+      if (ck[(a)] & 1u)
+      {
+        double xq = ctoh2 * r2p;
+        xq = xq < V.c4 ? xq : V.c4;
+        const int it = (int)xq;
+        const double fq = xq - (double)it;
+        const D4 w0 = V.wdp[it], w1 = V.wdp[it + 1];
+        rho = rho + V.am[ck[(a)] >> 1] * (w0.x + fq * (w1.x - w0.x));
+      }
+    }
+    rho = rho / ((hpi * hpi) * hpi);
+    omg = 0.0;
+    psi = 0.0;
+    om0 = 1.0e30;
+  }
+  else
+  {
+    const double hpt = hpi - V.hfloor;
+    const double h2t = hpt * hpt;
+    const double ctoh2t = V.ctab / h2t;
+    const bool samet = V.hfloor == 0.0;
+    const double h3 = hpi * h2, h4 = h2 * h2;
+    for (int a = 0; a < C.m; a++)
+    {
+      const double r2p = cd[(a)];
+      if (!(r2p < r2f)) continue;
+      const unsigned jj = ck[(a)] >> 1;
+      const bool gj = (ck[(a)] & 1u) != 0u;
+      const double amj = V.am[jj];
+      const double xqr = ctoh2 * r2p;
+      const double xq = xqr < V.c4 ? xqr : V.c4;
+      const int it = (int)xq;
+      const double fq = xq - (double)it;
+      const D4 w0 = V.wdp[it], w1 = V.wdp[it + 1];
+      if (r2p < 4.0 * h2)
+      {
+        if ((V.nselfg == 1 || !gj) && true)
+          psi = psi + amj * (w0.z + fq * (w1.z - w0.z));
+      }
+      if (gj)
+      {
+        if (r2p < 4.0 * h2t)
+        {
+          // without a floor h2t is h2, the index and the fraction of the smoothing length without the floor are the same ones, unless the
+          // table was clamped
+          int itt = it;
+          double fqt = fq;
+          if (!(samet && xqr <= V.c4))
+          {
+            const double xqt = ctoh2t * r2p;
+            itt = (int)xqt;
+            fqt = xqt - (double)itt;
+          }
+          const double2 g0 = V.gd[itt], g1 = V.gd[itt + 1];
+          wn = wn + (g0.x + fqt * (g1.x - g0.x));
+          om0 = om0 - (g0.y + fqt * (g1.y - g0.y));
+        }
+        if (r2p < 4.0 * h2)
+        {
+          rho = rho + amj * (w0.x + fq * (w1.x - w0.x));
+          omg = omg + amj * (w0.y + fq * (w1.y - w0.y));
+        }
+      }
+    }
+    rho = rho / h3;
+    omg = omg / h4;
+    psi = psi / h2;
+    om0 = om0 / hpt;
+    if (om0 == 0.0)
+    {
+      om0 = 1.0e-4;
+      omg = 0.0;
+      psi = 0.0;
+    }
+  }
+  F.rho = rho; F.omg = omg; F.om0 = om0; F.psi = psi; F.wn = wn;
+}
+
+// The places of the lists are found by the warp, not by the block: a warp then waits only for its own threads (the iterations of the solve differ a lot from one
+// particle to the next).  Every thread of the warp calls it (valid: it has a particle to give).  The list of the particle is written at its place, and its record.
+typedef cub::WarpScan<int> WarpScanI;
+__device__ __forceinline__ void emit_particle(const View &V, typename WarpScanI::TempStorage &wsm, bool valid, const Fin &F, const Cand &C, int i, int outidx)
+{
+  const unsigned *ck = C.ck;
+  const double *cd = C.cd;
+  int off, total;
+  const int mine = (valid && !F.flag) ? F.nn : 0;
+  WarpScanI(wsm).ExclusiveSum(mine, off, total);
+  int wbase = 0;
+  if ((threadIdx.x & 31) == 0 && total > 0) wbase = atomicAdd(V.ltot, total);
+  wbase = __shfl_sync(0xffffffffu, wbase, 0);
+  if (valid)
+  {
+    const int base = wbase + off;
+    if (!F.flag)
+    {
+      int c = 0;
+      const double r2f = F.r2f;
+      for (int a = 0; a < C.m; a++)
+        if (cd[(a)] < r2f) V.list[base + c++] = (int)(ck[(a)] >> 1) + 1;   // (the lists of the CPU hold the index from 1, as Fortran numbers the particles)
+    }
+    SphOut o;
+    o.hp = F.hfin; o.rho = F.rho; o.omega = F.omg; o.om0 = F.om0; o.psi = F.psi; o.wn = F.wn;
+    o.idx = i; o.nn = F.flag ? 0 : F.nn; o.first = base; o.flag = F.flag;
+    V.out[outidx] = o;
   }
 }
 
@@ -816,199 +1028,58 @@ __device__ bool solve_h(const View &V, double xi, double yi, double zi, Cand &C,
 // length and gets the list and the density.
 __global__ void __launch_bounds__(NTHR, NBLK) k_solve(View V)
 {
-  // the places of the lists are found by the warp, not by the block: a warp then waits only for its own threads (the iterations of the
-  // solve differ a lot from one particle to the next)
-  typedef cub::WarpScan<int> WS;
-  __shared__ typename WS::TempStorage ws[NTHR / 32];
+  __shared__ typename WarpScanI::TempStorage ws[NTHR / 32];
   const int nt = *V.ntgt;
   const int t0 = (int)(((long long)nt * V.dev) / V.ndev);
   const int tl = blockIdx.x * NTHR + threadIdx.x;      // the particle in the chunk
   const int tid = t0 + V.tbase + tl;
   const bool valid = tl < V.cn;
-  int nn = 0, flag = 0, i = -1;
-  double hfin = 0.0, r2f = 0.0, rho = 0.0, omg = 0.0, om0 = 0.0, psi = 0.0, wn = 0.0;
+  int i = -1;
   // the candidates of the thread (local memory: the compiler lays it out so that the threads of a warp read neighbouring words)
   unsigned ck[CAP];
   double cd[CAP];
   Cand C;
   C.ck = ck; C.cd = cd; C.st = 1; C.m = 0; C.Rc2 = -1.0; C.nrec = 0; C.nev = 0; C.vslot = -1; C.vhas = false; C.vRc2 = -1.0;
-  CLK(s0);
+  SolveSt S;
+  S.phase = 3; S.hsol = 0.0;
+  D4 r = make_d4(0.0, 0.0, 0.0, 0.0);
+  bool gas = false, ok = true;
+  double hin = 0.0;
   if (valid)
   {
     const int k = V.tgt[tid];
     i = V.perm[k];
-    const D4 r = V.rec[k];
-    const bool gas = V.frec[k].w > 0.5f;
-    const double hin = V.hp[i - V.nlow];
+    r = V.rec[k];
+    gas = V.frec[k].w > 0.5f;
+    hin = V.hp[i - V.nlow];
     const int slot = i - V.nlow;
-    if (V.vmode == 1)
-    {
-      C.vslot = slot;
-      C.vhas = V.vl_len[slot] >= 0;
-      if (C.vhas)
-      {
-        const double Rc = V.vl_R[slot] - 2.0 * (*V.dmaxp);
-        if (Rc > 0.0)
-        {
-          const double Rs = Rc * (1.0 - 1.0e-9);
-          C.vRc2 = Rs * Rs;
-        }
-      }
-    }
-    bool ok = !(V.flagmod > 0 && (i + 1) % V.flagmod == 0);
+    vl_setup(V, slot, C);
+    ok = !(V.flagmod > 0 && (i + 1) % V.flagmod == 0);
     if (!gas)
     {
       // the list at the smoothing length it has
-      hfin = hin;
-      r2f = 4.0 * (hfin * hfin);
-      if (ok) ok = first_search(V, slot, r.x, r.y, r.z, r2f, C);
+      if (ok) ok = first_search(V, slot, r.x, r.y, r.z, 4.0 * (hin * hin), C);
     }
     else
     {
-      double hs = 0.0;
       // the first search reaches past the guess by the margin, the later ones past the radius asked for
+      const double divvi = V.divv[i - V.nlow];
       const double hg = hin - V.hfloor;
-      const double hguess0 = hg * (1.0 + (V.divv[i - V.nlow] * V.dt) / 3.0);
+      const double hguess0 = hg * (1.0 + (divvi * V.dt) / 3.0);
       const double hstart = hguess0 > 2.0e-6 * hg ? hguess0 : 2.0e-6 * hg;
       if (ok) ok = first_search(V, slot, r.x, r.y, r.z, 4.0 * (hstart * hstart), C);
-      if (ok) ok = solve_h(V, r.x, r.y, r.z, C, hin, V.divv[i - V.nlow], hs);
-      CLK(s1);
-      CLKADD(5, s0, s1);
       if (ok)
       {
-        hfin = hs + V.hfloor;
-        r2f = 4.0 * (hfin * hfin);
-        if (r2f > C.Rc2) ok = recollect(V, r.x, r.y, r.z, r2f, C);
-      }
-    }
-    if (!ok)
-    {
-      flag = 1;
-      hfin = hin;
-    }
-    else
-    {
-      for (int a = 0; a < C.m; a++)
-        if (cd[(a)] < r2f) nn++;
-      const double hpi = hfin;
-      const double h2 = hpi * hpi;
-      const double ctoh2 = V.ctab / h2;
-      if (!gas)
-      {
-        // bonetsumwithphi without the sums of the smoothing length (point particle, dynhco=0)
-        for (int a = 0; a < C.m; a++)
-        {
-          const double r2p = cd[(a)];
-          if (!(r2p < r2f)) continue;
-          if (ck[(a)] & 1u)
-          {
-            double xq = ctoh2 * r2p;
-            xq = xq < V.c4 ? xq : V.c4;
-            const int it = (int)xq;
-            const double fq = xq - (double)it;
-            const D4 w0 = V.wdp[it], w1 = V.wdp[it + 1];
-            rho = rho + V.am[ck[(a)] >> 1] * (w0.x + fq * (w1.x - w0.x));
-          }
-        }
-        rho = rho / ((hpi * hpi) * hpi);
-        omg = 0.0;
-        psi = 0.0;
-        om0 = 1.0e30;
-      }
-      else
-      {
-        const double hpt = hpi - V.hfloor;
-        const double h2t = hpt * hpt;
-        const double ctoh2t = V.ctab / h2t;
-        const bool samet = V.hfloor == 0.0;
-        const double h3 = hpi * h2, h4 = h2 * h2;
-        for (int a = 0; a < C.m; a++)
-        {
-          const double r2p = cd[(a)];
-          if (!(r2p < r2f)) continue;
-          const unsigned jj = ck[(a)] >> 1;
-          const bool gj = (ck[(a)] & 1u) != 0u;
-          const double amj = V.am[jj];
-          const double xqr = ctoh2 * r2p;
-          const double xq = xqr < V.c4 ? xqr : V.c4;
-          const int it = (int)xq;
-          const double fq = xq - (double)it;
-          const D4 w0 = V.wdp[it], w1 = V.wdp[it + 1];
-          if (r2p < 4.0 * h2)
-          {
-            if ((V.nselfg == 1 || !gj) && true)
-              psi = psi + amj * (w0.z + fq * (w1.z - w0.z));
-          }
-          if (gj)
-          {
-            if (r2p < 4.0 * h2t)
-            {
-              // without a floor h2t is h2, the index and the fraction of the smoothing length without the floor are the same ones, unless the
-              // table was clamped
-              int itt = it;
-              double fqt = fq;
-              if (!(samet && xqr <= V.c4))
-              {
-                const double xqt = ctoh2t * r2p;
-                itt = (int)xqt;
-                fqt = xqt - (double)itt;
-              }
-              const double2 g0 = V.gd[itt], g1 = V.gd[itt + 1];
-              wn = wn + (g0.x + fqt * (g1.x - g0.x));
-              om0 = om0 - (g0.y + fqt * (g1.y - g0.y));
-            }
-            if (r2p < 4.0 * h2)
-            {
-              rho = rho + amj * (w0.x + fq * (w1.x - w0.x));
-              omg = omg + amj * (w0.y + fq * (w1.y - w0.y));
-            }
-          }
-        }
-        rho = rho / h3;
-        omg = omg / h4;
-        psi = psi / h2;
-        om0 = om0 / hpt;
-        if (om0 == 0.0)
-        {
-          om0 = 1.0e-4;
-          omg = 0.0;
-          psi = 0.0;
-        }
+        solve_init(V, hin, divvi, S);
+        while (S.phase < 3) solve_step(V, r.x, r.y, r.z, C, S);
+        ok = S.phase == 3;
       }
     }
   }
-  CLK(s2);
-  CLKADD(6, s0, s2);
-#ifdef SPH_CLOCKS
-  {
-    // searches again from the root (beyond the first), evaluations of the function, and the warps in which some thread searched again
-    const unsigned any = __ballot_sync(0xffffffffu, C.nrec > 1);
-    if ((threadIdx.x & 31) == 0 && valid) { atomicAdd(&g_clk[11], 1ull); if (any) atomicAdd(&g_clk[12], 1ull); }
-    if (valid) { atomicAdd(&g_clk[13], (unsigned long long)(C.nrec > 1 ? C.nrec - 1 : 0)); atomicAdd(&g_clk[14], (unsigned long long)C.nev); }
-  }
-#endif
-  int off, total;
-  const int mine = (valid && !flag) ? nn : 0;
-  WS(ws[threadIdx.x >> 5]).ExclusiveSum(mine, off, total);
-  int wbase = 0;
-  if ((threadIdx.x & 31) == 0 && total > 0) wbase = atomicAdd(V.ltot, total);
-  wbase = __shfl_sync(0xffffffffu, wbase, 0);
-  if (valid)
-  {
-    const int base = wbase + off;
-    if (!flag)
-    {
-      int c = 0;
-      for (int a = 0; a < C.m; a++)
-        if (cd[(a)] < r2f) V.list[base + c++] = (int)(ck[(a)] >> 1) + 1;   // (the lists of the CPU hold the index from 1, as Fortran numbers the particles)
-    }
-    SphOut o;
-    o.hp = hfin; o.rho = rho; o.omega = omg; o.om0 = om0; o.psi = psi; o.wn = wn;
-    o.idx = i; o.nn = flag ? 0 : nn; o.first = base; o.flag = flag;
-    V.out[V.tbase + tl] = o;
-  }
-  CLK(s3);
-  CLKADD(7, s2, s3);
+  Fin F;
+  F.hfin = hin; F.r2f = 0.0; F.rho = 0.0; F.omg = 0.0; F.om0 = 0.0; F.psi = 0.0; F.wn = 0.0; F.nn = 0; F.flag = 0;
+  if (valid) finish_particle(V, C, ok, gas, hin, S.hsol, r, F);
+  emit_particle(V, ws[threadIdx.x >> 5], valid, F, C, i, V.tbase + tl);
 }
 
 
