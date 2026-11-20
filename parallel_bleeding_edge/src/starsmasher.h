@@ -66,7 +66,7 @@
       real*8 treeacc
       common/gravtreepars/treeacc,ngravtree,nleafgrav,ngravoverlap
 !     ngravrebuild: the structure of the tree (ngravtree=1 or 2) is made every ngravrebuild steps, the steps in between use it with the positions of
-!     now (gravtree.f90, make_tree_struct); 1 every step (the default)
+!     now (gravtree.f90, make_tree_struct); 1 every step (the default); -1 is replaced in gravquant (main.f)
       integer ngravrebuild
       common/gravrebuildpar/ngravrebuild
 !     ngravtree=-1: chosen by gravtree_auto (init.f) when the number of particles is known: ngravtreeauto=-1 takes the limits measured
