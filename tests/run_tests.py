@@ -1437,6 +1437,67 @@ def t_gpu_hostpath(ctx):
                 os.environ[k] = v
     return 'one device, ngpusph=7: the results copied in one piece or by chunks, the velocities sent early or in the forces, and particles left to the CPU give the same bits: ' + '; '.join(out)
 
+def t_gpu_integ(ctx):
+    """With one device the device goes on by itself with the integration of the step, and no bit of any result changes.
+
+    After the forces the device makes the corrector of the step and the predictor of the next one, with the step dt that it takes from the candidates it sends to the CPU, and starts the smoothing
+    lengths of the next step while the CPU does what it always did; at the smoothing lengths the CPU compares a sum of the bits of what the device used with its own and collects the results if
+    the sums are equal.  An unrelaxed polytrope (nrelax=0, the gravity of the tree on the GPU) is run with ngpusph=7 and 3: by default, with SPHGPU_NOINT=1 (the step as it was), with SPHGPU_INTCHECK=1 (every
+    array the device holds is compared with the CPU's at every step, bit by bit, and the run stops at a difference), and with every 7th particle left to the CPU (SPHGPU_FLAGMOD) with the check and
+    without the integration on the device.  The energies of every row and the bytes of every dump must be those of SPHGPU_NOINT=1, and log0.sph must say that the device went on and was collected.
+    """
+    out = []
+    if not ctx.exe:
+        raise Fail('no GPU executable')
+    base = dict(POLY, nrelax=0, tf=1, dtout=1, ngravtree=2, treeacc=0.45, nleafgrav=24)
+    cases = (('g7', dict(ngpusph=7), (('off', {'SPHGPU_NOINT': '1'}), ('default', {}), ('check', {'SPHGPU_INTCHECK': '1'}),
+                                       ('fm7check', {'SPHGPU_FLAGMOD': '7', 'SPHGPU_INTCHECK': '1'}), ('fm7off', {'SPHGPU_FLAGMOD': '7', 'SPHGPU_NOINT': '1'}))),
+             ('g3', dict(ngpusph=3), (('off', {'SPHGPU_NOINT': '1'}), ('default', {}), ('check', {'SPHGPU_INTCHECK': '1'}))))
+    names_env = sorted(set(k for _, _, modes in cases for _, env in modes for k in env))
+    saved = {k: os.environ.get(k) for k in names_env}
+    try:
+        for tag, extra, modes in cases:
+            ref = None
+            for mode, env in modes:
+                for k in names_env:
+                    os.environ.pop(k, None)
+                os.environ.update(env)
+                d = ctx.dir('gi_%s_%s' % (tag, mode))
+                p, e = run(ctx.exe, d, np=1, **dict(base, **extra))
+                names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+                if not names:
+                    raise Fail('ngpusph=%s, mode %s: no dump was written\n%s' % (extra['ngpusph'], mode, (p.stdout + p.stderr)[-800:]))
+                got = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names])
+                if mode.startswith('fm7'):
+                    pass            # (compared with the other particle-left-to-the-CPU run, below)
+                elif ref is None:
+                    ref = got
+                elif got[0] != ref[0]:
+                    raise Fail('ngpusph=%s, mode %s changes the energies of the step as it was' % (extra['ngpusph'], mode))
+                elif got[1] != ref[1]:
+                    raise Fail('ngpusph=%s, mode %s changes a dump of the step as it was' % (extra['ngpusph'], mode))
+                log = open(os.path.join(d, 'log0.sph'), errors='replace').read()
+                m = re.search(r'integration on the device: steps asked (\d+), started (\d+), collected (\d+), dropped because the sums differed (\d+)', log)
+                if mode in ('default', 'check') and (not m or int(m.group(3)) == 0):
+                    raise Fail('ngpusph=%s, mode %s: the device did not go on by itself (log0.sph: %s)' % (extra['ngpusph'], mode, m.group(0) if m else 'no counters'))
+                if mode in ('default', 'check') and int(m.group(4)) != 0:
+                    raise Fail('ngpusph=%s, mode %s: the sums of the check differed %s times' % (extra['ngpusph'], mode, m.group(4)))
+                if mode == 'off' and m:
+                    raise Fail('SPHGPU_NOINT=1 did not turn the integration on the device off')
+                out.append('%s %s: %d rows, %d dumps%s' % (tag, mode, len(got[0]), len(got[1]), ', collected %s of %s' % (m.group(3), m.group(2)) if m else ''))
+                if mode == 'fm7check':
+                    fm = got
+                elif mode == 'fm7off':
+                    if got[0] != fm[0] or got[1] != fm[1]:
+                        raise Fail('with particles left to the CPU the integration on the device changes a bit')
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+    return 'one device: the integration on the device (with the candidates of dt), with the check against the CPU at every step and with particles left to the CPU, gives the bits of the step as it was: ' + '; '.join(out)
+
 # --------------------------------------------------------------- HDF5 -----
 
 def t_hdf5_dump(ctx):
@@ -1545,6 +1606,7 @@ TESTS = {
     'autotune':         t_autotune,
     'gpu_multidev':     t_gpu_multidev,
     'gpu_hostpath':     t_gpu_hostpath,
+    'gpu_integ':        t_gpu_integ,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

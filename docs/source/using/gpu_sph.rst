@@ -185,6 +185,40 @@ The GPU was idle 2.1 to 2.7 ms of a step of the collision, and is now idle 1.2 t
 (not in the code): ``OMP_WAIT_POLICY=active`` or a large ``GOMP_SPINCOUNT`` keep the threads awake during the waits for the GPU and gave 1.4 to 1.7% on the same cells;
 ``OMP_WAIT_POLICY=passive`` costs 36 to 79%.
 
+The device goes on by itself (one device)
+-----------------------------------------
+
+With one rank, one device, shared steps, ``nrelax = 0``, ``nintvar = 2``, no cooling, no periodic box, the forces on the GPU (``ngpusph`` 3 or 7) and the gravity either off or the tree on the GPU
+(``ngravtree = 2``) the device does not wait for the CPU at the end of a step.  Once the forces and the gravity are done it makes, as ``advance`` does, the sum of the accelerations, the
+corrector of the step and the predictor of the next one, and queues the tree of boxes and the kernel of the smoothing lengths of the next step, while the CPU finishes the step (the sums
+that come back, ``enout``, ``tstep``, its own corrector and predictor).  The CPU does exactly what it did before: its arrays are the truth (dumps, ``energy0.sph``, the log, the checkpoints).
+When it comes to the smoothing lengths of the next step it compares a 64-bit sum of the bits of everything the device used (the positions, the velocities of the predictor, u, the old velocities and u,
+h and div v that start the solve, the masses, 14 numbers for each particle, mixed with the index of the particle and added modulo 2^64) with the sum it made of its own data in its predictor loop
+(it adds 0.018 ms to the predictor loop at 63 threads); if they are the same it collects the results that are already on their way, otherwise it drops them and does the step as it did.  A wrong guess costs
+the time of the device and never a bit, and a data of the CPU that something wrote in between (a jump ahead, the merging of particles, a changed ``tf``) makes the sums differ.  The counters are
+in ``log0.sph`` at the end of the run ("integration on the device: steps asked, started, collected, dropped because the sums differed...").
+
+The step dt is the one that makes this go early.  The device makes the limit of every particle (the same expression as ``tstep`` with the functions of CUDA, which are not the ``pow`` of the C library the CPU
+uses), finds the smallest, and sends to the CPU the particles within a relative 1e-12 of it (one in all the steps of the collision of two Suns and of the stars, up to 12 at the first steps of the
+lattice star; the device and the CPU differ by 6.4e-16 at most, measured on 2.4 million particles), with what the formula needs; the CPU makes the exact limit of those with the routine ``tstep`` uses
+(``dtlimit``) and takes the smallest, which is the minimum of ``tstep``, and the device starts on the next step from there, before the sums have come back to the CPU.  ``tstep`` then makes its dt as
+always and the run counts, and drops what the device did, if it is not the same (it never was in the tests).  The candidates are used only if ``cn2`` and ``cn4`` are at their default (no smoothed accelerations),
+the start-up ramp (``nstartramp = 1``) is not active and no particle has u = 0; otherwise the device goes on after ``tstep``, as soon as the CPU has dt.
+
+It changes no bit: every operation is the one of ``advance`` in the same order, in double precision and without fused multiply-add (a CPU build that fuses, ``MARCH``, does not use the SPH on the GPU at all).  ``tests/run_tests.py gpu_integ`` runs it
+against ``SPHGPU_NOINT=1`` with the energies and the dumps compared byte for byte.  Environment variables:
+``SPHGPU_NOINT=1`` turns it off (the step as it was); ``SPHGPU_INTNODT=1`` turns off only the start from the candidates of dt (the device starts the next step after ``tstep`` has its dt); ``SPHGPU_INTCHECK=1`` (a test of the code) compares, at every step, every array the device holds with the CPU's bit by bit and stops at the first difference, saying which array and
+which particle (the run takes about twice as long); ``SPHGPU_INTFAILALLOC=1`` (a test) makes the allocation of its buffers fail, as when the memory of the device is full: it is then off for the rest of the run.  The device needs 84 bytes
+more for each particle (a 200000-particle star: 17 MB) and the CPU 36 pinned.  More than one device, more than one rank, block steps, ``nrelax`` other than 0, cooling, ``ngravtree`` other than 2 with gravity, a periodic box,
+``nintvar`` other than 2, ``ngpusphcheck`` and ``SPHGPU_FECHECK`` leave the step as it was.
+After 8 consecutive drops it turns itself off for the rest of the run, so that data of the CPU that change at every step cost nothing.
+
+Measured on the H100 of the DGX with 63 threads and one device (mean step of 5 repetitions alternated with the code before the change, the dumps identical in all of them): the collision of two Suns at its start 7.33 -> 6.37 ms
+(-13.1%), in the middle 9.27 -> 8.26 (-10.8%), at the pericentre 8.55 -> 7.80 (-8.8%) and late 9.37 -> 8.22 (-12.2%); the whole collision (6837 steps) 65.2 -> 59.5 s, with the same dump, energies and checkpoint.  The start from
+the sums alone (``SPHGPU_INTNODT=1``) gives -4.6, -2.7, -3.3 and -3.3% of those; the start from the candidates of dt is the rest.  The stars of 500000 and 2 million particles (relaxation, ``nrelax = 1``) are outside it and change by
+less than the noise.  With 16 threads the middle of the collision gains 9.2% and the pericentre 2.8% (the repetitions overlap).  On a card of a node with only 8 cores (an L40S) the CPU is the limit, the device waits for it in the same
+places as before, and the mean step changes by -1.2 to +0.4% (the repetitions overlap in all but one window): the gap at the end of the step shrinks from 3.1 to 0.3 ms and the CPU's work after the smoothing lengths grows by as much.
+
 Single precision for the forces (``ngpusphprec = 1``)
 -----------------------------------------------------
 
