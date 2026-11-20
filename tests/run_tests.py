@@ -1586,6 +1586,81 @@ def t_hdf5_dump(ctx):
             'header entries); nhdf5=2 gives the same files without out*.sph%s'
             % (len(sph), extra))
 
+def t_gpu_rebuild(ctx):
+    """ngravrebuild=k makes the structure of the gravity tree every k steps and uses it, with the positions of each step, in between.
+
+    An unrelaxed polytrope (nrelax=0) is run with the tree on the GPU.  ngravrebuild=1 (the default, and written) must give the bytes of the code without the option; with k=4 the
+    energy stays close to that of k=1 (the nodes only get less compact), the result is the same for 1 and for 4 threads and with ngravoverlap=0 and 1, log0.sph counts the steps that
+    kept the structure, a run that starts from the checkpoint written at step 1000 gives the last dump of the run that went on, and values outside 1..16 are refused.
+    """
+    out = []
+    if not ctx.exe:
+        raise Fail('no GPU executable')
+    base = dict(POLY, nrelax=0, tf=1.5, dtout=0.5, n=2000, ngravtree=2, treeacc=0.45, nleafgrav=24)
+    def dumps(d):
+        return [(f, open(os.path.join(d, f), 'rb').read()) for f in sorted(os.listdir(d)) if f.startswith('out') and f.endswith('.sph')]
+    def same(x, y):
+        # the header holds tjumpahead (bytes 88..95), which a run that starts from a file writes as it was given and the other as it computed it: nothing reads it back
+        return len(x) == len(y) and x[:88] == y[:88] and x[96:] == y[96:]
+    def go(tag, np=1, threads=None, **kw):
+        d = ctx.dir('rb_%s' % tag)
+        p, e = run(ctx.exe, d, np=np, threads=threads, **dict(base, **kw))
+        if not dumps(d):
+            raise Fail('%s: no dump was written\n%s' % (tag, (p.stdout + p.stderr)[-800:]))
+        return d, energies(e), dumps(d)
+    d1, e1, f1 = go('default')
+    d1b, e1b, f1b = go('k1', ngravrebuild=1)
+    if e1b != e1 or f1b != f1:
+        raise Fail('ngravrebuild=1 changes the energies or a dump of the default')
+    out.append('k=1: %d rows, %d dumps, the bytes of the default' % (len(e1), len(f1)))
+    d4, e4, f4 = go('k4', ngravrebuild=4)
+    if f4 == f1:
+        raise Fail('ngravrebuild=4 gave the bytes of k=1: the structure was not kept')
+    drift = max(abs(a[4] - b[4]) for a, b in zip(e4, e1)) / abs(e1[0][4])
+    if len(e4) != len(e1) or drift > 5e-5:
+        raise Fail('k=4 energy differs from k=1 by %.2e of the total (limit 5e-5), rows %d and %d' % (drift, len(e4), len(e1)))
+    log = open(os.path.join(d4, 'log0.sph'), errors='replace').read()
+    m = re.search(r'the structure of the tree was made\s+(\d+)\s+times and kept for\s+(\d+)\s+calls', log)
+    if not m or int(m.group(2)) == 0:
+        raise Fail('log0.sph does not say that steps kept the structure (%s)' % (m.group(0) if m else 'no line'))
+    out.append('k=4: energy within %.1e of k=1 over %d rows, structure made %s times, kept for %s calls' % (drift, len(e4), m.group(1), m.group(2)))
+    for tag, kw in (('t4', dict(threads=4)), ('ov0', dict(ngravoverlap=0)), ('ov1', dict(ngravoverlap=1))):
+        d, e, f = go('k4' + tag, ngravrebuild=4, **kw)
+        if e != e4 or f != f4:
+            raise Fail('k=4 with %s does not give the bytes of k=4 with the defaults' % tag)
+    out.append('k=4: the same bytes with 4 threads and with ngravoverlap 0 and 1')
+    d16, e16, f16 = go('k16', ngravrebuild=16)
+    da, ea, fa = go('auto', ngravrebuild=-1)
+    if fa != f16 or 'ngravrebuild=-1 (auto)' not in open(os.path.join(da, 'log0.sph'), errors='replace').read():
+        raise Fail('ngravrebuild=-1 with the tree on the GPU does not give the bytes of 16, or log0.sph does not say what was chosen')
+    out.append('-1: the choice is 16 for the tree on the GPU, written in log0.sph')
+    # a run that starts from the checkpoint restartrad.sph (written at step 1000, once: the run is shorter than 2000 steps) must give the last dump of the run that went on: the
+    # structure is made at the first step after the checkpoint in both.  k=3 does not divide 1000, so a cycle of the run that went on is cut by the checkpoint
+    for k in (1, 3):
+        long = dict(base, tf=12, dtout='1.d30', ngravrebuild=k)
+        d = ctx.dir('rb_long%d' % k)
+        p, e = run(ctx.exe, d, np=1, **long)
+        ck = os.path.join(d, 'restartrad.sph')
+        if not dumps(d) or not os.path.exists(ck):
+            raise Fail('k=%d: the run of %d rows wrote no checkpoint (it needs more than 1000 steps)\n%s' % (k, len(energies(e)), (p.stdout + p.stderr)[-500:]))
+        r = ctx.dir('rb_restart%d' % k)
+        shutil.copy(ck, os.path.join(r, 'restartrad.sph'))
+        p, e2 = run(ctx.exe, r, np=1, **long)
+        a_, b_ = dumps(d)[-1], dumps(r)[-1] if dumps(r) else (None, None)
+        if b_[0] is None:
+            raise Fail('k=%d: the run that starts from the checkpoint wrote no dump\n%s' % (k, (p.stdout + p.stderr)[-500:]))
+        if not same(a_[1], b_[1]):
+            raise Fail('k=%d: the last dump of the run that starts from the checkpoint of step 1000 differs from the one of the run that went on' % k)
+        out.append('k=%d: the run started from the checkpoint of step 1000 gives the last dump of the run that went on' % k)
+    for bad in (0, 17):
+        p, e = run(ctx.exe, ctx.dir('rb_bad%d' % bad), np=1, **dict(base, ngravrebuild=bad))
+        if os.path.exists(e) and os.path.getsize(e) > 0:
+            raise Fail('ngravrebuild=%d was accepted' % bad)
+        if 'ngravrebuild must be -1 or from 1 to 16' not in p.stdout + p.stderr:
+            raise Fail('ngravrebuild=%d was refused without the message\n%s' % (bad, (p.stdout + p.stderr)[-500:]))
+    out.append('0 and 17 are refused')
+    return 'the structure of the gravity tree made every k steps: ' + '; '.join(out)
+
 TESTS = {
     'virial':           t_virial,
     'energy':           t_energy,
@@ -1607,6 +1682,7 @@ TESTS = {
     'gpu_multidev':     t_gpu_multidev,
     'gpu_hostpath':     t_gpu_hostpath,
     'gpu_integ':        t_gpu_integ,
+    'gpu_rebuild':      t_gpu_rebuild,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,
