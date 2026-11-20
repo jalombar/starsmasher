@@ -892,7 +892,7 @@ struct BState
 {
   bool valid;
   int n, nlow, nown, ch;
-  // the particles that the kernel left to the CPU (more than CAP candidates) with several devices: for each device the numbers of their
+  // the particles that the kernel left to the CPU (more than CAP candidates): for each device the numbers of their
   // records; the forces put what the CPU made of them into those records and into the lists of the device
   int nflag;
   std::vector<std::vector<int> > frec;
@@ -2202,9 +2202,10 @@ extern "C"
       H.hp = hp; H.rho = rho; H.omega = omega; H.om0 = om0; H.psi = psi; H.wn = wn; H.zeta = zeta; H.u = u;
       H.nn = nn; H.first = first; H.sflag = sflag; H.list = list; H.listcap = listcap; H.skiplist = (*skiplist_ != 0);
       long nfl = 0;
-      // With several devices the particles left to the CPU do not make the lists come back, and the forces do not leave the data on the devices: they take what the CPU made of
-      // those particles to the device that owns them, so that a step with such particles is summed as the other steps are
-      const bool keepres = (ndev > 1);
+      // The particles left to the CPU do not make the lists come back, and the forces do not leave the data on the devices: they take what the CPU made of those particles
+      // to the device that owns them, so that a step with such particles is summed as the other steps are (with one device the bits are those of the plain path: the sums
+      // of a step do not depend on how the work is divided when it is not divided)
+      const bool keepres = true;
       std::vector<std::vector<int> > flagrec(ndev);
       drain(nown, nlow, ch, H, ltot, ierr, &nfl, keepres ? &flagrec : 0);
       // lists left on the device that the CPU needs after all (particles it has to solve itself): copy them now
@@ -2350,7 +2351,7 @@ extern "C"
       const int p0 = tp[0];
       // the data of the smoothing-length kernel on the devices can be used if it was just made for these particles
       bool useb = (*useb_ != 0) && contig && !blocks && g_bs.valid && g_bs.n == n && g_bs.nown == nt && g_bs.nlow == p0 - 1 && nloop == nt;
-      // The particles the CPU solved (g_bs.nflag > 0, with several devices): their records and lists go to the device that owns them, as the GPU would have left
+      // The particles the CPU solved (g_bs.nflag > 0): their records and lists go to the device that owns them, as the GPU would have left
       // them, and the step is summed as a step without such particles.  The lists are placed after the lists of the slice of the device; if they do not fit, the lists
       // come back to the CPU and the forces are made from the arrays of the CPU as before.
       std::vector<std::vector<SphOut> > psrec(ndev);
