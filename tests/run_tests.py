@@ -17,11 +17,11 @@ class Skip(Exception):
 
 # ---------------------------------------------------------------- helpers ---
 
-def sh(cmd, cwd=None, timeout=1800, check=True, kill_group=False):
+def sh(cmd, cwd=None, timeout=1800, check=True, kill_group=False, env=None):
     if kill_group:
         # a run that hangs (the ranks wait for each other) is killed with its ranks, not only mpirun, which would leave them spinning
         q = subprocess.Popen(cmd, cwd=cwd, shell=isinstance(cmd, str), stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                             text=True, start_new_session=True)
+                             text=True, start_new_session=True, env=env)
         try:
             out, err = q.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -31,7 +31,7 @@ def sh(cmd, cwd=None, timeout=1800, check=True, kill_group=False):
         p = subprocess.CompletedProcess(cmd, q.returncode, out, err)
     else:
         p = subprocess.run(cmd, cwd=cwd, shell=isinstance(cmd, str),
-                           capture_output=True, text=True, timeout=timeout)
+                           capture_output=True, text=True, timeout=timeout, env=env)
     if check and p.returncode != 0:
         raise Fail('command failed: %s\n%s' % (cmd, (p.stderr or p.stdout)[-1500:]))
     return p
@@ -69,15 +69,19 @@ def sph_input(cpu=False, **kw):
     body = '\n'.join(' %s=%s,' % (k, v) for k, v in kw.items())
     return ' &input\n%s\n &end\n' % body
 
-def run(exe, workdir, np=4, init="'1es'", timeout=1800, **settings):
+def run(exe, workdir, np=4, init="'1es'", timeout=1800, threads=None, **settings):
+    # threads: OpenMP threads of each rank for this run (the default is OMP_NUM_THREADS of the environment)
+    env = None
+    if threads:
+        env = dict(os.environ, OMP_NUM_THREADS=str(threads))
     os.makedirs(workdir, exist_ok=True)
     shutil.copy(exe, os.path.join(workdir, 'run_sph'))
     open(os.path.join(workdir, 'sph.init'), 'w').write(
         ' &INITT\n INAME=%s\n &END\n' % init)
     open(os.path.join(workdir, 'sph.input'), 'w').write(
         sph_input(cpu=exe.endswith('_cpu_sph'), **settings))
-    p = sh(['mpirun', '--oversubscribe', '-np', str(np), './run_sph'],
-           cwd=workdir, timeout=timeout, check=False, kill_group=True)
+    p = sh(['mpirun', '--oversubscribe'] + (['--bind-to', 'none'] if threads else []) + ['-np', str(np), './run_sph'],
+           cwd=workdir, timeout=timeout, check=False, kill_group=True, env=env)
     return p, os.path.join(workdir, 'energy0.sph')
 
 def energies(path):
@@ -533,14 +537,117 @@ def t_guard_periodic(ctx):
         raise Fail('expected the padding guard to stop the run\n' + text[-800:])
     return 'stopped with: search radius exceeds periodic padding'
 
-def t_gravity_auto(ctx):
-    """ngravtree=-1 chooses the gravity from the number of particles and writes the choice in the log.
+# The automatic values (ngravtree=-1, ngpusph=-1).  The rule is in init.f (auto_limits, gravtree_auto, sph_auto) and in docs/source/using/gravity.rst; the limits, from results/g_regola.csv of the phase 10
+# (relaxed Suns of 9966 to 499860 particles, 7 to 63 threads per rank, one rank with one GPU): the smallest star measured is 9966 particles, below it the choice of the phases 7 and 8 stays (the direct
+# sum; ngpusph 7 with at most 8 threads per rank, 0 with 32 or more, in between 7 below 300000).  From there up, with one rank and one GPU:
+#   ngravtree=-1 (ngravtreeauto=-1): the tree on the GPU from 9966 particles with ngpusph=-1 (the pair of the tree and ngpusph=7 is the fastest) or 3 or 7 written, from 25000 with ngpusph=1, from 75000 with ngpusph=0 and
+#   48 threads or more (450000 with fewer); two GPUs (2 ranks): from 15000 with the SPH on the GPU, from 450000 with ngpusph 0 or 1; more GPUs (4 ranks here): from 299000
+#   ngpusph=-1: with the tree 7; the direct sum on one GPU 7 with at most 8 threads, with 9 to 31 threads below 450000 particles, with 32 to 47 below 150000 and with 48 or more below 75000 (0 from there); on two GPUs
+#   7 (1 from 450000); on more 1
+# (the rank counts of the cases do not depend on the --np of the suite.)  Each case is run with the automatic values, the pair that was chosen is read from log0.sph (and compared with the rule above), and the run is made again with that pair written by hand: the energies of
+# every row and the bytes of every dump must be those of the automatic run.  The stars are polytropes of n particles (a few less come out of the lattice), a factor of 1.1 or more from the limit.
+AUTO_CASES_GRAVITY = [   # (label, ranks, threads, n, written, wanted (ngravtree, ngpusph))
+    ('both_small_1t',   1, 1, 5000,  {}, (0, 7)),
+    ('both_big_1t',     1, 1, 14000, {}, (2, 7)),
+    ('both_small_63t',  1, 63, 5000, {}, (0, 0)),
+    ('both_big_63t',    1, 63, 14000, {}, (2, 7)),
+    ('s0_75k_below',    1, 63, 60000, dict(ngpusph=0), (0, 0)),
+    ('s0_75k_above',    1, 63, 90000, dict(ngpusph=0), (2, 0)),
+    ('s0_1t_big',       1, 1, 14000, dict(ngpusph=0), (0, 0)),
+    ('s1_below',        1, 1, 18000, dict(ngpusph=1), (0, 1)),
+    ('s1_above',        1, 1, 33000, dict(ngpusph=1), (2, 1)),
+    ('s7_small',        1, 1, 5000,  dict(ngpusph=7), (0, 7)),
+    ('s7_big',          1, 1, 14000, dict(ngpusph=7), (2, 7)),
+    ('s3_big',          1, 1, 14000, dict(ngpusph=3), (2, 3)),
+    ('two_ranks_small', 2, 1, 12000, {}, (0, 7)),
+    ('two_ranks_big',   2, 1, 18000, {}, (2, 7)),
+    ('two_ranks_s7',    2, 1, 18000, dict(ngpusph=7), (2, 7)),
+    ('two_ranks_s1',    2, 1, 33000, dict(ngpusph=1), (0, 1)),
+    ('two_ranks_s0',    2, 1, 33000, dict(ngpusph=0), (0, 0)),
+    ('four_ranks',      4, 1, 14000, {}, (0, 1)),
+    ('nleafgrav_40',    1, 1, 14000, dict(nleafgrav=40), (0, 7)),
+    ('no_gravity',      1, 1, 14000, dict(ngr=0), (0, 7)),
+    ('user_below',      1, 1, 14000, dict(ngravtreeauto=20000), (0, 7)),
+    ('user_above',      1, 1, 14000, dict(ngravtreeauto=10000), (2, 7)),
+]
+AUTO_CASES_SPH = [       # (label, ranks, threads, n, written, wanted ngpusph)
+    ('direct_1t',         1, 1, 14000, dict(ngravtree=0), 7),
+    ('direct_16t',        1, 16, 14000, dict(ngravtree=0), 7),
+    ('direct_32t_small',  1, 32, 5000, dict(ngravtree=0), 0),
+    ('direct_32t',        1, 32, 14000, dict(ngravtree=0), 7),
+    ('direct_32t_below',  1, 32, 136000, dict(ngravtree=0), 7),
+    ('direct_32t_above',  1, 32, 166000, dict(ngravtree=0), 0),
+    ('direct_63t_below',  1, 63, 68000, dict(ngravtree=0), 7),
+    ('direct_63t_above',  1, 63, 83000, dict(ngravtree=0), 0),
+    ('direct_63t_small',  1, 63, 5000, dict(ngravtree=0), 0),
+    ('direct_2_ranks',    2, 1, 14000, dict(ngravtree=0), 7),
+    ('direct_2_ranks_small', 2, 1, 5000, dict(ngravtree=0), 1),
+    ('direct_4_ranks',    4, 1, 14000, dict(ngravtree=0), 1),
+    ('tree_gpu',          1, 1, 14000, dict(ngravtree=2, treeacc='0.5d0'), 7),
+    ('tree_cpu',          1, 1, 14000, dict(ngravtree=1, treeacc='0.5d0'), 7),
+    ('tree_4_ranks',      4, 1, 14000, dict(ngravtree=1, treeacc='0.5d0'), 7),
+]
 
-    The GPU build takes the direct sum (0) below ngravtreeauto and the tree walked on the GPU (2) from
-    it up; the CPU build takes the tree on the CPUs (1).  The star has n particles (read from the log,
-    a few less than POLY['n']): with ngravtreeauto=n+1 it is below the threshold, with ngravtreeauto=n
-    at it.  Each run is compared, row by row and exactly, with the run that sets the chosen value by
-    hand, so the choice gives the bits of the value it chose.
+def periodic_box_setup(d):
+    """The dump of a small periodic box (as t_periodic) in directory d; returns the settings of the run."""
+    pts, L = hcp_box(10, 10, 10, 0.1, 1)
+    n = len(pts)
+    parts = [dict(x=q[0], y=q[1], z=q[2], am=L[0] * L[1] * L[2] / n, hp=1.0, u=1.0, vx=0.0, vy=0.0, vz=0.0) for q in pts]
+    write_dump(os.path.join(d, 'box.sph'), parts)
+    return dict(PBOX, tf=0.2, dtout=1, cn1=0.05, boxx=L[0], boxy=L[1], boxz=L[2])
+
+def auto_read(d):
+    """What the automatic values chose, read from log0.sph: (ngravtree, ngpusph, the text); a value that was written (not -1) is None."""
+    log = os.path.join(d, 'log0.sph')
+    text = open(log).read() if os.path.exists(log) else ''
+    mg = re.search(r'gravity: ngravtree=-1 \(auto\):[^\n]*-> ngravtree=(\d)', text)
+    ms = re.search(r'SPH on the GPU: ngpusph=-1 \(auto\):[^\n]*-> ngpusph=(\d+)', text)
+    return (int(mg.group(1)) if mg else None), (int(ms.group(1)) if ms else None), text
+
+def auto_case(ctx, exe, tag, np_, threads, n, written, wanted, base=None, init="'1es'", prep=None):
+    """One configuration: the run with the automatic values (ngravtree and ngpusph -1 unless `written` gives them), the pair that it chose read from log0.sph and compared with `wanted` (an ngravtree, ngpusph
+    pair, or one of them, or None), and then the same run with that pair written by hand: the energies of every row and the bytes of every dump must be the same.  Returns the pair, or None for a case that needs more threads than the build has (no OpenMP)."""
+    settings = dict(ngravtree=-1, ngpusph=-1)
+    settings.update(written)
+    if base is None:
+        base = dict(POLY, n=n, nrelax=0, tf=0.2, dtout=1, ngravprocs=1)
+    res = {}
+    chosen = None
+    for mode in ('auto', 'hand'):
+        st = dict(base, **settings)
+        if mode == 'hand':
+            st.update(ngravtree=chosen[0], ngpusph=chosen[1])
+        d = ctx.dir('au_%s_%s' % (tag, mode))
+        if prep:
+            prep(d)
+        p, e = run(exe, d, np=np_, threads=threads, init=init, **st)
+        g, s, text = auto_read(d)
+        if mode == 'auto':
+            # a build without OpenMP (make OPENMP=0) has one thread per rank whatever OMP_NUM_THREADS says: a case that needs more threads cannot be tried there
+            mt = re.search(r'OpenMP: P=\s*\d+ T=\s*(\d+)', text)
+            if threads and threads > 1 and (int(mt.group(1)) if mt else 1) != threads:
+                return None
+            if (settings['ngravtree'] == -1 and g is None) or (settings['ngpusph'] == -1 and s is None):
+                raise Fail('%s: log0.sph does not say what the automatic values chose\n%s' % (tag, (p.stdout + p.stderr)[-600:]))
+            chosen = (g if g is not None else int(settings['ngravtree']), s if s is not None else int(settings['ngpusph']))
+            if wanted is not None:
+                want = tuple(w if w is not None else c for w, c in zip(wanted, chosen))
+                if chosen != want:
+                    line = [l for l in text.split('\n') if 'auto' in l and ('ngravtree=-1' in l or 'ngpusph=-1' in l)]
+                    raise Fail('%s (%d ranks, %d threads, n=%d, written %s): chose ngravtree=%d ngpusph=%d, the rule says %d %d\n%s'
+                               % (tag, np_, threads, n, written, chosen[0], chosen[1], want[0], want[1], '\n'.join(line)))
+        names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+        res[mode] = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names])
+    if res['auto'] != res['hand']:
+        raise Fail('%s: ngravtree=-1 / ngpusph=-1 do not give the bits of ngravtree=%d ngpusph=%d written by hand' % (tag, chosen[0], chosen[1]))
+    return chosen
+
+def t_gravity_auto(ctx):
+    """ngravtree=-1 chooses the gravity from the particles, the threads, the ranks and the SPH, says so in log0.sph, and gives exactly the energies and dumps of the value it chose, set by hand.
+
+    GPU build: with ngravtreeauto written the direct sum below it and the tree walked on the GPU from it up; with the default (ngravtreeauto=-1) the limits measured for the SPH that goes with the gravity
+    (both automatic, ngpusph 0, 1, 3 and 7 written), one star below and one above each limit, with one rank and with several; CPU build: the tree on the CPUs.  Each choice is read from log0.sph, compared
+    with the rule, and the run is made again with that choice written by hand: the energies of every row and the bytes of every dump must be the same.
     """
     out = []
     n = None
@@ -549,16 +656,14 @@ def t_gravity_auto(ctx):
             continue
         cpu = exe.endswith('_cpu_sph')
         if n is None:
-            # the star has a few particles less than POLY['n'] (the lattice): read the number the
-            # code reports
+            # the star has a few particles less than POLY['n'] (the lattice): read the number the code reports
             d0 = ctx.dir('auto_n')
-            run(exe, d0, np=ctx.np, ngravtree=-1, ngravtreeauto=10 ** 9,
-                **dict(POLY, tf=0.1, dtout=1))
-            m0 = re.search(r'ngravtree=-1 \(auto\):[^\n]*N=(\d+)',
-                           open(os.path.join(d0, 'log0.sph')).read())
+            run(exe, d0, np=ctx.np, ngravtree=-1, ngravtreeauto=10 ** 9, **dict(POLY, tf=0.1, dtout=1))
+            m0 = re.search(r'ngravtree=-1 \(auto\):[^\n]*N=(\d+)', open(os.path.join(d0, 'log0.sph')).read())
             if not m0:
                 raise Fail('no "gravity: ngravtree=-1 (auto): N=..." line in log0.sph')
             n = int(m0.group(1))
+        # ngravtreeauto written: the threshold is the user's, below it the direct sum, at it the tree
         for thr, want_gpu in ((n + 1, 0), (n, 2)):
             want = 1 if cpu else want_gpu
             s = dict(POLY, tf=1, dtout=1)
@@ -582,7 +687,22 @@ def t_gravity_auto(ctx):
                 raise Fail('%s build, ngravtree=-1 and ngravtree=%d by hand do not give the same '
                            'energies' % (tag, want))
             out.append('%s N=%d thr=%d -> %d' % (tag, n, thr, want))
-    return 'chosen as expected and the same bits as by hand: ' + '; '.join(out)
+        # the default (ngravtreeauto=-1): the CPU build takes the tree on the CPUs, the GPU build the limits measured
+        if cpu:
+            chosen = auto_case(ctx, exe, 'cpu_default', 1, 1, 5000, dict(ngpusph=0), (1, None))
+            out.append('cpu default -> %d' % chosen[0])
+            continue
+        for label, np_, threads, nn, written, wanted in AUTO_CASES_GRAVITY:
+            chosen = auto_case(ctx, exe, 'g_' + label, np_, threads, nn, written, wanted)
+            if chosen is None:
+                out.append('%s skipped (no OpenMP)' % label)
+                continue
+            out.append('%s -> %d,%d' % (label, chosen[0], chosen[1]))
+        # a periodic box without gravity: the direct sum, and the SPH on the CPUs (the box is not done on the GPU)
+        d0 = ctx.dir('au_pbox_setup')
+        chosen = auto_case(ctx, exe, 'g_periodic_box', 1, 1, 0, {}, (0, 0), base=periodic_box_setup(d0), init="'pbx'", prep=periodic_box_setup)
+        out.append('periodic_box -> %d,%d' % chosen)
+    return 'chosen as the rule says and the same bits as by hand: ' + '; '.join(out)
 
 def t_gpu_sph(ctx):
     """ngpusph=1 (the SPH on the GPU) gives exactly the bits of ngpusph=0, and ngpusphcheck=1 finds no difference.
@@ -803,37 +923,28 @@ def t_gpu_mixed(ctx):
 def t_sph_auto(ctx):
     """ngpusph=-1 chooses from the configuration, says so in log0.sph, and gives exactly the bits of the value it chose, set by hand.
 
-    The line "SPH on the GPU: ngpusph=-1 (auto): <why> -> ngpusph=N" must be in log0.sph; the energies of every row and the bytes of every dump must be those of a run with
-    ngpusph=N.  The CPU build must choose 0.  With a GPU build and a tree on the GPU or on the CPUs the choice is 7; with the direct sum it depends on the threads per rank.
+    The line "SPH on the GPU: ngpusph=-1 (auto): <why> -> ngpusph=N" must be in log0.sph; the energies of every row and the bytes of every dump must be those of a run with ngpusph=N.  The CPU build must
+    choose 0.  With a GPU build and a tree on the GPU or on the CPUs the choice is 7; with the direct sum it depends on the threads per rank, the particles (a star below and one above each limit) and the ranks
+    (several ranks: 1).
     """
     out = []
     for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
         if not exe:
             continue
-        for np_ in (1, ctx.np):
-            for gname, gx in (('direct', dict(ngravtree=0)), ('tree', dict(ngravtree=1, treeacc='0.5d0'))):
-                res = {}
-                chosen = None
-                for mode in ('auto', 'set'):
-                    extra = dict(gx, ngpusph=-1) if mode == 'auto' else dict(gx, ngpusph=chosen)
-                    d = ctx.dir('sa_%s_%d_%s_%s' % (tag, np_, gname, mode))
-                    p, e = run(exe, d, np=np_, **dict(POLY, nrelax=0, tf=1, dtout=1, **extra))
-                    log = open(os.path.join(d, 'log0.sph')).read() if os.path.exists(os.path.join(d, 'log0.sph')) else ''
-                    if mode == 'auto':
-                        m = re.search(r'ngpusph=-1 \(auto\): (.*) -> ngpusph=(\d+)', log)
-                        if not m:
-                            raise Fail('%s build, np=%d, %s: log0.sph does not say what ngpusph=-1 chose\n%s' % (tag, np_, gname, (p.stdout + p.stderr)[-500:]))
-                        chosen = int(m.group(2))
-                        if tag == 'cpu' and chosen != 0:
-                            raise Fail('the CPU build chose ngpusph=%d' % chosen)
-                        if tag == 'gpu' and gname == 'tree' and chosen != 7:
-                            raise Fail('a GPU build with the tree on the CPUs chose ngpusph=%d, not 7' % chosen)
-                    names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
-                    res[mode] = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names])
-                if res['auto'] != res['set']:
-                    raise Fail('%s build, np=%d, %s: ngpusph=-1 does not give the bits of ngpusph=%d' % (tag, np_, gname, chosen))
-                out.append('%s np=%d %s -> %d' % (tag, np_, gname, chosen))
-    return 'ngpusph=-1 chooses, says so, and gives the bits of its choice: ' + '; '.join(out)
+        cpu = exe.endswith('_cpu_sph')
+        if cpu:
+            for np_ in (1, ctx.np):
+                for gname, gx in (('direct', dict(ngravtree=0)), ('tree', dict(ngravtree=1, treeacc='0.5d0'))):
+                    chosen = auto_case(ctx, exe, 'sa_cpu_%d_%s' % (np_, gname), np_, 1, 5000, gx, (None, 0))
+                    out.append('cpu np=%d %s -> %d' % (np_, gname, chosen[1]))
+            continue
+        for label, np_, threads, nn, written, want in AUTO_CASES_SPH:
+            chosen = auto_case(ctx, exe, 'sa_' + label, np_, threads, nn, written, (None, want))
+            if chosen is None:
+                out.append('%s skipped (no OpenMP)' % label)
+                continue
+            out.append('%s -> %d' % (label, chosen[1]))
+    return 'ngpusph=-1 chooses as the rule says, says so, and gives the bits of its choice: ' + '; '.join(out)
 
 def t_vdotsm(ctx):
     """With cn2 and cn4 finite (tstep uses the smoothed accelerations of vdotsm) ngpusph=1 gives the bits of 0 and ngpusph=7 those of 3.

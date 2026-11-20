@@ -39,11 +39,13 @@ something changed.  These tell you whether the answer is right.
        has the threshold of the leaves with a very long list so low that most
        leaves are divided in chunks.
    * - ``gravity_auto``
-     - ``ngravtree = -1`` chooses the gravity from the number of particles (the
-       direct sum below ``ngravtreeauto`` and the tree on the GPU from it up with
-       a GPU, the tree on the CPUs in the CPU build), writes the choice in
-       ``log0.sph``, and gives exactly the energies of the value it chose, set by
-       hand.
+     - ``ngravtree = -1`` chooses the gravity from the number of particles, the
+       threads, the ranks and the SPH (with a GPU: the direct sum below
+       ``ngravtreeauto`` and the tree on the GPU from it up when it is written,
+       the limits measured for the SPH that goes with the gravity by default;
+       the tree on the CPUs in the CPU build), writes the choice in
+       ``log0.sph``, and gives exactly the energies and dumps of the value it
+       chose, set by hand.
    * - ``gpu_sph``
      - ``ngpusph = 1`` (the smoothing lengths, densities and neighbour lists on the GPU) gives exactly the bits of
        ``ngpusph = 0``: the energies of every row and the bytes of every dump, on
@@ -79,8 +81,11 @@ something changed.  These tell you whether the answer is right.
    * - ``sph_auto``
      - ``ngpusph = -1`` chooses from the configuration, writes the
        choice and the reason in ``log0.sph`` (the CPU build chooses 0, a GPU build
-       with the tree on the CPUs 7), and gives exactly the bits of a run with the
-       value it chose set by hand, on one rank and on several.
+       with the tree 7, with the direct sum by threads per rank, particles and
+       ranks), and gives exactly the bits of a run with the value it chose set by
+       hand, on one rank and on several; each limit of the rule is tried with a
+       star below it and a star above it (in a build without OpenMP the cases that need more
+       than one thread per rank are skipped).
    * - ``vdotsm``
      - With ``cn2`` and ``cn4`` finite (so that ``tstep`` uses the smoothed
        accelerations of ``vdotsm``, which sums over the neighbour lists on the

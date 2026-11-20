@@ -65,8 +65,9 @@
       integer ngravtree,nleafgrav,ngravoverlap
       real*8 treeacc
       common/gravtreepars/treeacc,ngravtree,nleafgrav,ngravoverlap
-!     ngravtree=-1: chosen by gravtree_auto (init.f) when the number of particles is known: ngravtreeauto is the number of particles
-!     from which the tree walked on the gpus is taken; ngravgpuok: 0 no gpu, 1 a gpu that can walk the tree, 2 a gpu that cannot
+!     ngravtree=-1: chosen by gravtree_auto (init.f) when the number of particles is known: ngravtreeauto=-1 takes the limits measured
+!     (auto_limits), 0 or more is the number of particles from which the tree walked on the gpus is taken; ngravgpuok: 0 no gpu,
+!     1 a gpu that can walk the tree, 2 a gpu that cannot
       integer ngravtreeauto,ngravgpuok
       common/gravautopars/ngravtreeauto,ngravgpuok
       real*8 vxdotsm(nmax),vydotsm(nmax),vzdotsm(nmax)
