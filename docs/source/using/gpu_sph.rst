@@ -30,7 +30,8 @@ then tests them in double precision, in that order, so that the candidates are i
 particles are done in chunks and the results of a chunk are copied to the CPU while the next one is computed.
 
 A particle with more than 128 candidates is left to the CPU, which solves it with the code that always did
-it; the CPU tree is then made, for those particles only.  With several devices for the rank (``ngpuperrank``) the
+it; the CPU tree is then made, for those particles only.  With one rank the CPUs make that tree while the GPU solves the other
+particles, if the step before left some to them (the tree is the one they would make afterwards from the same positions).  With several devices for the rank (``ngpuperrank``) the
 neighbour lists stay on the devices in such a step too: the forces take the smoothing length, the sums and the list that the CPU made of
 each of those particles to the device that owns it, so that the pair sums of a step with such particles are divided among the devices and added
 in the same way as in a step without them.  A run with several devices therefore gives the same bits whichever steps have such particles

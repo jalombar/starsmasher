@@ -59,6 +59,9 @@
 !     gv_ok: rho_and_h may start the gravity (gravforce) as soon as the smoothing lengths are final, before it does the pressure; gv_done
 !     says that it did (the caller then does not call gravforce)
       logical, save :: gv_ok=.false., gv_done=.false.
+!     gw_kd: the kd tree over all the particles too (rhoh_early_kd in advance.f90); gs_kdneed: the last call left particles to the CPUs, so that
+!     it is likely to be needed again
+      logical, save :: gw_kd=.false., gs_kdneed=.true.
 !     0: the library has not been asked yet, 1: ready, 2: not usable (gs_why says why)
       integer, save :: gs_state=0, gs_why=0
 !     the reason written last, for the smoothing lengths (1) and the forces (2)
@@ -80,6 +83,7 @@
 !     What the CPUs do while the devices solve (called from gpu_sph_rhoh_, on the thread that calls it, with the data of the call
 !     unchanged: the work reads positions and masses and writes only what no one else reads)
       subroutine gpusph_work() bind(C, name='gpusph_work_cb')
+      if(gw_kd) call rhoh_early_kd
       if(gw_tree) call tree_early_struct
       end subroutine gpusph_work
 
@@ -233,7 +237,7 @@
          if(why2.eq.0) skiplist=1
       endif
       workfn=c_null_funptr
-      if(gw_tree) workfn=c_funloc(gpusph_work)
+      if(gw_tree .or. gw_kd) workfn=c_funloc(gpusph_work)
       call gpu_sph_rhoh(n,n_lower,n_upper,nmax,x,y,z,am,u,hp,divv,rho,bonet_omega,bonet_0mega,bonet_psi,bonet_wn,zeta,nn,first,&
            gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,skinarg,skiplist,workfn,ierr)
       if(ierr.ne.0) then
