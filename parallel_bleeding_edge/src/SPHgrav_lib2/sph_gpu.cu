@@ -1838,7 +1838,13 @@ void fetch_records()
 // part gave, exactly as the CPU does.  There is no atomic operation on floating-point numbers and the order of every sum is fixed by the
 // index of the particles, whatever the order in which the threads run: the same bits in every run, with any number of devices (a device
 // takes whole chunks).  With the viscosity off, or where no term goes through the root of the viscosity, the sums are the bits of the CPU.
+//
+// The results come back to the host while the sums are still being made, on a stream of their own: the results of the targets (FOut) and the count of the large terms as
+// soon as the pair terms are done, and the six sums of the particles in FSLICES slices of the particles, each slice when the scatter kernel of that slice is done (the
+// sum of a particle is made by one thread, so a slice is final when its kernel is): only the copy of the last slice is left to wait for, which takes a few per cent of
+// the time of the copy of all of them (0.6 ms on an L40S at the collision of two stars, 0.1 ms after).  It changes no number.
 constexpr int PBCHUNK = 512;   // pb_chunk of pairbuf.f90
+constexpr int FSLICES = 4;     // the sums on the neighbours are made and brought back to the host in this many slices of the particles
 #ifndef SPH_FTHR
 #define SPH_FTHR 128
 #endif
@@ -1895,6 +1901,7 @@ struct FView
   int *key, *et, *val;             // for every entry: the particle it acts on (n: none), its target, its number
   const int *skey, *sval;          // the same sorted by key
   int nent;
+  int q0, q1;                      // k_fscat: the particles q0..q1-1 of this launch
   double *acc;                     // 6 arrays of n: the gather sums, then the sums with the scatter parts
   FOut *out;
   int *nlarge;
@@ -2257,8 +2264,8 @@ __device__ __forceinline__ int lower_key(const int *key, int m, int q)
 // particle i, then the place in its list), added chunk by chunk to the gather sum that is in acc
 __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fscat(FView V)
 {
-  const int q = blockIdx.x * FTHR + threadIdx.x;
-  if (q >= V.n) return;
+  const int q = V.q0 + blockIdx.x * FTHR + threadIdx.x;
+  if (q >= V.q1) return;
   const int lo = lower_key(V.skey, V.nent, q);
   if (lo >= V.nent || V.skey[lo] != q) return;
   const int hi = lower_key(V.skey, V.nent, q + 1);
@@ -2438,6 +2445,8 @@ struct FDev
   int *nlarge = 0, *hnlarge = 0;
   int *tmask = 0, *tpos = 0, *tidx = 0, *tcnt = 0;   // the particles this device touches (see k_tmark_own): mask, its exclusive sum, the list, how many
   int *hidx = 0, *hcnt = 0;                           // pinned: the list and the count
+  cudaStream_t stc = 0;                               // the copies of the results back to the host, while the sort and the scatter run (a stream of its own: st2 is the default stream)
+  cudaEvent_t evp = 0, evs[FSLICES] = {};             // the pair terms are done / a slice of the sums is done (see gpu_sph_forces_)
   double *tv = 0;                                     // the sums of the touched particles, six for each (see k_tgather)
   FOut *oc = 0;                                       // the results of the targets in the order of the records
   SphOut *prec = 0;                                   // the records of the particles the CPU solved (see k_patch) and the places of the records
@@ -3237,6 +3246,7 @@ extern "C"
         V.P = P; V.P.ctab = d.ctab; V.P.c4 = 4.0 * d.ctab;
         V.c = f.c; V.key = f.ka; V.et = f.et; V.val = f.va; V.skey = f.kb; V.sval = f.vb;
         V.acc = f.acc; V.out = f.out; V.nlarge = f.nlarge;
+        V.q0 = 0; V.q1 = n;
         if (!useb)
         {
           k_ftpar_u<<<nblocks(nts[k], 256), 256, 0, st>>>(nts[k], t0[k], f.tp, f.hp, f.rho, f.om, f.om0, f.psi, f.nn, f.first, f.tpar);
@@ -3278,6 +3288,20 @@ extern "C"
         else k_fpair<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
         CK(cudaGetLastError());
         if (mk) mark("f pairs", st);
+        if (!cmp)
+        {
+          // The results of the targets and the count of the large terms are final now: they go back on their stream while the sort and the scatter run.
+          if (!f.evp)
+          {
+            CK(cudaStreamCreateWithFlags(&f.stc, cudaStreamNonBlocking));
+            CK(cudaEventCreateWithFlags(&f.evp, cudaEventDisableTiming));
+            for (int q = 0; q < FSLICES; q++) CK(cudaEventCreateWithFlags(&f.evs[q], cudaEventDisableTiming));
+          }
+          CK(cudaEventRecord(f.evp, st));
+          CK(cudaStreamWaitEvent(f.stc, f.evp, 0));
+          CK(cudaMemcpyAsync(f.hout, f.out, (size_t)nts[k] * sizeof(FOut), cudaMemcpyDeviceToHost, f.stc));
+          CK(cudaMemcpyAsync(f.hnlarge, f.nlarge, sizeof(int), cudaMemcpyDeviceToHost, f.stc));
+        }
         if (cmp)
         {
           // the particles this device touches: its targets and the keys of its dispersion (everything else in its sums is +0.0)
@@ -3294,15 +3318,34 @@ extern "C"
           size_t bytes = f.tmpbytes;
           CK(cub::DeviceRadixSort::SortPairs(f.tmp, bytes, f.ka, f.kb, f.va, f.vb, (int)ent[k], 0, kb, st));
           if (mk) mark("f sort", st);
-          k_fscat<<<nblocks(n, FTHR), FTHR, 0, st>>>(V);
-          CK(cudaGetLastError());
-          if (mk) mark("f scatter", st);
+          if (!cmp)
+          {
+            // The scatter in slices of the particles (a thread makes the sum of one particle, so the slices are independent): each slice of the sums goes back
+            // on that stream while the next one is made, and only the copy of the last slice is left to wait for.
+            for (int sl = 0; sl < FSLICES; sl++)
+            {
+              V.q0 = (int)(((long long)n * sl) / FSLICES); V.q1 = (int)(((long long)n * (sl + 1)) / FSLICES);
+              if (V.q1 > V.q0) k_fscat<<<nblocks(V.q1 - V.q0, FTHR), FTHR, 0, st>>>(V);
+              CK(cudaGetLastError());
+              if (sl == FSLICES - 1 && mk) mark("f scatter", st);
+              CK(cudaEventRecord(f.evs[sl], st));
+              CK(cudaStreamWaitEvent(f.stc, f.evs[sl], 0));
+              CK(cudaMemcpy2DAsync(f.hacc + V.q0, (size_t)n * sizeof(double), f.acc + V.q0, (size_t)n * sizeof(double), (size_t)(V.q1 - V.q0) * sizeof(double), 6,
+                                   cudaMemcpyDeviceToHost, f.stc));
+            }
+            if (mk) mark("f d2h", f.stc);
+          }
+          else
+          {
+            k_fscat<<<nblocks(n, FTHR), FTHR, 0, st>>>(V);
+            CK(cudaGetLastError());
+            if (mk) mark("f scatter", st);
+          }
         }
-        if (!cmp)
+        else if (!cmp)
         {
+          // no entries: there is nothing to scatter, the sums go back as they are
           CK(cudaMemcpyAsync(f.hacc, f.acc, 6 * (size_t)n * sizeof(double), cudaMemcpyDeviceToHost, st));
-          CK(cudaMemcpyAsync(f.hout, f.out, (size_t)nts[k] * sizeof(FOut), cudaMemcpyDeviceToHost, st));
-          CK(cudaMemcpyAsync(f.hnlarge, f.nlarge, sizeof(int), cudaMemcpyDeviceToHost, st));
           if (mk) mark("f d2h", st);
         }
       }
@@ -3335,6 +3378,7 @@ extern "C"
         if (!used[k]) continue;
         CK(cudaSetDevice(g_dev[k].id));
         CK(cudaStreamSynchronize(g_dev[k].st));
+        if (!cmp) CK(cudaStreamSynchronize(g_fdev[k].stc));
       }
       const double tdev = now_ms();
       // nothing of the CPU has been changed up to here: the results now (the devices in order, so the sums do not depend on timing)
