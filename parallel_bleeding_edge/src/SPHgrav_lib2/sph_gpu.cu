@@ -1901,6 +1901,7 @@ struct FView
   int *key, *et, *val;             // for every entry: the particle it acts on (n: none), its target, its number (see vpack)
   const int *skey, *sval;          // the same sorted by key
   int nent;
+  int wkeys;                       // 1: the pair kernels write the key, the target and the number of each entry (0: k_fkeys has written them)
   int vpack, kshift;               // vpack=1: the number of an entry is (its target << kshift) | its place in the list (and there is no et), else the number of the entry
   int q0, q1;                      // k_fscat: the particles q0..q1-1 of this launch
   double *acc;                     // 6 arrays of n: the gather sums, then the sums with the scatter parts
@@ -2068,12 +2069,15 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair(FView V)
       keyv = V.n;
     }
     V.c[e0 + k] = make_double2(csij, csijgc);
-    V.key[e0 + k] = keyv;
-    if (V.vpack) V.val[e0 + k] = (t << V.kshift) | k;
-    else
+    if (V.wkeys)
     {
-      V.et[e0 + k] = t;
-      V.val[e0 + k] = e0 + k;
+      V.key[e0 + k] = keyv;
+      if (V.vpack) V.val[e0 + k] = (t << V.kshift) | k;
+      else
+      {
+        V.et[e0 + k] = t;
+        V.val[e0 + k] = e0 + k;
+      }
     }
   }
   const size_t n = (size_t)V.n;
@@ -2237,12 +2241,15 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair_mix(FView V)
       keyv = V.n;
     }
     V.c[e0 + k] = make_double2(csij_d, csijgc_d);
-    V.key[e0 + k] = keyv;
-    if (V.vpack) V.val[e0 + k] = (t << V.kshift) | k;
-    else
+    if (V.wkeys)
     {
-      V.et[e0 + k] = t;
-      V.val[e0 + k] = e0 + k;
+      V.key[e0 + k] = keyv;
+      if (V.vpack) V.val[e0 + k] = (t << V.kshift) | k;
+      else
+      {
+        V.et[e0 + k] = t;
+        V.val[e0 + k] = e0 + k;
+      }
     }
   }
   const size_t n = (size_t)V.n;
@@ -2255,6 +2262,34 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair_mix(FView V)
   FOut o;
   o.udot = ud; o.uij = um; o.divv = dvv; o.p = p; o.pad = 0;
   V.out[tl] = o;
+}
+
+// 1 in *flag if some particle has no energy (a particle that is not gas: it has no terms, and its entries have no key)
+__global__ void k_fnogas(int n, const D4 *vel, int *flag)
+{
+  const int i = blockIdx.x * blockDim.x + threadIdx.x;
+  if (i < n && vel[i].w == 0.0) *flag = 1;
+}
+
+// The key, the target and the number of every entry when every term is made (every particle is gas, and no block steps: the pair kernel then gives each entry the key
+// of the particle it names): a warp for each place of the work, the lanes copy its list.
+__global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fkeys(FView V)
+{
+  const int w = (blockIdx.x * FTHR + threadIdx.x) >> 5, lane = threadIdx.x & 31;
+  if (w >= V.nts) return;
+  TPar tq;
+  if (!load_place(V, w, tq)) return;
+  const int e0 = V.eoff[w], t = V.t0 + w;
+  for (int k = lane; k < tq.nn; k += 32)
+  {
+    V.key[e0 + k] = V.list[tq.off + k] - 1;
+    if (V.vpack) V.val[e0 + k] = (t << V.kshift) | k;
+    else
+    {
+      V.et[e0 + k] = t;
+      V.val[e0 + k] = e0 + k;
+    }
+  }
 }
 
 // the first entry with key >= q in the sorted keys
@@ -2471,6 +2506,9 @@ struct FDev
   int *nlarge = 0, *hnlarge = 0;
   int *tmask = 0, *tpos = 0, *tidx = 0, *tcnt = 0;   // the particles this device touches (see k_tmark_own): mask, its exclusive sum, the list, how many
   int *hidx = 0, *hcnt = 0;                           // pinned: the list and the count
+  int fastdp = -1;                                    // the device makes double precision at a good fraction of single (see the use of k_fkeys): 1 yes, 0 no, -1 not asked yet
+  cudaStream_t st3 = 0;                               // the sort, while the pair terms are made
+  cudaEvent_t evk = 0, evsort = 0;                    // the keys are written / the sort is done
   cudaStream_t stc = 0;                               // the copies of the results back to the host, while the sort and the scatter run (a stream of its own: st2 is the default stream)
   cudaEvent_t evp = 0, evs[FSLICES] = {};             // the pair terms are done / a slice of the sums is done (see gpu_sph_forces_)
   double *tv = 0;                                     // the sums of the touched particles, six for each (see k_tgather)
@@ -3218,7 +3256,7 @@ extern "C"
         cudaStream_t st = d.st;
         if (mk) mark("f start", st);
         CK(cudaMemsetAsync(f.acc, 0, 6 * (size_t)n * sizeof(double), st));
-        CK(cudaMemsetAsync(f.nlarge, 0, 2 * sizeof(int), st));      // (the count of the large terms, and the length of the longest list)
+        CK(cudaMemsetAsync(f.nlarge, 0, 3 * sizeof(int), st));      // (the count of the large terms, the length of the longest list, and whether some particle is not gas)
         if (cmp) CK(cudaMemsetAsync(f.tmask, 0, (size_t)n * sizeof(int), st));
         if (useb && !psrec[k].empty())
         {
@@ -3295,6 +3333,8 @@ extern "C"
         CK(cub::DeviceScan::ExclusiveSum(f.tmp, bytes, f.cnt, f.eoff, nts[k] + 1, st));
         CK(cudaMemcpyAsync(f.hE, f.eoff + nts[k], sizeof(int), cudaMemcpyDeviceToHost, st));
         CK(cudaMemcpyAsync(f.hE + 1, f.nlarge + 1, sizeof(int), cudaMemcpyDeviceToHost, st));
+        k_fnogas<<<nblocks(n, 256), 256, 0, st>>>(n, f.vel, f.nlarge + 2);
+        CK(cudaMemcpyAsync(f.hE + 2, f.nlarge + 2, sizeof(int), cudaMemcpyDeviceToHost, st));
         if (mk) mark("f count+scan", st);
       }
       // phase B: the pair terms, the sort, the sums on the neighbours, the results back
@@ -3311,6 +3351,13 @@ extern "C"
         ent[k] = f.hE[0];
         if ((size_t)ent[k] > f.ecap) throw SphError(4, "the lists of the forces do not fit in the buffers");
         V.nent = (int)ent[k];
+        if (f.fastdp < 0)
+        {
+          // does the device make double precision at a good fraction of single (see below)?
+          int ratio = 0;
+          CK(cudaDeviceGetAttribute(&ratio, cudaDevAttrSingleToDoublePrecisionPerfRatio, d.id));
+          f.fastdp = (ratio > 0 && ratio <= 8) ? 1 : 0;
+        }
         {
           // The number of an entry that goes with the key through the sort is its target and its place in the list, when they fit in the 31 bits that are left (they do unless
           // there are more than 16 million particles): the scatter then finds the entry from the table of the starts of the lists, and no array of the targets is written or read.
@@ -3319,6 +3366,31 @@ extern "C"
           while ((1LL << tb2) <= (long long)nt) tb2++;
           V.vpack = (kb2 + tb2 <= 31) ? 1 : 0;
           V.kshift = kb2;
+        }
+        // On a device that makes double precision at least an eighth as fast as single (the Tesla and the A100, H100 and the like; not the GeForce and the Ada and Blackwell
+        // cards of the workstations, where the pair kernel is limited by the double precision and the sort that runs beside it only takes the room of its blocks: on an L40S
+        // from 0.13 ms less to 0.16 ms more per call at the collision of two stars, and 1.3 ms more at 2 million particles) the pair kernel is limited by its writes, three of them for each entry that a thread makes at its own pace.  With every particle gas, no
+        // block steps and the terms in double precision the key of an entry is the particle it names, so the keys need not wait for the pair terms: a light kernel writes them,
+        // a warp for each list so that the writes are made 128 bytes at a time, and the sort runs on a second stream while the pair kernel makes the terms, which write only
+        // csij and csijgc.  The same keys are sorted, so everything after the sort is the same.
+        V.wkeys = 1;
+        bool ovl = false;
+        if (f.fastdp && f.hE[2] == 0 && !blocks && !cmp && !prec && ent[k] > 0)
+        {
+          ovl = true;
+          V.wkeys = 0;
+          if (!f.st3)
+          {
+            CK(cudaStreamCreateWithFlags(&f.st3, cudaStreamNonBlocking));
+            CK(cudaEventCreateWithFlags(&f.evk, cudaEventDisableTiming));
+            CK(cudaEventCreateWithFlags(&f.evsort, cudaEventDisableTiming));
+          }
+          k_fkeys<<<nblocks(nts[k] * 32, FTHR), FTHR, 0, st>>>(V);
+          CK(cudaEventRecord(f.evk, st));
+          CK(cudaStreamWaitEvent(f.st3, f.evk, 0));
+          size_t bytes3 = f.tmpbytes;
+          CK(cub::DeviceRadixSort::SortPairs(f.tmp, bytes3, f.ka, f.kb, f.va, f.vb, (int)ent[k], 0, kb, f.st3));
+          CK(cudaEventRecord(f.evsort, f.st3));
         }
         if (prec) k_fpair_mix<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
         else k_fpair<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
@@ -3351,8 +3423,12 @@ extern "C"
         }
         if (ent[k] > 0)
         {
-          size_t bytes = f.tmpbytes;
-          CK(cub::DeviceRadixSort::SortPairs(f.tmp, bytes, f.ka, f.kb, f.va, f.vb, (int)ent[k], 0, kb, st));
+          if (ovl) CK(cudaStreamWaitEvent(st, f.evsort, 0));
+          else
+          {
+            size_t bytes = f.tmpbytes;
+            CK(cub::DeviceRadixSort::SortPairs(f.tmp, bytes, f.ka, f.kb, f.va, f.vb, (int)ent[k], 0, kb, st));
+          }
           if (mk) mark("f sort", st);
           if (!cmp)
           {
