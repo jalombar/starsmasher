@@ -139,6 +139,15 @@ struct TreeArgs
   D4 *part;                  // for each chunk of the pool: 32 lanes x 4 sums
 };
 
+// 1/sqrt(x) without the test for a denormal argument that rsqrtf makes (three instructions more per pair), as the far tiles
+// of the direct gravity: the same bits for every normal x, and r^2 of a pair or of a node is zero or not tiny
+static __device__ __forceinline__ float rsqrt_ftz(const float x)
+{
+  float y;
+  asm("rsqrt.approx.ftz.f32 %0, %1;" : "=f"(y) : "f"(x));
+  return y;
+}
+
 // double-single sum, as the direct gravity of this library
 struct tds
 {
@@ -204,7 +213,7 @@ __device__ __forceinline__ void soft_pair(const float r2, const float hi, const 
     gpot = -cself * (self ? 1.0f : 0.5f) * flagj * (mj1i + mj1j);
     return;
   }
-  const float rinv = rsqrtf(r2);
+  const float rinv = rsqrt_ftz(r2);
   const float mrinv1 = rinv * mj;
   const float mrinv3 = rinv * rinv * mrinv1;
   const float r = r2 * rinv;
@@ -418,7 +427,7 @@ __global__ void TREE_KERNEL_LIMITS tree_kernel(const TreeArgs a)
             const float dx = (La.x - sa.x) + (Lb.x - sb.x);
             const float dy = (La.y - sa.y) + (Lb.y - sb.y);
             const float dz = (La.z - sa.z) + (Lb.z - sb.z);
-            const float dr1 = rsqrtf(dx * dx + dy * dy + dz * dz);
+            const float dr1 = rsqrt_ftz(dx * dx + dy * dy + dz * dz);
             const float4 q0 = __ldg(&a.nf[4 * s + 2]), q1 = __ldg(&a.nf[4 * s + 3]);
             m2l_add(f, dx, dy, dz, dr1, q0.x, q0.y, q0.z, q0.w, q1.x, q1.y, q1.z);
           }
@@ -478,7 +487,7 @@ __global__ void TREE_KERNEL_LIMITS tree_kernel(const TreeArgs a)
                   const float dy = (ja.y - qa.y) + (jb.y - qb.y);
                   const float dz = (ja.z - qa.z) + (jb.z - qb.z);
                   const float r2 = dx * dx + dy * dy + dz * dz;
-                  const float rinv = rsqrtf(r2);
+                  const float rinv = rsqrt_ftz(r2);
                   const float mr1 = rinv * ja.w;
                   const float mr3 = rinv * rinv * mr1;
                   TACC_X(mr3 * dx);
@@ -502,7 +511,7 @@ __global__ void TREE_KERNEL_LIMITS tree_kernel(const TreeArgs a)
                 const float h2j = hj * hj;
                 if (r2 >= fmaxf(h2i, h2j))
                 {
-                  const float rinv = rsqrtf(r2);
+                  const float rinv = rsqrt_ftz(r2);
                   const float mr1 = rinv * ja.w;
                   const float mr3 = rinv * rinv * mr1;
                   TACC_X(mr3 * dx);
@@ -594,7 +603,7 @@ __global__ void TREE_KERNEL_LIMITS tree_kernel(const TreeArgs a)
     const float dy = (ja.y - gqa.y) + (jb.y - gqb.y);                          \
     const float dz = (ja.z - gqa.z) + (jb.z - gqb.z);                          \
     const float r2 = dx * dx + dy * dy + dz * dz;                              \
-    const float rinv = rsqrtf(r2);                                             \
+    const float rinv = rsqrt_ftz(r2);                                             \
     const float mr1 = rinv * ja.w;                                             \
     const float mr3 = rinv * rinv * mr1;                                       \
     TACC_X(mr3 * dx);                                                          \
@@ -613,7 +622,7 @@ __global__ void TREE_KERNEL_LIMITS tree_kernel(const TreeArgs a)
     const float h2j = hj * hj;                                                 \
     if (r2 >= fmaxf(h2ig, h2j))                                                \
     {                                                                          \
-      const float rinv = rsqrtf(r2);                                           \
+      const float rinv = rsqrt_ftz(r2);                                           \
       const float mr1 = rinv * ja.w;                                           \
       const float mr3 = rinv * rinv * mr1;                                     \
       TACC_X(mr3 * dx);                                                        \
