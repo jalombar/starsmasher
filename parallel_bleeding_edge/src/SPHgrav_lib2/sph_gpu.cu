@@ -1262,8 +1262,10 @@ struct Dev
 {
   int id = -1;
   cudaStream_t st = 0, st2 = 0;   // st: the build of the tree of boxes; st2: the copies of the results
+  cudaStream_t sh = 0;            // the copies of the masses, u, h and div v (they do not wait for the build of the tree of boxes)
   cudaStream_t sc[4] = {0, 0, 0, 0};   // the kernels of the chunks, on different streams so that the tail of one is filled by the next
   cudaEvent_t evB = 0;            // the tree of boxes is built
+  cudaEvent_t evH = 0;            // the masses, u, h and div v are on the device (the second stream of the copies)
   int ncap = 0, nowncap = 0, chcap = 0;
   double *x = 0, *y = 0, *z = 0, *am = 0, *u = 0, *hp = 0, *divv = 0, *bbpart = 0, *bb = 0;
   double2 *gd = 0;             // the tables of the kernel
@@ -1362,6 +1364,7 @@ void reserve(Dev &d, int n, int nown, int ch)
   {
     cudaStreamSynchronize(d.st);
     cudaStreamSynchronize(d.st2);
+    if (d.sh) cudaStreamSynchronize(d.sh);
     for (int q = 0; q < 4; q++) if (d.sc[q]) cudaStreamSynchronize(d.sc[q]);
     const int ncap = std::max(n, d.ncap) + std::max(n, d.ncap) / 16 + 1024;
     const int ocap = std::max(nown, d.nowncap) + std::max(nown, d.nowncap) / 16 + 1024;
@@ -1394,6 +1397,8 @@ void reserve(Dev &d, int n, int nown, int ch)
     d.ncap = ncap; d.nowncap = ocap; d.chcap = chcap;
   }
   if (!d.evB) CK(cudaEventCreateWithFlags(&d.evB, cudaEventDisableTiming));
+  if (!d.evH) CK(cudaEventCreateWithFlags(&d.evH, cudaEventDisableTiming));
+  if (!d.sh) CK(cudaStreamCreateWithFlags(&d.sh, cudaStreamNonBlocking));
   for (int k = 0; k < 4; k++)
     if (!d.sc[k]) CK(cudaStreamCreateWithFlags(&d.sc[k], cudaStreamNonBlocking));
   while (d.evS.size() < 256)
@@ -1479,13 +1484,15 @@ void upload_and_build(Dev &d, int n, int nlow, int nup, const double *x, const d
   const bool mk = (&d == &g_dev[0]);
   if (mk) mark("start", d.st);
   CK(cudaMemsetAsync(d.cnt, 0, 4 * sizeof(int), d.st));
+  // the positions first: the box, the keys and the sort need nothing else, and the rest (masses, u, h, div v) is on its way on another stream meanwhile; the gather waits for it
   CK(cudaMemcpyAsync(d.x, x, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
   CK(cudaMemcpyAsync(d.y, y, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
   CK(cudaMemcpyAsync(d.z, z, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
-  CK(cudaMemcpyAsync(d.am, am, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
-  CK(cudaMemcpyAsync(d.u, u, (size_t)n * 8, cudaMemcpyHostToDevice, d.st));
-  CK(cudaMemcpyAsync(d.hp, hp, (size_t)nown * 8, cudaMemcpyHostToDevice, d.st));
-  CK(cudaMemcpyAsync(d.divv, divv, (size_t)nown * 8, cudaMemcpyHostToDevice, d.st));
+  CK(cudaMemcpyAsync(d.am, am, (size_t)n * 8, cudaMemcpyHostToDevice, d.sh));
+  CK(cudaMemcpyAsync(d.u, u, (size_t)n * 8, cudaMemcpyHostToDevice, d.sh));
+  CK(cudaMemcpyAsync(d.hp, hp, (size_t)nown * 8, cudaMemcpyHostToDevice, d.sh));
+  CK(cudaMemcpyAsync(d.divv, divv, (size_t)nown * 8, cudaMemcpyHostToDevice, d.sh));
+  CK(cudaEventRecord(d.evH, d.sh));
   if (mk) mark("h2d", d.st);
   // the box of the particles and the curve
   const int nbb = std::min(256, nblocks(n, 256));
@@ -1497,6 +1504,7 @@ void upload_and_build(Dev &d, int n, int nlow, int nup, const double *x, const d
   size_t bytes = d.tmpbytes;
   CK(cub::DeviceRadixSort::SortPairs(d.tmp, bytes, d.keya, d.keyb, d.ida, d.idb, n, 0, 63, d.st));
   if (mk) mark("sort", d.st);
+  CK(cudaStreamWaitEvent(d.st, d.evH, 0));
   k_gather<<<nblocks(n, 256), 256, 0, d.st>>>(n, d.idb, d.x, d.y, d.z, d.am, d.u, d.bb, d.rec, d.frec);
   if (mk) mark("gather", d.st);
   // the boxes
