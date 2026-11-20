@@ -1898,9 +1898,10 @@ struct FView
   int prec;                        // 1: the terms of the pairs in single precision
   FPar P;
   double2 *c;                      // csij and csijgc of every entry
-  int *key, *et, *val;             // for every entry: the particle it acts on (n: none), its target, its number
+  int *key, *et, *val;             // for every entry: the particle it acts on (n: none), its target, its number (see vpack)
   const int *skey, *sval;          // the same sorted by key
   int nent;
+  int vpack, kshift;               // vpack=1: the number of an entry is (its target << kshift) | its place in the list (and there is no et), else the number of the entry
   int q0, q1;                      // k_fscat: the particles q0..q1-1 of this launch
   double *acc;                     // 6 arrays of n: the gather sums, then the sums with the scatter parts
   FOut *out;
@@ -2068,8 +2069,12 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair(FView V)
     }
     V.c[e0 + k] = make_double2(csij, csijgc);
     V.key[e0 + k] = keyv;
-    V.et[e0 + k] = t;
-    V.val[e0 + k] = e0 + k;
+    if (V.vpack) V.val[e0 + k] = (t << V.kshift) | k;
+    else
+    {
+      V.et[e0 + k] = t;
+      V.val[e0 + k] = e0 + k;
+    }
   }
   const size_t n = (size_t)V.n;
   V.acc[0 * n + p] = gx;
@@ -2233,8 +2238,12 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fpair_mix(FView V)
     }
     V.c[e0 + k] = make_double2(csij_d, csijgc_d);
     V.key[e0 + k] = keyv;
-    V.et[e0 + k] = t;
-    V.val[e0 + k] = e0 + k;
+    if (V.vpack) V.val[e0 + k] = (t << V.kshift) | k;
+    else
+    {
+      V.et[e0 + k] = t;
+      V.val[e0 + k] = e0 + k;
+    }
   }
   const size_t n = (size_t)V.n;
   V.acc[0 * n + p] = gx;
@@ -2277,8 +2286,18 @@ __global__ void __launch_bounds__(FTHR, SPH_FMINB) k_fscat(FView V)
   const D4 pq = V.pos[q];
   for (int s = lo; s < hi; s++)
   {
-    const int e = V.sval[s];
-    const int t = V.et[e];
+    const int v = V.sval[s];
+    int t, e;
+    if (V.vpack)
+    {
+      t = v >> V.kshift;
+      e = V.eoff[t - V.t0] + (v & ((1 << V.kshift) - 1));
+    }
+    else
+    {
+      e = v;
+      t = V.et[e];
+    }
     const int ch = (V.tiw[t] - 1) / PBCHUNK;
     if (ch != chunk)
     {
@@ -2371,12 +2390,19 @@ __global__ void k_fcontig(int nt, int p0, int *tp, int *tiw)
   tiw[t] = t + 1;
 }
 
-__global__ void k_fcount(FView V, int *cnt)
+__global__ void k_fcount(FView V, int *cnt, int *maxnn)
 {
   const int tl = blockIdx.x * blockDim.x + threadIdx.x;
-  if (tl > V.nts) return;
-  TPar q;
-  cnt[tl] = (tl < V.nts && load_place(V, tl, q)) ? q.nn : 0;
+  int nn = 0;
+  if (tl <= V.nts)
+  {
+    TPar q;
+    nn = (tl < V.nts && load_place(V, tl, q)) ? q.nn : 0;
+    cnt[tl] = nn;
+  }
+  // the longest list: the maximum of the warp, then one atomic operation for the warp
+  for (int o = 16; o > 0; o >>= 1) nn = max(nn, __shfl_down_sync(0xffffffffu, nn, o));
+  if ((threadIdx.x & 31) == 0 && nn > 0) atomicMax(maxnn, nn);
 }
 
 #ifndef SPH_FTPAR_SCATTER
@@ -3192,7 +3218,7 @@ extern "C"
         cudaStream_t st = d.st;
         if (mk) mark("f start", st);
         CK(cudaMemsetAsync(f.acc, 0, 6 * (size_t)n * sizeof(double), st));
-        CK(cudaMemsetAsync(f.nlarge, 0, sizeof(int), st));
+        CK(cudaMemsetAsync(f.nlarge, 0, 2 * sizeof(int), st));      // (the count of the large terms, and the length of the longest list)
         if (cmp) CK(cudaMemsetAsync(f.tmask, 0, (size_t)n * sizeof(int), st));
         if (useb && !psrec[k].empty())
         {
@@ -3264,10 +3290,11 @@ extern "C"
 #endif
         }
         if (mk) mark("f places", st);
-        k_fcount<<<nblocks(nts[k] + 1, 256), 256, 0, st>>>(V, f.cnt);
+        k_fcount<<<nblocks(nts[k] + 1, 256), 256, 0, st>>>(V, f.cnt, f.nlarge + 1);
         size_t bytes = f.tmpbytes;
         CK(cub::DeviceScan::ExclusiveSum(f.tmp, bytes, f.cnt, f.eoff, nts[k] + 1, st));
         CK(cudaMemcpyAsync(f.hE, f.eoff + nts[k], sizeof(int), cudaMemcpyDeviceToHost, st));
+        CK(cudaMemcpyAsync(f.hE + 1, f.nlarge + 1, sizeof(int), cudaMemcpyDeviceToHost, st));
         if (mk) mark("f count+scan", st);
       }
       // phase B: the pair terms, the sort, the sums on the neighbours, the results back
@@ -3284,6 +3311,15 @@ extern "C"
         ent[k] = f.hE[0];
         if ((size_t)ent[k] > f.ecap) throw SphError(4, "the lists of the forces do not fit in the buffers");
         V.nent = (int)ent[k];
+        {
+          // The number of an entry that goes with the key through the sort is its target and its place in the list, when they fit in the 31 bits that are left (they do unless
+          // there are more than 16 million particles): the scatter then finds the entry from the table of the starts of the lists, and no array of the targets is written or read.
+          int kb2 = 1, tb2 = 1;
+          while ((1LL << kb2) <= (long long)f.hE[1]) kb2++;
+          while ((1LL << tb2) <= (long long)nt) tb2++;
+          V.vpack = (kb2 + tb2 <= 31) ? 1 : 0;
+          V.kshift = kb2;
+        }
         if (prec) k_fpair_mix<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
         else k_fpair<<<nblocks(nts[k], FTHR), FTHR, 0, st>>>(V);
         CK(cudaGetLastError());
