@@ -141,6 +141,57 @@ angular momentum exactly, and conserves the energy as well as the direct sum doe
 one process with the OpenMP build: every process builds the whole tree, so one process
 for each GPU repeats the work.
 
+Making the structure of the tree less often
+-------------------------------------------
+
+The tree of ``ngravtree = 1`` and ``2`` has two parts.  The structure says which particles share a node, in what order the particles are, and which node is the parent of which; it
+depends on the positions only.  The values of a node (its centre of mass, its size, the largest softening length of its particles, its mass and quadrupole) are computed from the
+positions, masses and smoothing lengths of the step.  With ``ngravrebuild = k`` (2 to 16) the structure is made in one step of every ``k`` and the other steps read the
+positions again in the order of that structure; the values of every node are made again in every step.  The opening criterion therefore always uses the true size of a node, as
+it is now: an old structure only makes the nodes less compact (a few more of them are opened), it never makes a force wrong.  The steps of a cycle use the structure made in
+the first one, so the oldest is ``k - 1`` steps old; ``k`` is at most 16 because the nodes lose their compactness with the age (a structure of 1000 steps costs 4 ms more at the
+pericentre of the collision on an H100) and the error of the forces was measured only up to 15 steps (the median and the 99th percentile of the relative error against the sum over all the pairs are the
+same as for a new structure).
+
+``ngravrebuild = 1`` (the default) makes the structure in every step, and gives the bits of the code before the option existed.  With ``k > 1``:
+
+* the forces differ from those of ``k = 1`` in the last digits, and the energy of the collision of two Suns (two relaxed Suns, 199908 particles, to t = 30) is conserved as well as with ``k = 1``:
+  dE/E at t = 30 is 5.5e-5 with ``k = 1`` and 1.7e-5 with ``k = 16`` with the default Courant numbers, and 3.9e-4 and 3.7e-4 with ``cn1 = 0.45``, ``cn3 = 0.2``; the distance between the
+  two stars and the largest density at t = 20.68 (the pericentre) and 30 agree with those of ``k = 1`` to 6e-4 and 4e-4 (``k = 16``);
+* the result does not depend on the number of threads, the devices, ``ngravoverlap``, or on the integration on the device (the bits are the same with 4, 8 and 63 threads, on an
+  H100 and on an L40S, with ``ngravoverlap`` 0 and 1 and with ``SPHGPU_NOINT=1``);
+* the structure is also made at the first step after the checkpoint ``restartrad.sph`` is written (every 1000 steps), so that a run that goes on and one that starts from the checkpoint make it at the same step
+  and give the same bits (the dump ``tjumpahead`` header field apart, which differs even with ``k = 1``).  The result does not depend on how often ``out*.sph`` are written; a run started from a copy of an ``out*.sph``
+  dump makes the structure at its first step, which is not where the run that went on made it, so its result differs from that run in the last digits;
+* a force computed outside a step (the first one of a run, those of ``eatem`` and of a jump ahead) always makes the structure, and a change of the number of particles makes it too;
+* it works with ``ngravtree = 1`` as well as ``2`` (the mean step of the star of 500000 particles on an H100 with 63 threads is 2.9% shorter with ``k = 16``, three repetitions, the intervals apart), and has no effect with block steps (``nblock = 1``) or the direct sum (``ngravtree = 0``), where the value is 1 and the log says so.
+
+The gain is the work of the CPUs that the GPU waits for.  Mean step of the collision with ``k = 16`` against ``k = 1`` (the four windows of the collision of two Suns of 199908
+particles, one rank, one device, ``ngravtree = 2``, ``treeacc = 0.45``, ``nleafgrav = 24``, ``ngpusph = 7``; five repetitions on an H100, three on an L40S; the windows are at the
+start, at t = 8, at the pericentre and late in the collision):
+
+====================== ========= ========= ========== ========= ========== =========
+                       start     t = 8     pericentre late      star 500k  star 2M
+====================== ========= ========= ========== ========= ========== =========
+H100, 8 threads        -17.8%    -14.3%    -17.1%     -20.5%    -13.6%     -17.7%
+H100, 16 threads       -22.2%    n.m.      -13.9%     -13.7%    -12.0%     n.m.
+H100, 32 threads       -2.6%     n.m.      -7.5%      -0.6%     -3.9%      n.m.
+H100, 63 threads       -5.5%     -2.2%     -9.1%      -3.7%     -2.9%      +0.2%
+L40S, 8 threads        -21.6%    -19.7%    -18.0%     -25.1%    -7.1%      -12.1%
+====================== ========= ========= ========== ========= ========== =========
+
+``n.m.``: not measured.  The two last columns are single relaxed stars (500000 and 2000000 particles).
+
+With 63 threads the host makes the tree in 1.2 to 1.7 ms of a step of 6 to 8 ms, most of it hidden behind the work of the GPU; with 8 threads the host needs 4 to 5 ms and the GPU waits for it.  No cell of the
+table was slower with ``k = 16`` than with ``k = 1`` beyond the spread of the repetitions.  The spread of the step with 63 threads on the shared node is as large as the gain: a second job of five repetitions with the same
+builds gave -1.8% (start), -1.2% (t = 8), -4.0% (pericentre), +1.0% (late) and -3.1% (star 500k), with the intervals touching, where the table has -5.5%, -2.2%, -9.1%, -3.7% and -2.9%.  The whole collision of two Suns to t = 30
+(6837 steps): the time of the steps goes from 54.7 s to 54.2 s (-0.9%) on an H100 with 63 threads, from 82.4 s to 66.5 s (-19.3%) with 8 threads, and from 121.4 s to 97.3 s (-19.9%) on an L40S with 8 threads
+(two repetitions on the H100, one on the L40S).  ``k = 8`` gives nearly the same (-1.1%, -18.7%, -19.0%); ``k = 16`` was a little faster in most cells and is within the energy limit as well.
+
+``ngravrebuild = -1`` chooses 16 for the tree on the GPUs (``ngravtree = 2``) with at most 32 threads of the gravity process for each GPU (the number of threads of the rank divided by ``ngpuperrank``), and 1 otherwise (more
+threads, where the gain is small and not reproducible, the tree on the CPUs, block steps, the direct sum), from nothing but the threads, the GPUs and the options (never from a time measured), and writes the choice in the log of rank 0.
+The result with the automatic value depends on the number of threads only through that limit.  The default is ``ngravrebuild = 1``.
+
 Letting the code choose
 -----------------------
 
