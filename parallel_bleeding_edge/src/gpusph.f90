@@ -32,6 +32,15 @@
 !        1, 2, 3, 4, 6, 7  as above
 !       10  nav=4 (the Riemann solver is on the CPU)
 !       11  nintvar=3
+!     Bit 4 (value 4, ngpusph=7) is the work of the third part, in steps.  The first is the Verlet lists: the candidates of the
+!     first search of the smoothing length of each particle (every particle within a radius a fraction ngpusphskin larger than
+!     the one asked for) are kept on the GPU from the call that made them and read from there while they are complete, that is
+!     while the radius they cover, less twice the largest displacement of a particle since then, reaches the radius the search
+!     needs; otherwise the search of that particle goes to the tree as before, and when more than 2% of the lists do not reach
+!     the next call makes them again (a geometric criterion, never a time).  The candidates are the same, in the same order,
+!     and the final filter r2<4h2 is the same: the same bits as ngpusph=3.  One GPU for the rank (with several the search is
+!     as before).  The second is that the neighbour lists stay on the GPU (the forces read them there) and are not copied to list():
+!     they are copied only if the CPU needs them (particles it solves itself, an error of CUDA in the forces).
 !     ngpusphcheck=2 runs the CPU pair sums after the GPU ones on the same data, compares them, and writes one line to log0.sph
 !     for each call with the differences (the run goes on with the CPU results); 3 is 1 and 2.
 !***********************************************************************
@@ -160,7 +169,10 @@
       real*8 divv(*)
       logical done,checking
       integer nflag,ltot
-      integer why,ierr,nown,listcap,i,io
+      integer why,why2,ierr,nown,listcap,i,io,skiplist
+      real*8 skinarg
+      logical needvdotsm
+      external needvdotsm
       character(len=32) what
       what='h, rho and neighbour lists'
       done=.false.
@@ -189,8 +201,19 @@
          hp0(io)=hp(n_lower+io-1)
       enddo
       listcap=nnmax*nmax
+!     Verlet lists (bit 4 of ngpusph): the margin of the candidate lists kept between steps, as a fraction of the radius; 0 for none
+      skinarg=0.d0
+      if(iand(ngpusph,4).ne.0) skinarg=ngpusphskin
+!     The lists stay on the GPU (bit 4) when the forces will be made there from them: shared steps, no check against the CPU, and
+!     the forces can be done on the GPU in this run (the same reasons as in gpusph_forces).  If the CPU needs them they are copied;
+!     it does when tstep calls vdotsm (cn2 or cn4 finite, see needvdotsm), which sums over list().
+      skiplist=0
+      if(iand(ngpusph,4).ne.0 .and. iand(ngpusph,2).ne.0 .and. ngpusphcheck.eq.0 .and. nblock.eq.0 .and. .not.needvdotsm()) then
+         call gpusph_usable(why2,2)
+         if(why2.eq.0) skiplist=1
+      endif
       call gpu_sph_rhoh(n,n_lower,n_upper,nmax,x,y,z,am,u,hp,divv,rho,bonet_omega,bonet_0mega,bonet_psi,bonet_wn,zeta,nn,first,&
-           gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,ierr)
+           gs_flag,list,listcap,ltot,dt,hfloor,nnopt,nselfgravity,skinarg,skiplist,ierr)
       if(ierr.ne.0) then
          if(ierr.eq.2) then
             call gpusph_say(what,8,1)
@@ -389,6 +412,13 @@
          if(ierr.ne.0) then
             call gpusph_fail(7)
             call gpusph_say(what,7,2)
+!           (the lists may have stayed on the GPU: the CPU forces need them)
+            call gpu_sph_getlists(list,ierr)
+            if(ierr.ne.0) then
+               write(6,*) 'gpusph: the neighbour lists are not on the GPU either after an error of CUDA in the forces'
+               call flush(6)
+               call mpi_abort(mpi_comm_world,1,ierr)
+            endif
             if(gpusph_cmpidle(7)) then
                call gpusph_fidle(nloop,alpha1,beta1,mvx,mvy,mvz,mgx,mgy,mgz)
                done=.true.

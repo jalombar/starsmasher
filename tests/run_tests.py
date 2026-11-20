@@ -724,6 +724,72 @@ def t_gpu_ranks(ctx):
             os.environ['CUDA_VISIBLE_DEVICES'] = old
     return 'ngpusphcheck with ranks that have no GPU of their own finishes and agrees with ngpusph=1: ' + '; '.join(out)
 
+def t_gpu_resident(ctx):
+    """ngpusph=7 (the candidates of the smoothing-length search kept on the GPU between steps: Verlet lists) gives exactly the bits of ngpusph=3.
+
+    An unrelaxed polytrope, whose particles move, is run with the margin of the lists made small (ngpusphskin=0.05) so that they are built again several times in the run.
+    The energies of every row and the bytes of every dump must be those of ngpusph=3, on one rank and on several; and with ngpusphcheck=3 (the GPU against the CPU at every
+    step: the smoothing lengths, the lists and the forces, going on with the CPU forces) those of ngpusph=3 with ngpusphcheck=3.  The CPU build says that it has no GPU code and gives the same bits.
+    """
+    out = []
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        if not exe:
+            continue
+        for np_ in (1, ctx.np):
+            res = {}
+            for mode, extra in (('3', dict(ngpusph=3)), ('7', dict(ngpusph=7, ngpusphskin='0.05d0')), ('3c', dict(ngpusph=3, ngpusphcheck=3)),
+                                ('7c', dict(ngpusph=7, ngpusphskin='0.05d0', ngpusphcheck=3))):
+                d = ctx.dir('gr_%s_%d_%s' % (tag, np_, mode))
+                p, e = run(exe, d, np=np_, **dict(POLY, nrelax=0, tf=1, dtout=1, **extra))
+                names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+                if not names:
+                    raise Fail('%s build, np=%d, ngpusph mode %s: no dump was written\n%s' % (tag, np_, mode, (p.stdout + p.stderr)[-800:]))
+                log = open(os.path.join(d, 'log0.sph')).read() if os.path.exists(os.path.join(d, 'log0.sph')) else ''
+                want = 'ngpusph: h, rho and neighbour lists on the CPUs: this build has no GPU code' if tag == 'cpu' else 'ngpusph: h, rho and neighbour lists on the GPU'
+                if want not in log:
+                    raise Fail('%s build, np=%d, ngpusph mode %s: log0.sph does not say "%s"' % (tag, np_, mode, want))
+                res[mode] = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names])
+            # (with ngpusphcheck the run goes on with the forces of the CPU, so the runs with the check are compared with each other)
+            for mode, ref in (('7', '3'), ('7c', '3c')):
+                if res[ref][0] != res[mode][0]:
+                    raise Fail('%s build, np=%d: ngpusph mode %s changes the energies of mode %s' % (tag, np_, mode, ref))
+                if res[ref][1] != res[mode][1]:
+                    raise Fail('%s build, np=%d: ngpusph mode %s changes a dump of mode %s' % (tag, np_, mode, ref))
+            out.append('%s np=%d: %d rows, %d dumps' % (tag, np_, len(res['3'][0]), len(res['3'][1])))
+    return 'ngpusph=7 gives the bits of 3, also with the check against the CPU: ' + '; '.join(out)
+
+def t_vdotsm(ctx):
+    """With cn2 and cn4 finite (tstep uses the smoothed accelerations of vdotsm) ngpusph=1 gives the bits of 0 and ngpusph=7 those of 3.
+
+    vdotsm sums the accelerations over the neighbour lists in list(), so whoever keeps the lists on the GPU (ngpusph=7) has to copy them when the courant numbers cn2 or cn4
+    make tstep read the result; before, vdotsm read lists of an older step and the time step, and the run, came out wrong.  An unrelaxed polytrope (nrelax=0) is run with
+    cn2=0.06 and cn4=0.1 and ngpusph 0, 1, 3 and 7: the energies of every row, the bytes of every dump and the number of steps of ngpusph=1 must be those of 0, and of 7 those of 3
+    (the CPU build: all four the same).  The same run with cn2 and cn4 at their default (1d30) must come out different, or the test would prove nothing.
+    """
+    out = []
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        if not exe:
+            continue
+        for np_ in (1, ctx.np):
+            res = {}
+            for mode, extra in (('0', dict(ngpusph=0)), ('1', dict(ngpusph=1)), ('3', dict(ngpusph=3)), ('7', dict(ngpusph=7)),
+                                ('d', dict(ngpusph=7, cn2='1.d30', cn4='1.d30'))):
+                d = ctx.dir('vd_%s_%d_%s' % (tag, np_, mode))
+                p, e = run(exe, d, np=np_, **dict(POLY, nrelax=0, tf=1, dtout=1, **dict(dict(cn2='0.06d0', cn4='0.1d0'), **extra)))
+                names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+                if not names:
+                    raise Fail('%s build, np=%d, mode %s: no dump was written\n%s' % (tag, np_, mode, (p.stdout + p.stderr)[-800:]))
+                steps = len(re.findall(r'^mainit', p.stdout, re.M))
+                res[mode] = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names], steps)
+            for mode, ref in (('1', '0'), ('7', '3')) + ((('3', '0'), ('7', '0')) if tag == 'cpu' else ()):
+                for k, what in ((0, 'energies'), (1, 'a dump'), (2, 'the number of steps')):
+                    if res[mode][k] != res[ref][k]:
+                        raise Fail('%s build, np=%d: ngpusph=%s changes %s of ngpusph=%s (cn2=0.06, cn4=0.1, nrelax=0)' % (tag, np_, mode, what, ref))
+            if res['7'][2] == res['d'][2] and res['7'][0] == res['d'][0]:
+                raise Fail('%s build, np=%d: cn2=0.06 and cn4=0.1 do not change the run (%d steps): the test proves nothing' % (tag, np_, res['7'][2]))
+            out.append('%s np=%d: %d steps (%d with the default cn2, cn4)' % (tag, np_, res['7'][2], res['d'][2]))
+    return 'with cn2 and cn4 finite ngpusph=1 gives the bits of 0 and 7 those of 3: ' + '; '.join(out)
+
 # --------------------------------------------------------------- HDF5 -----
 
 def t_hdf5_dump(ctx):
@@ -825,6 +891,8 @@ TESTS = {
     'gpu_sph':          t_gpu_sph,
     'gpu_forces':       t_gpu_forces,
     'gpu_ranks':        t_gpu_ranks,
+    'gpu_resident':     t_gpu_resident,
+    'vdotsm':           t_vdotsm,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

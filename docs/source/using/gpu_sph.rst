@@ -6,7 +6,8 @@ is the code as it was.  Bit 1 (``ngpusph = 1``) solves the smoothing lengths on 
 densities, the other sums over the neighbours (``omega``, ``0mega``, ``psi`` and ``wn`` of the code) and
 the neighbour lists there; everything else of the step (the pair forces, the pressure, the integrator)
 stays where it was.  Bit 2 (``ngpusph = 3``, always together with bit 1) also makes the pair sums of the
-forces on the GPU (below).
+forces on the GPU (below).  Bit 4 (``ngpusph = 7``) keeps the candidate lists of the
+smoothing-length search between steps (Verlet lists, below).
 
 With ``ngpusph = 1`` the results are the same bits as with ``ngpusph = 0`` (for the same number of MPI ranks, and for any number of threads and GPUs).
 With ``ngpusph = 3`` and ``7`` the pair sums of the forces are made on the GPU and the results are not the bits of the CPUs: they differ at the
@@ -64,6 +65,22 @@ exactly rounded ``sqrt``; the two differ in the last bit of some terms, so that 
 accelerations differ from the CPU's at the level of the rounding (about 1e-16 of the particle's), and the bits of a run
 with ``ngpusph = 3`` are not those of ``ngpusph = 1``.  Momentum and angular momentum are conserved by the same
 pairing of terms as on the CPU, to the rounding of the sums.
+
+Verlet lists (``ngpusph = 7``)
+-----------------------------
+
+The search of the neighbours is the dearest part of the smoothing-length kernel (the visit of the tree and the sorting of the candidates by index).
+With bit 4 the candidates of the first search of each particle, which are every particle within a radius larger by ``ngpusphskin`` (0.3 by default)
+than the one asked for, are kept on the GPU from the call that made them.  Later calls read them from there, in the order of the index and with the
+squared distances of the CPU, as long as the lists are complete: the radius they cover from the positions of the build, less twice the largest
+displacement of a particle since then, must reach the radius the search needs.  A particle whose list does not reach goes to the tree as before, and
+when more than 2% of the lists do not reach the next call builds them again.  The criterion is geometric, never a time.  The candidates are the same,
+in the same order, and the final filter on the squared distance is the same, so the results are the bits of ``ngpusph = 3``, for any value of
+``ngpusphskin``.  It works with one GPU for the rank; with several the search is as without it.  With the forces on the GPU (``ngpusph = 7``, shared steps)
+the neighbour lists then stay on the GPU, where the forces read them, and are not copied to the CPU; they are copied only if the CPU needs them (particles it
+solves itself, an error of CUDA in the forces, or a time step that uses the smoothed accelerations: ``nrelax`` other than 1 with ``cn2`` or ``cn4`` below
+``1d29``, the default is ``1d30``, which makes ``tstep`` sum the accelerations over the lists on the CPU).  A particle whose list would hold more than 128
+candidates has none.  ``SPHGPU_PROF=1`` writes whether the lists were built or used, the largest displacement and the number of lists that did not reach.
 
 Checking and measuring
 ----------------------

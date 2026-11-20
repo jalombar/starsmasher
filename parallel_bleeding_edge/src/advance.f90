@@ -1856,6 +1856,16 @@
       return
       end
 !***********************************************************************
+!     true if tstep needs the smoothed accelerations of vdotsm.  Only the criteria dt2 (cn2) and dt4 (cn4) read them, and with cn2
+!     and cn4 of 1d29 or more (the default is 1d30) the reciprocals 1/dt2 and 1/dt4 are far below the rounding of the sum
+!     1/dt1+1/dt2+1/dt3+1/dt4, so that vdotsm cannot change the step.  Never in a relaxation (nrelax=1).  vdotsm reads the
+!     neighbour lists in list(), so whoever keeps them on the GPU (gpusph_rhoh) copies them when this is true.
+      logical function needvdotsm()
+      include 'starsmasher.h'
+      needvdotsm=(nrelax.ne.1 .and. (cn2.lt.1.d29 .or. cn4.lt.1.d29))
+      return
+      end
+!***********************************************************************
       subroutine vdotsm
 !     compute smoothed acceleration of particle i:
       include 'starsmasher.h'                                         

@@ -231,7 +231,7 @@ GROUPS = [
                       'dtforce','nstartramp']),
  ('Parallelism and GPUs',
                      ['ngravprocs','ngpuperrank','ngravhilo','ngravoverlap','ngravtree','ngravtreeauto','treeacc','nleafgrav','qthreads','ppn',
-                      'computeexclusivemode','gflag','ngpusph','ngpusphcheck']),
+                      'computeexclusivemode','gflag','ngpusph','ngpusphcheck','ngpusphskin']),
  ('Units',           ['runit','munit','gravconst']),
  ('Periodic box',    ['boxx','boxy','boxz']),
  ('Smoothing-length solve', ['hgroup']),

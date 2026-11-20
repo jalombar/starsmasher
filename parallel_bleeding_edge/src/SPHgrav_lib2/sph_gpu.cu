@@ -69,6 +69,7 @@ __device__ unsigned long long g_clk[16];
 #endif
 
 constexpr int CAP = 128;      // most candidates of one particle on the GPU
+constexpr int VMINLIFE = 12;  // calls a set of Verlet lists has to serve (the build included) for them to be worth building
 #ifndef SPH_LEAF
 #define SPH_LEAF 8
 #endif
@@ -174,6 +175,16 @@ struct View
   const int *tgt;                 // the places of the curve of the particles of the rank
   const int *ntgt;
   int dev, ndev;                  // this device is number dev of ndev that share the particles of the rank
+  // Verlet lists (bit 4 of ngpusph): vmode 0 off; 1 the candidates of the first search of a particle are read from the list of the call that built it when the
+  // radius it covers, less twice the largest displacement since then, reaches the radius asked for; 2 this call builds the lists (a margin of vskin of the radius)
+  int vmode;
+  const double *px, *py, *pz, *pu;   // positions and u in the order of the index
+  int *vl_len;                       // for each particle of the rank (index - nlow): its entries (-1: none)
+  int *vl_idx;                       // CAP indices of the particle of each (in the order of the index)
+  double *vl_R;                      // the radius they cover, from the position at the build
+  const double *dmaxp;               // the largest displacement of a particle since the build
+  double vskin;
+  int *nfall;                        // particles with a list that did not reach: their first search went to the tree
   SphOut *out;
   int *list;                      // where the lists of the chunk go (the places are relative to it)
   int *ltot;                      // the entries written
@@ -337,6 +348,45 @@ __global__ void k_ownlist(int n, const int *flag, const int *scan, int *tgt, int
   if (k == n - 1) cnt[0] = scan[k] + flag[k];
 }
 
+// ---------------------------------------------------------------------------------------------------- the displacement since the Verlet lists were built
+// (the largest of them: an exact maximum, whatever the order in which the threads meet)
+__global__ void k_vdmax(int n, const double *x, const double *y, const double *z, const double *xr, const double *yr, const double *zr, double *part)
+{
+  __shared__ double s[256];
+  const int t = threadIdx.x;
+  double m = 0.0;
+  for (int i = blockIdx.x * blockDim.x + t; i < n; i += gridDim.x * blockDim.x)
+  {
+    const double dx = x[i] - xr[i], dy = y[i] - yr[i], dz = z[i] - zr[i];
+    const double d2 = (dx * dx + dy * dy) + dz * dz;
+    m = d2 > m ? d2 : m;
+  }
+  s[t] = m;
+  __syncthreads();
+  for (int h = 128; h > 0; h >>= 1)
+  {
+    if (t < h) s[t] = s[t + h] > s[t] ? s[t + h] : s[t];
+    __syncthreads();
+  }
+  if (t == 0) part[blockIdx.x] = s[0];
+}
+
+__global__ void k_vdmax_final(int nb, const double *part, double *dmax)
+{
+  __shared__ double s[256];
+  const int t = threadIdx.x;
+  double m = 0.0;
+  for (int b = t; b < nb; b += blockDim.x) m = part[b] > m ? part[b] : m;
+  s[t] = m;
+  __syncthreads();
+  for (int h = 128; h > 0; h >>= 1)
+  {
+    if (t < h) s[t] = s[t + h] > s[t] ? s[t + h] : s[t];
+    __syncthreads();
+  }
+  if (t == 0) dmax[0] = sqrt(s[0]);
+}
+
 // ---------------------------------------------------------------------------------------------------- the search of one particle
 // The candidates of the particle at (xi,yi,zi) found from the root of the tree: every particle at a squared distance not above Rc2,
 // with the squared distance of the CPU.  They go to ck (the index of the particle times 2, plus 1 for a gas particle) and cd, element
@@ -417,18 +467,75 @@ struct Cand
   int m;
   double Rc2;      // the candidates are every particle at a squared distance up to this
   int nrec, nev;   // searches again from the root, evaluations of the function (for the counters of -DSPH_CLOCKS)
+  int vslot;       // Verlet lists: the place of the particle in them (-1: not in use)
+  bool vhas;       // it has a list
+  double vRc2;     // the squared radius to which that list is complete now (negative: none)
 };
 
-// the candidates again from the root of the tree, out to a squared radius r2 (with the margin); false if there are too many
+// The candidates of the particle from its Verlet list: every entry at a squared distance up to Rc2 (the list is complete out to that radius), in the order of the
+// index, with the squared distance of the CPU: the same candidates, in the same order, as collect() finds from the root
+__device__ int collect_vl(const View &V, int slot, double xi, double yi, double zi, double Rc2, unsigned *ck, double *cd, int st)
+{
+  const int len = V.vl_len[slot];
+  const int *li = V.vl_idx + (size_t)slot * CAP;
+  int m = 0;
+  for (int a = 0; a < len; a++)
+  {
+    const int j = li[a];
+    const double ex = xi - V.px[j], ey = yi - V.py[j], ez = zi - V.pz[j];
+    const double d2 = (ex * ex + ey * ey) + ez * ez;
+    if (d2 <= Rc2)
+    {
+      if (m == CAP) return -1;
+      ck[m * st] = ((unsigned)j << 1) | (V.pu[j] != 0.0 ? 1u : 0u);
+      cd[m * st] = d2;
+      m++;
+    }
+  }
+  return m;
+}
+
+// the candidates again, out to a squared radius r2 (with the margin): from the Verlet list if it reaches that far, else from the root of the tree; false if there are too many
 __device__ bool recollect(const View &V, double xi, double yi, double zi, double r2, Cand &C)
 {
   const double Rn = r2 * (GROW * GROW);
-  const int m = collect(V, xi, yi, zi, Rn, C.ck, C.cd, C.st);
+  int m;
+  if (C.vslot >= 0 && Rn <= C.vRc2)
+    m = collect_vl(V, C.vslot, xi, yi, zi, Rn, C.ck, C.cd, C.st);
+  else
+  {
+    if (C.vslot >= 0 && C.vhas && C.nrec == 0) atomicAdd(V.nfall, 1);   // its list does not reach: the first search goes to the tree
+    m = collect(V, xi, yi, zi, Rn, C.ck, C.cd, C.st);
+  }
   C.nrec++;
   if (m < 0) return false;
   C.m = m;
   C.Rc2 = Rn;
   return true;
+}
+
+// the first search of a particle: in the call that builds the Verlet lists it reaches vskin further and its candidates are kept (unless they are too many)
+__device__ bool first_search(const View &V, int slot, double xi, double yi, double zi, double r2, Cand &C)
+{
+  if (V.vmode == 2)
+  {
+    const double f = 1.0 + V.vskin;
+    const double Rb = r2 * (GROW * GROW) * (f * f);
+    const int m = collect(V, xi, yi, zi, Rb, C.ck, C.cd, C.st);
+    if (m >= 0)
+    {
+      int *li = V.vl_idx + (size_t)slot * CAP;
+      for (int a = 0; a < m; a++) li[a] = (int)(C.ck[a * C.st] >> 1);
+      V.vl_len[slot] = m;
+      V.vl_R[slot] = sqrt(Rb);
+      C.nrec++;
+      C.m = m;
+      C.Rc2 = Rb;
+      return true;
+    }
+    V.vl_len[slot] = -1;
+  }
+  return recollect(V, xi, yi, zi, r2, C);
 }
 
 // bfun of advance.f90 (bonetsum_d2 on the candidates): the function of the solve, wn-nnopt, and its derivative, 0mega, for the
@@ -555,7 +662,7 @@ __global__ void __launch_bounds__(NTHR, NBLK) k_solve(View V)
   unsigned ck[CAP];
   double cd[CAP];
   Cand C;
-  C.ck = ck; C.cd = cd; C.st = 1; C.m = 0; C.Rc2 = -1.0; C.nrec = 0; C.nev = 0;
+  C.ck = ck; C.cd = cd; C.st = 1; C.m = 0; C.Rc2 = -1.0; C.nrec = 0; C.nev = 0; C.vslot = -1; C.vhas = false; C.vRc2 = -1.0;
   CLK(s0);
   if (valid)
   {
@@ -564,13 +671,28 @@ __global__ void __launch_bounds__(NTHR, NBLK) k_solve(View V)
     const D4 r = V.rec[k];
     const bool gas = V.frec[k].w > 0.5f;
     const double hin = V.hp[i - V.nlow];
+    const int slot = i - V.nlow;
+    if (V.vmode == 1)
+    {
+      C.vslot = slot;
+      C.vhas = V.vl_len[slot] >= 0;
+      if (C.vhas)
+      {
+        const double Rc = V.vl_R[slot] - 2.0 * (*V.dmaxp);
+        if (Rc > 0.0)
+        {
+          const double Rs = Rc * (1.0 - 1.0e-9);
+          C.vRc2 = Rs * Rs;
+        }
+      }
+    }
     bool ok = !(V.flagmod > 0 && (i + 1) % V.flagmod == 0);
     if (!gas)
     {
       // the list at the smoothing length it has
       hfin = hin;
       r2f = 4.0 * (hfin * hfin);
-      if (ok) ok = recollect(V, r.x, r.y, r.z, r2f, C);
+      if (ok) ok = first_search(V, slot, r.x, r.y, r.z, r2f, C);
     }
     else
     {
@@ -579,7 +701,7 @@ __global__ void __launch_bounds__(NTHR, NBLK) k_solve(View V)
       const double hg = hin - V.hfloor;
       const double hguess0 = hg * (1.0 + (V.divv[i - V.nlow] * V.dt) / 3.0);
       const double hstart = hguess0 > 2.0e-6 * hg ? hguess0 : 2.0e-6 * hg;
-      if (ok) ok = recollect(V, r.x, r.y, r.z, 4.0 * (hstart * hstart), C);
+      if (ok) ok = first_search(V, slot, r.x, r.y, r.z, 4.0 * (hstart * hstart), C);
       if (ok) ok = solve_h(V, r.x, r.y, r.z, C, hin, V.divv[i - V.nlow], hs);
       CLK(s1);
       CLKADD(5, s0, s1);
@@ -748,6 +870,16 @@ struct Dev
   SphOut *hout = 0;            // pinned
   int *hcc = 0;                // pinned: the entries of the lists of each chunk
   int houtcap = 0;
+  // Verlet lists (see View): the lists of the particles of the rank, where the positions were when they were built, the displacement since
+  int *vl_len = 0, *vl_idx = 0, *vnfall = 0;
+  double *vl_R = 0, *vxr = 0, *vyr = 0, *vzr = 0, *vdmax = 0, *vpart = 0;
+  size_t vnown = 0, vn = 0;      // room for this many particles of the rank and in all
+  bool vvalid = false;           // lists have been built, for the particles vbn of which vbnown are the rank's from vbnlow
+  int vbn = 0, vbnlow = 0, vbnown = 0;
+  bool vforce = false;           // the next call builds them again (too many lists did not reach)
+  int vused = 0;                 // calls that have used the lists since they were built
+  int voff = 0;                  // calls left in which the lists are not used (they were built again too soon)
+  int vofflen = 24;              // how many the next time
   std::vector<cudaEvent_t> evS, evC;   // the kernels of chunk c done / the copies of chunk c done
 };
 
@@ -762,6 +894,15 @@ struct BState
   int n, nlow, nown, ch;
 };
 BState g_bs = {false, 0, 0, 0, 0};
+
+// where the lists made by the last call are on the devices and where they go in list() of the caller, for gpu_sph_getlists_
+struct LState
+{
+  bool valid;
+  int ch;
+  std::vector<std::vector<long long> > base, tot;   // for each device and chunk: where in list() it goes (from 0) and how many entries
+};
+LState g_ls = {false, 0, std::vector<std::vector<long long> >(), std::vector<std::vector<long long> >()};
 
 template <class T> void dfree(T *&p) { if (p) { cudaFree(p); p = 0; } }
 
@@ -834,6 +975,34 @@ void reserve(Dev &d, int n, int nown, int ch)
     d.evS.push_back(a);
     d.evC.push_back(b);
   }
+}
+
+// room for the Verlet lists of nown particles of the rank, n in all; false (and no lists) if the memory is not there
+bool vl_reserve(Dev &d, int n, int nown)
+{
+  CK(cudaSetDevice(d.id));
+  if ((size_t)nown > d.vnown || (size_t)n > d.vn || !d.vl_len)
+  {
+    cudaStreamSynchronize(d.st);
+    dfree(d.vl_len); dfree(d.vl_idx); dfree(d.vnfall); dfree(d.vl_R); dfree(d.vxr); dfree(d.vyr); dfree(d.vzr); dfree(d.vdmax); dfree(d.vpart);
+    d.vvalid = false;
+    const size_t ocap = (size_t)nown + nown / 16 + 1024, ncap = (size_t)n + n / 16 + 1024;
+    try
+    {
+      dmalloc(d.vl_len, ocap); dmalloc(d.vl_idx, ocap * CAP); dmalloc(d.vl_R, ocap);
+      dmalloc(d.vxr, ncap); dmalloc(d.vyr, ncap); dmalloc(d.vzr, ncap);
+      dmalloc(d.vdmax, 4); dmalloc(d.vpart, 256); dmalloc(d.vnfall, 4);
+    }
+    catch (const SphError &)
+    {
+      dfree(d.vl_len); dfree(d.vl_idx); dfree(d.vnfall); dfree(d.vl_R); dfree(d.vxr); dfree(d.vyr); dfree(d.vzr); dfree(d.vdmax); dfree(d.vpart);
+      cudaGetLastError();
+      return false;
+    }
+    d.vnown = ocap;
+    d.vn = ncap;
+  }
+  return true;
 }
 
 // Pin the arrays of the caller so that the copies are fast; harmless if it cannot be done.  The arrays lie one after the other in
@@ -959,6 +1128,7 @@ struct Host
   int *nn, *first, *sflag;   // nn and first indexed by the particle; sflag by the particle of the rank
   int *list;
   size_t listcap;
+  bool skiplist;             // the lists stay on the device (they are copied by gpu_sph_getlists_ if the CPU needs them)
 };
 
 // Launches the work of one device: for each chunk of its particles the kernel (on one of four streams, so that the tail of one chunk is
@@ -1013,7 +1183,8 @@ void drain(int nown, int nlow, int ch, const Host &H, int *ltot, int *ierr, long
   long long hb = 0;
   long nfl = 0;
   bool full = false;
-  std::vector<std::vector<long long> > base(ndev, std::vector<long long>(nchmax + 1, 0));
+  std::vector<std::vector<long long> > base(ndev, std::vector<long long>(nchmax + 1, 0)), tots(ndev, std::vector<long long>(nchmax + 1, 0));
+  g_ls.valid = false;
   auto spread = [&](int c) {
     // the records of chunk c of every device, to the arrays of the caller
     for (int k = 0; k < ndev; k++)
@@ -1061,9 +1232,10 @@ void drain(int nown, int nlow, int ch, const Host &H, int *ltot, int *ierr, long
       if (!full)
       {
         CK(cudaMemcpyAsync(d.hout + o0, d.out + o0, (size_t)(o1 - o0) * sizeof(SphOut), cudaMemcpyDeviceToHost, d.st2));
-        CK(cudaMemcpyAsync(H.list + hb, d.list + (size_t)c * ch * CAP, (size_t)tot * 4, cudaMemcpyDeviceToHost, d.st2));
+        if (!H.skiplist) CK(cudaMemcpyAsync(H.list + hb, d.list + (size_t)c * ch * CAP, (size_t)tot * 4, cudaMemcpyDeviceToHost, d.st2));
       }
       CK(cudaEventRecord(d.evC[c], d.st2));
+      tots[k][c] = tot;
       hb += tot;
     }
     if (!full && c > 0) spread(c - 1);
@@ -1076,6 +1248,7 @@ void drain(int nown, int nlow, int ch, const Host &H, int *ltot, int *ierr, long
     for (int q = 0; q < 4; q++) CK(cudaStreamSynchronize(g_dev[k].sc[q]));
   }
   if (full) { *ierr = 2; return; }
+  g_ls.valid = true; g_ls.ch = ch; g_ls.base = base; g_ls.tot = tots;
   if (nchmax > 0) spread(nchmax - 1);
   *ltot = (int)hb;
   if (nflagged) *nflagged = nfl;
@@ -1559,6 +1732,37 @@ inline int key_bits(int n)
   return b;
 }
 
+// Copies the lists the last call left on the devices to list() (the places drain would have given them). ierr: 0 ok, 3 error of CUDA or no lists
+void getlists(int *list, int *ierr)
+{
+  if (!g_ls.valid) { *ierr = 3; return; }
+  try
+  {
+    const int ndev = (int)g_dev.size();
+    for (int k = 0; k < ndev; k++)
+    {
+      Dev &d = g_dev[k];
+      CK(cudaSetDevice(d.id));
+      for (size_t c = 0; c < g_ls.tot[k].size(); c++)
+      {
+        const long long tot = g_ls.tot[k][c];
+        if (tot > 0) CK(cudaMemcpyAsync(list + g_ls.base[k][c], d.list + (size_t)c * g_ls.ch * CAP, (size_t)tot * 4, cudaMemcpyDeviceToHost, d.st2));
+      }
+    }
+    for (int k = 0; k < ndev; k++)
+    {
+      CK(cudaSetDevice(g_dev[k].id));
+      CK(cudaStreamSynchronize(g_dev[k].st2));
+    }
+    CK(cudaSetDevice(g_dev[0].id));
+  }
+  catch (const SphError &e)
+  {
+    fprintf(stderr, "StarSmasher (SPH on the GPU): %s\n", e.what());
+    *ierr = e.code;
+  }
+}
+
 }  // namespace
 
 extern "C"
@@ -1605,6 +1809,13 @@ extern "C"
     }
   }
 
+  // The lists of the last gpu_sph_rhoh_ call, which it left on the devices (skiplist=1), copied to list().  ierr: 0 ok, 3 error of CUDA or no lists.
+  void gpu_sph_getlists_(int *list, int *ierr)
+  {
+    *ierr = 0;
+    getlists(list, ierr);
+  }
+
   // number of devices of this process
   void gpu_sph_ndev_(int *nd) { *nd = (int)g_dev.size(); }
 
@@ -1649,9 +1860,11 @@ extern "C"
   // particle that the GPU did (not wn of a point particle), the lists are written to list(1:ltot).  sflag(i-nlow+1) is 1 for a
   // particle that the GPU did not do, which is left as it was.  ierr: 0 ok, 2 the lists do not fit in list(1:listcap), 3 error of
   // CUDA, 4 no memory.  With ierr 2 the arrays hp... may have been changed (the caller keeps the guesses of h).
+  // skin > 0 (one device for the rank): Verlet lists, the candidates of the first search kept from the call that built them with a margin of skin of the radius
+  // and used while they are complete (the same lists and sums, the same bits); skin <= 0: every call searches from the root.
   void gpu_sph_rhoh_(int *n_, int *nlow_, int *nup_, int *nmaxarr, double *x, double *y, double *z, double *am, double *u, double *hp,
                      double *divv, double *rho, double *omega, double *om0, double *psi, double *wn, double *zeta, int *nn, int *first,
-                     int *sflag, int *list, int *listcap_, int *ltot, double *dt, double *hfloor, int *nnopt, int *nselfg, int *ierr)
+                     int *sflag, int *list, int *listcap_, int *ltot, double *dt, double *hfloor, int *nnopt, int *nselfg, double *skin_, int *skiplist_, int *ierr)
   {
     *ierr = 0;
     *ltot = 0;
@@ -1690,6 +1903,38 @@ extern "C"
         reserve(g_dev[k], n, nown, ch);
       }
       for (int k = 0; k < ndev; k++) upload_and_build(g_dev[k], n, nlow, nup, x, y, z, am, u, hp + nlow, divv + nlow);
+      // Verlet lists: built by this call (2), or used (1), or not at all (0)
+      int vmode = 0;
+      const double skin = *skin_;
+      if (skin > 0.0 && ndev == 1 && nown > 0 && g_dev[0].voff > 0)
+      {
+        // the lists were built again too soon (see below): they are not used for a number of calls, counted, and then tried again
+        g_dev[0].voff--;
+        g_dev[0].vvalid = false;
+      }
+      else if (skin > 0.0 && ndev == 1 && nown > 0 && vl_reserve(g_dev[0], n, nown))
+      {
+        Dev &d = g_dev[0];
+        CK(cudaSetDevice(d.id));
+        const bool same = d.vvalid && d.vbn == n && d.vbnlow == nlow && d.vbnown == nown && !d.vforce;
+        vmode = same ? 1 : 2;
+        if (vmode == 2)
+        {
+          CK(cudaMemsetAsync(d.vl_len, 0xff, (size_t)nown * sizeof(int), d.st));
+          CK(cudaMemcpyAsync(d.vxr, d.x, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
+          CK(cudaMemcpyAsync(d.vyr, d.y, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
+          CK(cudaMemcpyAsync(d.vzr, d.z, (size_t)n * 8, cudaMemcpyDeviceToDevice, d.st));
+          CK(cudaMemsetAsync(d.vdmax, 0, sizeof(double), d.st));
+        }
+        else
+        {
+          const int nbm = std::min(256, nblocks(n, 256));
+          k_vdmax<<<nbm, 256, 0, d.st>>>(n, d.x, d.y, d.z, d.vxr, d.vyr, d.vzr, d.vpart);
+          k_vdmax_final<<<1, 256, 0, d.st>>>(nbm, d.vpart, d.vdmax);
+        }
+        CK(cudaMemsetAsync(d.vnfall, 0, sizeof(int), d.st));
+        d.vforce = false;
+      }
       double t1 = 0;
       if (plev) { for (int k = 0; k < ndev; k++) { CK(cudaSetDevice(g_dev[k].id)); CK(cudaStreamSynchronize(g_dev[k].st)); } t1 = now_ms(); }
       std::vector<cudaEvent_t> ev;
@@ -1697,16 +1942,48 @@ extern "C"
       {
         Dev &d = g_dev[k];
         CK(cudaSetDevice(d.id));
-        const View V = makeview(d, ndev, k, n, nlow, nup, ph);
+        View V = makeview(d, ndev, k, n, nlow, nup, ph);
+        if (vmode)
+        {
+          V.vmode = vmode; V.px = d.x; V.py = d.y; V.pz = d.z; V.pu = d.u; V.vl_len = d.vl_len; V.vl_idx = d.vl_idx; V.vl_R = d.vl_R;
+          V.dmaxp = d.vdmax; V.vskin = skin; V.nfall = d.vnfall;
+        }
         const int ns = slice_of(nown, ndev, k);
         if (k == 0) mark("(before the kernels)", d.st);
         if (ns > 0) launch_chunks(d, V, ns, ch, (k == 0 && plev >= 2) ? &ev : 0);
       }
       Host H;
       H.hp = hp; H.rho = rho; H.omega = omega; H.om0 = om0; H.psi = psi; H.wn = wn; H.zeta = zeta; H.u = u;
-      H.nn = nn; H.first = first; H.sflag = sflag; H.list = list; H.listcap = listcap;
+      H.nn = nn; H.first = first; H.sflag = sflag; H.list = list; H.listcap = listcap; H.skiplist = (*skiplist_ != 0);
       long nfl = 0;
       drain(nown, nlow, ch, H, ltot, ierr, &nfl);
+      // lists left on the device that the CPU needs after all (particles it has to solve itself): copy them now
+      if (*ierr == 0 && *skiplist_ != 0 && nfl > 0) getlists(list, ierr);
+      if (vmode)
+      {
+        Dev &d = g_dev[0];
+        CK(cudaSetDevice(d.id));
+        if (*ierr == 0)
+        {
+          int nf = 0;
+          double dm = 0.0;
+          CK(cudaMemcpy(&nf, d.vnfall, sizeof nf, cudaMemcpyDeviceToHost));
+          CK(cudaMemcpy(&dm, d.vdmax, sizeof dm, cudaMemcpyDeviceToHost));
+          if (vmode == 2) { d.vvalid = true; d.vbn = n; d.vbnlow = nlow; d.vbnown = nown; d.vused = 0; }
+          // the lists are built again when more than 2% of the particles have a list that no longer reaches the radius they need: a geometric criterion
+          d.vforce = (vmode == 1) && ((long long)nf * 50 > (long long)nown);
+          if (vmode == 1) d.vused++;
+          // A list set that served fewer than VMINLIFE calls (counted, not timed) costs more than it saves, because building it is dearer than a plain search: the lists are
+          // then left alone for vofflen calls, which doubles each time up to 384 and goes back to 24 when a set lasts; after them they are built again and judged again
+          if (d.vforce)
+          {
+            if (d.vused + 1 < VMINLIFE) { d.voff = d.vofflen; d.vofflen = std::min(2 * d.vofflen, 384); d.vvalid = false; }
+            else d.vofflen = 24;
+          }
+          if (plev) fprintf(stderr, "SPHGPU verlet: %s, largest displacement %.3e, %d of %d lists did not reach%s%s\n", vmode == 2 ? "built" : "used", dm, nf, nown, d.vforce ? " (built again next call)" : "", d.voff > 0 ? " (off)" : "");
+        }
+        else d.vvalid = false;
+      }
       if (*ierr == 0 && nfl == 0)
       {
         g_bs.valid = true; g_bs.n = n; g_bs.nlow = nlow; g_bs.nown = nown; g_bs.ch = ch;

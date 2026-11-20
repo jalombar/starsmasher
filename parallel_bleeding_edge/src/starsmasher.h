@@ -137,10 +137,13 @@
       integer hgroup
       common/hgrouppars/ hgroup
 !     ngpusph (input): the SPH work done on the GPUs, a bit mask: 1 the smoothing lengths, densities and lists, 2 (with 1) the pair
-!     sums of the forces (gpusph.f90, SPHgrav_lib2/sph_gpu.cu); ngpusphcheck: do it on the CPUs too and compare (a diagnostic;
+!     sums of the forces, 4 (with 1 and 2) the Verlet lists (gpusph.f90, SPHgrav_lib2/sph_gpu.cu); ngpusphcheck: do it on the CPUs too and compare (a diagnostic;
 !     bit 1 stops at the first difference, bit 2 writes the differences of the forces to log0.sph)
       integer ngpusph,ngpusphcheck
       common/gpusphpars/ ngpusph,ngpusphcheck
+!     ngpusphskin (input): the margin of the Verlet lists of bit 4 of ngpusph, as a fraction of the search radius
+      real*8 ngpusphskin
+      common/gpusphpars2/ ngpusphskin
       integer stellarevolutioncodetype	
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
       common/inputfilenames2/startfile3,binaryfile,triplefile,bpbhfile,imagefile,advectedfile

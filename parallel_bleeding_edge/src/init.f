@@ -649,7 +649,7 @@ c      end
      $     bbh_e0,bbh_trueanomaly,bbh_argperi,bbh_inclination,
      $     bbh_longitude,rp,rjump,rjumpfactor,rjumppercent,ndtoutafter,
      $     reentryfactor,
-     $     hgroup,ngpusph,ngpusphcheck,
+     $     hgroup,ngpusph,ngpusphcheck,ngpusphskin,
      $     boxx,boxy,boxz,nhdf5
       
       character*9 slurm_gpu_count_str
@@ -775,8 +775,9 @@ c     set some default values, so that they don't necessarily have to be set in 
       hgroup=32 ! neighbour search of the smoothing-length solve.  N>0: one search of the tree for each group of N particles that are consecutive in the tree (N at most 256), which is faster; 0: one search for each particle.  The results are the same bits for any N and any number of threads, but a build that fuses multiplications and additions (MARCH, aarch64) can differ in the last bit of a sum.  Not used in periodic boxes, with dynhco>0 or with block steps that divide the particles between the ranks
       nhdf5=0 ! snapshot format: 0 writes out*.sph only, 1 writes out*.h5 (HDF5) as well, 2 writes out*.h5 only.  1 and 2 need a build made with make HDF5=1.  2 leaves no out*.sph, which startfile1 and splash read, so use it only to analyse a run.  restartrad.sph is always written in the native format
 
-      ngpusph=0 ! SPH work done on the GPUs, a bit mask: 0, 1 or 3.  0: all on the CPUs.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  Bit 2 (value 2, always with bit 1, so ngpusph=3): the pair sums of the forces (div v and curl v, the accelerations, du/dt, with Balsara's viscosity) are made on the GPU too, with the terms and the order of the sums of the CPU, so that the bits are those of the CPU except where a pair approaches and the root of its viscosity term is taken (sqrt on the GPU, pow on the CPU).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, nav=4 or nintvar=3 for the forces, block steps and the first step of a run for bit 1); a particle with more than 128 candidates is solved by the CPU
+      ngpusph=0 ! SPH work done on the GPUs, a bit mask: 0, 1, 3 or 7.  0: all on the CPUs.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  Bit 4 (value 4, ngpusph=7): the candidate lists of the smoothing-length search are kept on the GPU between steps (Verlet lists, the margin is ngpusphskin) and the results are the bits of ngpusph=3.  Bit 2 (value 2, always with bit 1, so ngpusph=3): the pair sums of the forces (div v and curl v, the accelerations, du/dt, with Balsara's viscosity) are made on the GPU too, with the terms and the order of the sums of the CPU, so that the bits are those of the CPU except where a pair approaches and the root of its viscosity term is taken (sqrt on the GPU, pow on the CPU).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, nav=4 or nintvar=3 for the forces, block steps and the first step of a run for bit 1); a particle with more than 128 candidates is solved by the CPU
       ngpusphcheck=0 ! 0, 1, 2 or 3 (a bit mask).  Bit 1 (value 1): whatever ngpusph=1 puts on the GPU is also done on the CPUs and compared, and the run stops at the first particle that differs.  Bit 2 (value 2): the forces of ngpusph=3 are also made by the CPUs, on the same data, and the differences are written to log0.sph at each step (the run goes on with the CPU results).  A diagnostic, slower than either alone
+      ngpusphskin=0.3d0 ! margin of the Verlet lists of bit 4 of ngpusph (ngpusph=7), as a fraction of the search radius: the candidates of the smoothing-length search are kept this much further out and used while they are complete (a larger margin makes them last longer and the lists longer).  The results do not depend on it
 
       open(12,file='sph.input',err=100,STATUS='OLD')
       read(12,input)
@@ -788,8 +789,10 @@ c     set some default values, so that they don't necessarily have to be set in 
      $     stop 'init: reentryfactor must be above 0 and at most 1'
       if(hgroup.lt.0 .or. hgroup.gt.256)
      $     stop 'init: hgroup must be between 0 and 256'
-      if(ngpusph.ne.0 .and. ngpusph.ne.1 .and. ngpusph.ne.3)
-     $     stop 'init: ngpusph must be 0, 1 or 3 (bit 2, the forces, needs bit 1)'
+      if(ngpusph.ne.0 .and. ngpusph.ne.1 .and. ngpusph.ne.3 .and. ngpusph.ne.7)
+     $     stop 'init: ngpusph must be 0, 1, 3 or 7 (bit 2, the forces, needs bit 1; bit 4 needs bits 1 and 2)'
+      if(ngpusphskin.le.0.d0 .or. ngpusphskin.gt.2.d0)
+     $     stop 'init: ngpusphskin must be above 0 and at most 2'
       if(ngpusphcheck.lt.0 .or. ngpusphcheck.gt.3)
      $     stop 'init: ngpusphcheck must be between 0 and 3'
 c     snapshots in HDF5 need the writer, which only make HDF5=1 builds in;

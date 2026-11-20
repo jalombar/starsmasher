@@ -62,6 +62,20 @@ something changed.  These tell you whether the answer is right.
        (``CUDA_VISIBLE_DEVICES=0`` with 2 and with 3 ranks): the ranks without a
        GPU of their own take part in the comparison of the forces, the run
        finishes (it used to hang) and agrees with ``ngpusph = 1`` to 1e-9.
+   * - ``gpu_resident``
+     - ``ngpusph = 7`` (the candidates of the smoothing-length search kept on the
+       GPU between steps, with a small margin so that they are built again in the
+       run) gives exactly the bits of ``ngpusph = 3``: the energies of every row
+       and the bytes of every dump, on one rank and on several, also with
+       ``ngpusphcheck = 3``; the CPU build says in ``log0.sph`` that it has no GPU
+       code and gives the same bits.
+   * - ``vdotsm``
+     - With ``cn2`` and ``cn4`` finite (so that ``tstep`` uses the smoothed
+       accelerations of ``vdotsm``, which sums over the neighbour lists on the
+       CPU) ``ngpusph = 1`` gives exactly the bits of ``ngpusph = 0`` and
+       ``ngpusph = 7`` those of ``ngpusph = 3``: the energies of every row, the
+       bytes of every dump and the number of steps, on one rank and on several;
+       the same run with the default ``cn2`` and ``cn4`` comes out different.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
