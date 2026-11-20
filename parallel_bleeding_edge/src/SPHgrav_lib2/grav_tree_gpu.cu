@@ -17,7 +17,10 @@
 // number of blocks, and whatever the other leaves are.  The list far is done 32 nodes at a time, one node per lane (compute_m2l), the 20
 // coefficients of the Taylor series are summed in the registers of each lane, and added over the lanes at the end of the visit by a
 // butterfly of fixed order.  The list near is done one leaf at a time: its particles go to shared memory and every lane sums them for its
-// particle (double-single sums).  A leaf with more than 32 particles (only points that coincide can make one) is done in passes of 32.
+// particle (double-single sums).  A leaf with more than 32 particles (only points that coincide can make one) is done in passes of 32.  A leaf with at most 16 lanes at work (particles
+// whose force is wanted, in 58% of the leaves of the collision of two stars) does the list two source leaves at a time, the entries e and e+1, one in each half of the warp: the lane
+// 16*g+s takes the target particle s of the leaf (its data come by shuffles) and the entry e+g; the sums of the two halves go to the lanes that own the particles and are added there in
+// the order of the list, so every lane gets the terms and the sums of the list done a leaf at a time.
 //
 // Precision.  The positions go as pairs (hi, lo) of floats relative to the centre of mass of the system, as with ngravhilo=1 of the direct
 // sum: separations a - b = (a.hi - b.hi) + (a.lo - b.lo) have almost double precision.  The same for the centres of mass of the nodes.
@@ -36,8 +39,10 @@
 // n/16 chunks (at least 8192); if it is not enough the call is done again with a larger pool (the result is the same).  The environment variable
 // STARSMASHER_TREE_HEAVY replaces TREE_HEAVY, so that a test can make the ordinary models take the path of the heavy leaves.
 //
-// Sizes: the stack has TREE_STK entries per warp (gpu_tree_wait_ says if it was not enough, and Fortran stops with a message), the lists of far
-// nodes and near leaves have room for 256 entries and are done when they have more than 224.
+// Sizes: the stack has TREE_STK = 768 entries per warp (the deepest visits of the collisions of two stars of 100000 particles each and of single stars of up to 2000000 particles need
+// 370 at most; the shared memory it frees pays for the particles of two source leaves of the list near, see below); when a visit does not fit, gpu_tree_wait_ does the call again with
+// kernels that have a stack of TREE_STKLONG = 1024 entries, and keeps them for the next calls (the result is the same); if even that is not enough, gpu_tree_wait_ says so and Fortran
+// stops with a message.  The lists of far nodes and near leaves have room for 256 entries and are done when they have more than 224.
 //
 // The order of the leaves.  The warps take the leaves of the list one after the other, and what a leaf costs goes with the size of its cell (a larger cell has fewer nodes that are
 // well separated).  The first pass sorts the leaves by the size of their cell, the largest first (a counting sort on the device), so that the leaves that wait at the end of the
@@ -70,13 +75,26 @@ namespace SPHgrav
 #define TREE_WARPS 4        // warps (leaves at a time) in a block
 #endif
 #ifndef TREE_STK
-#define TREE_STK 1024       // entries of the stack of a warp
+#define TREE_STK 768        // entries of the stack of a warp (the deepest visits measured need 370)
+#endif
+#ifndef TREE_STKLONG
+#define TREE_STKLONG 1024   // the stack of the kernel that does the call again when TREE_STK was not enough
 #endif
 #ifndef TREE_HEAVY
 #define TREE_HEAVY 768      // a leaf whose list of near leaves is longer than this (at one of the times the list is done, see tree_kernel) is divided in chunks
 #endif
 #ifndef TREE_CHUNK
 #define TREE_CHUNK 192      // entries of the list of near leaves in a chunk of a heavy leaf (at most TREE_NEARCAP - 32)
+#endif
+// The registers of the kernel.  Four blocks of the tree fill 65536 registers of an SM when each thread has 128 (the limit of the launch bounds).  On an H100 (sm_90) the kernel with
+// the groups used 118 of them, which is 120 for the allocation: 61440 registers for the four blocks and 4096 left, where the 111 of c65784f leave 8192.  The SPH kernels that run on the
+// same device while the tree is done (rho_and_h and the forces with ngpusph) seem to need more than 4096 for a block, and wait: the kernel was 10% faster by itself, but the mean step of
+// the whole code with 500000 particles was 5.0% longer with one device and 5.8% with four (the phase of the forces 0.7 ms longer).  With 112 registers the four blocks take 57344 and the
+// kernel is as fast, and the step is no longer.  __maxnreg__ takes the place of the launch bounds on sm_90 with CUDA 12.4 or later (not tried on sm_80, which has the same registers).
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ == 900 && (__CUDACC_VER_MAJOR__ > 12 || (__CUDACC_VER_MAJOR__ == 12 && __CUDACC_VER_MINOR__ >= 4))
+#define TREE_KERNEL_LIMITS __maxnreg__(112)
+#else
+#define TREE_KERNEL_LIMITS __launch_bounds__(TREE_WARPS * 32, 4)
 #endif
 #define TREE_FARCAP 256     // entries of the list of the nodes that are well separated
 #define TREE_NEARCAP 256    // entries of the list of the leaves that are near
@@ -278,14 +296,14 @@ __device__ __forceinline__ void expand_taylor(const float (&f)[20], const float 
 // true: the second pass.  A work item is a chunk of a heavy leaf: the visit of the tree is done again for that leaf (it gives the same list in the same order, it
 // does not depend on what is summed), only the entries of the chunk are summed, and the sums go to part.  The warp that finishes the last chunk of a leaf adds the
 // sums of the chunks in the order of the chunks to the head, so the result does not depend on who did what, nor on the number of devices.
-template<int NK, bool CHUNK>
-__global__ void __launch_bounds__(TREE_WARPS * 32, 4) tree_kernel(const TreeArgs a)
+template<int NK, bool CHUNK, int STK>
+__global__ void TREE_KERNEL_LIMITS tree_kernel(const TreeArgs a)
 {
-  __shared__ int s_stk[TREE_WARPS][TREE_STK];
+  __shared__ int s_stk[TREE_WARPS][STK];
   __shared__ int s_far[TREE_WARPS][TREE_FARCAP];
   __shared__ int s_near[TREE_WARPS][TREE_NEARCAP];
-  __shared__ float4 s_ta[TREE_WARPS][32];
-  __shared__ float4 s_tb[TREE_WARPS][32];
+  __shared__ float4 s_ta[TREE_WARPS][64];     // the source particles of an entry of the list near, or of two (the leaf with at most 16 lanes at work): 32 for each half of the warp
+  __shared__ float4 s_tb[TREE_WARPS][64];
   const int lane = threadIdx.x & 31;
   const int wid = threadIdx.x >> 5;
   int *const stk = s_stk[wid];
@@ -347,6 +365,33 @@ __global__ void __launch_bounds__(TREE_WARPS * 32, 4) tree_kernel(const TreeArgs
       const float hi = fabsf(qb.w);
       const float h2i = hi * hi;
 
+      // A leaf with at most 16 lanes at work (in the second pass too: the chunk of the list of a heavy leaf) does its list near two entries at a time (flush_near_grp): the lane 16*g + s of the warp, s < nt, takes the
+      // target particle s of the leaf (the s-th lane that has its force wanted), whose data come here by shuffles, and the source leaf e + g of the list.  oslot: the number of the
+      // target particle of this lane in that numbering, to fetch its sums from the half of the warp that did them.
+      const int ntg = __popc(needmask);
+      const bool grp = onepass && ntg <= 16;
+      float4 gqa = qa, gqb = qb;
+      int gpid = pidx;
+      bool gsv = false;
+      const int oslot = __popc(needmask & ((1u << lane) - 1u));
+      if (grp)
+      {
+        const int slot = lane & 15;
+        gsv = slot < ntg;
+        unsigned m = needmask;
+        for (int i = 0; i < slot && m != 0u; ++i)
+          m &= m - 1u;
+        const int gsrc = (m != 0u ? __ffs(m) : __ffs(needmask)) - 1;
+        gqa.x = __shfl_sync(FULLMASK, qa.x, gsrc);
+        gqa.y = __shfl_sync(FULLMASK, qa.y, gsrc);
+        gqa.z = __shfl_sync(FULLMASK, qa.z, gsrc);
+        gqb.x = __shfl_sync(FULLMASK, qb.x, gsrc);
+        gqb.y = __shfl_sync(FULLMASK, qb.y, gsrc);
+        gqb.z = __shfl_sync(FULLMASK, qb.z, gsrc);
+        gqb.w = __shfl_sync(FULLMASK, qb.w, gsrc);
+        gpid = c0 + gsrc;
+      }
+
       float f[20];
 #pragma unroll
       for (int k = 0; k < 20; k++)
@@ -397,10 +442,10 @@ __global__ void __launch_bounds__(TREE_WARPS * 32, 4) tree_kernel(const TreeArgs
         }
       };
 
-      // the list near: a leaf at a time, its particles to shared memory, every lane sums them for its particle
-      auto flush_near = [&]()
+      // the list near: a leaf at a time, its particles to shared memory, every lane sums them for its particle (from the entry e0 on)
+      auto flush_near_from = [&](const int e0)
       {
-        for (int e = 0; e < nnear; ++e)
+        for (int e = e0; e < nnear; ++e)
         {
           const int ent = nearl[e];
           const int s = ent & 0x3fffffff;
@@ -424,7 +469,8 @@ __global__ void __launch_bounds__(TREE_WARPS * 32, 4) tree_kernel(const TreeArgs
 #define TACC_P(v) pp += (v)
               if (lean)
               {
-#pragma unroll 4
+// unrolled twice, not four times: with four the kernel that has the group is 40-80% slower on the H100 with CUDA 12.6, where it uses all the 128 registers that the launch bounds allow (118 with these factors)
+#pragma unroll 2
                 for (int k = 0; k < cn; ++k)
                 {
                   const float4 ja = ta[k], jb = tb[k];
@@ -443,7 +489,8 @@ __global__ void __launch_bounds__(TREE_WARPS * 32, 4) tree_kernel(const TreeArgs
               }
               else
               {
-#pragma unroll 4
+// not unrolled: the loop with the test of each pair holds the softened pair, and on the H100 the unrolled copies of it made the kernel slower (the factors were chosen on the three GPUs, see the commit)
+#pragma unroll 1
               for (int k = 0; k < cn; ++k)
               {
                 const float4 ja = ta[k], jb = tb[k];
@@ -489,6 +536,158 @@ __global__ void __launch_bounds__(TREE_WARPS * 32, 4) tree_kernel(const TreeArgs
         nnear = 0;
       };
 
+      // the list near, two entries at a time (grp): the entries e and e+1, in the two halves of the warp.  The sums of the two halves go to the lanes that own the particles and are
+      // added there in the order of the entries, so each lane gets the sums of the list done an entry at a time, with the same terms in the same order.  A half that has no entry (the
+      // end of the list) does nothing and an entry with more than 32 particles (points that coincide) sends the rest of the list to flush_near_from.
+      auto flush_near_grp = [&]()
+      {
+        const int g = lane >> 4;
+        const int j = lane & 15;
+        const float hig = fabsf(gqb.w);
+        const float h2ig = hig * hig;
+        for (int e = 0; e < nnear; e += 2)
+        {
+          const int ge = e + g;
+          const bool have = ge < nnear;
+          int ent = 0x40000000;
+          int4 si = make_int4(0, 0, 0, -1);
+          if (have)
+          {
+            ent = nearl[ge];
+            si = __ldg(&a.ni[ent & 0x3fffffff]);
+          }
+          const bool lean = (ent & 0x40000000) != 0;
+          const int cne = si.w - si.z + 1;     // 0 for a half without entry
+          if (__any_sync(FULLMASK, cne > 32))
+          {
+            flush_near_from(e);
+            return;
+          }
+          const int t0 = si.z;
+          if (j < cne)
+          {
+            ta[g * 32 + j] = __ldg(&a.pa[t0 + j]);
+            tb[g * 32 + j] = __ldg(&a.pb[t0 + j]);
+          }
+          if (j + 16 < cne)
+          {
+            ta[g * 32 + 16 + j] = __ldg(&a.pa[t0 + 16 + j]);
+            tb[g * 32 + 16 + j] = __ldg(&a.pb[t0 + 16 + j]);
+          }
+          __syncwarp();
+          const int cn0 = __shfl_sync(FULLMASK, cne, 0), cn1 = __shfl_sync(FULLMASK, cne, 16);
+          const int cmin = min(cn0, cn1), cmax = max(cn0, cn1);
+          const bool alllean = __all_sync(FULLMASK, lean);
+          float px = 0.0f, py = 0.0f, pz = 0.0f, pp = 0.0f;
+          if (gsv)
+          {
+            const float4 *const tga = ta + g * 32;
+            const float4 *const tgb = tb + g * 32;
+#define TACC_X(v) px += (v)
+#define TACC_Y(v) py += (v)
+#define TACC_Z(v) pz += (v)
+#define TACC_P(v) pp += (v)
+#define GRP_LEAN_BODY                                                          \
+  {                                                                            \
+    const float4 ja = tga[k], jb = tgb[k];                                     \
+    const float dx = (ja.x - gqa.x) + (jb.x - gqb.x);                          \
+    const float dy = (ja.y - gqa.y) + (jb.y - gqb.y);                          \
+    const float dz = (ja.z - gqa.z) + (jb.z - gqb.z);                          \
+    const float r2 = dx * dx + dy * dy + dz * dz;                              \
+    const float rinv = rsqrtf(r2);                                             \
+    const float mr1 = rinv * ja.w;                                             \
+    const float mr3 = rinv * rinv * mr1;                                       \
+    TACC_X(mr3 * dx);                                                          \
+    TACC_Y(mr3 * dy);                                                          \
+    TACC_Z(mr3 * dz);                                                          \
+    TACC_P(-mr1);                                                              \
+  }
+#define GRP_TEST_BODY                                                          \
+  {                                                                            \
+    const float4 ja = tga[k], jb = tgb[k];                                     \
+    const float dx = (ja.x - gqa.x) + (jb.x - gqb.x);                          \
+    const float dy = (ja.y - gqa.y) + (jb.y - gqb.y);                          \
+    const float dz = (ja.z - gqa.z) + (jb.z - gqb.z);                          \
+    const float r2 = dx * dx + dy * dy + dz * dz;                              \
+    const float hj = fabsf(jb.w);                                              \
+    const float h2j = hj * hj;                                                 \
+    if (r2 >= fmaxf(h2ig, h2j))                                                \
+    {                                                                          \
+      const float rinv = rsqrtf(r2);                                           \
+      const float mr1 = rinv * ja.w;                                           \
+      const float mr3 = rinv * rinv * mr1;                                     \
+      TACC_X(mr3 * dx);                                                        \
+      TACC_Y(mr3 * dy);                                                        \
+      TACC_Z(mr3 * dz);                                                        \
+      TACC_P(-mr1);                                                            \
+    }                                                                          \
+    else                                                                       \
+    {                                                                          \
+      float gacc, gpot;                                                        \
+      soft_pair<NK>(r2, hig, hj, ja.w, t0 + k == gpid, jb.w >= 0.0f ? 1.0f : 0.0f, gacc, gpot); \
+      TACC_X(gacc * dx);                                                       \
+      TACC_Y(gacc * dy);                                                       \
+      TACC_Z(gacc * dz);                                                       \
+      TACC_P(gpot);                                                            \
+    }                                                                          \
+  }
+            if (alllean)
+            {
+// unrolled twice, as the loop above
+#pragma unroll 2
+              for (int k = 0; k < cmin; ++k)
+                GRP_LEAN_BODY
+              for (int k = cmin; k < cmax; ++k)
+                if (k < cne)
+                  GRP_LEAN_BODY
+            }
+            else
+            {
+// not unrolled, as the loop above with the test
+#pragma unroll 1
+              for (int k = 0; k < cmin; ++k)
+                GRP_TEST_BODY
+              for (int k = cmin; k < cmax; ++k)
+                if (k < cne)
+                  GRP_TEST_BODY
+            }
+#undef GRP_LEAN_BODY
+#undef GRP_TEST_BODY
+#undef TACC_X
+#undef TACC_Y
+#undef TACC_Z
+#undef TACC_P
+          }
+          // the sums of the entries e and e+1 to the lane that owns the particle, in this order
+#pragma unroll
+          for (int gg = 0; gg < 2; ++gg)
+          {
+            const int sl = gg * 16 + oslot;
+            const float vx = __shfl_sync(FULLMASK, px, sl);
+            const float vy = __shfl_sync(FULLMASK, py, sl);
+            const float vz = __shfl_sync(FULLMASK, pz, sl);
+            const float vp = __shfl_sync(FULLMASK, pp, sl);
+            if (nd_i && e + gg < nnear)
+            {
+              sax.add(vx);
+              say.add(vy);
+              saz.add(vz);
+              spt.add(vp);
+            }
+          }
+          __syncwarp();
+        }
+        nnear = 0;
+      };
+
+      auto flush_near = [&]()
+      {
+        if (grp)
+          flush_near_grp();
+        else
+          flush_near_from(0);
+      };
+
       // the visit
       if (lane == 0)
         stk[0] = 0;
@@ -527,7 +726,7 @@ __global__ void __launch_bounds__(TREE_WARPS * 32, 4) tree_kernel(const TreeArgs
         const unsigned mn = __ballot_sync(FULLMASK, isleaf);
         const unsigned mo = __ballot_sync(FULLMASK, isopen);
         const int nopen = __popc(mo);
-        const bool ovf = (sp + 2 * nopen > TREE_STK);
+        const bool ovf = (sp + 2 * nopen > STK);
         if (ovf && lane == 0)
           atomicOr(&a.st->err, 1);
         if (CHUNK)
@@ -830,9 +1029,10 @@ struct TreeDev
   int off, cnt;      // the leaves of this call: work[off .. off+cnt)
   int plo, phi;      // the particles of those leaves: plo .. phi (0-based, in the order of the tree)
   int nlaunch;
+  bool longstk;      // the stack of TREE_STK was not enough once: the kernels with TREE_STKLONG are used from then on
   TreeDev() : dev(0), nsm(0), pa(NULL), pb(NULL), nf(NULL), need(NULL), ni(NULL), work(NULL), work2(NULL), sortcnt(NULL), out(NULL), counter(NULL), st(NULL),
               cn(0), cnode(0), cwork(0), events(false), counter2(NULL), hcount(NULL), hdone(NULL), hrec(NULL), pdesc(NULL), part(NULL), poolcap(0),
-              nk(0), off(0), cnt(0), plo(0), phi(-1), nlaunch(0) { memset(&a1, 0, sizeof(a1)); memset(&a2, 0, sizeof(a2)); }
+              nk(0), off(0), cnt(0), plo(0), phi(-1), nlaunch(0), longstk(false) { memset(&a1, 0, sizeof(a1)); memset(&a2, 0, sizeof(a2)); }
 };
 
 // heavy leaves: the threshold above which a leaf is divided in chunks.  The environment variable STARSMASHER_TREE_HEAVY replaces it, so
@@ -937,11 +1137,11 @@ void ensure_dev(TreeDev &d, const size_t n, const size_t nnode, const size_t nwo
     set_pool(d, pool);
 }
 
-template<int NK, bool CHUNK>
+template<int NK, bool CHUNK, int STK>
 void launch_variant(TreeDev &d, const TreeArgs &args)
 {
   int occ = 0;
-  CUDA_SAFE_CALL(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&occ, tree_kernel<NK, CHUNK>, TREE_WARPS * 32, 0));
+  CUDA_SAFE_CALL(cudaOccupancyMaxActiveBlocksPerMultiprocessor(&occ, tree_kernel<NK, CHUNK, STK>, TREE_WARPS * 32, 0));
   occ = std::max(occ, 1);
   // the first pass has a block for four leaves of the call (not more than can be resident); the second pass does not know how many chunks there are, and the leaves of a device are few when it
   // holds heavy leaves (see the speed in gpu_tree_wait_), so it has as many blocks as can be resident
@@ -958,15 +1158,22 @@ void launch_variant(TreeDev &d, const TreeArgs &args)
     k_sort_put<<<sb, 256>>>(args.work, args.nf, args.nwork, d.sortcnt, d.work2);
     a.work = d.work2;
   }
-  tree_kernel<NK, CHUNK><<<blocks, TREE_WARPS * 32>>>(a);
+  tree_kernel<NK, CHUNK, STK><<<blocks, TREE_WARPS * 32>>>(a);
+}
+
+template<bool CHUNK, int STK>
+void launch_nk_stk(TreeDev &d, const TreeArgs &args, const int nk)
+{
+  if (nk == 0)      launch_variant<0, CHUNK, STK>(d, args);
+  else if (nk == 1) launch_variant<1, CHUNK, STK>(d, args);
+  else              launch_variant<2, CHUNK, STK>(d, args);
 }
 
 template<bool CHUNK>
 void launch_nk(TreeDev &d, const TreeArgs &args, const int nk)
 {
-  if (nk == 0)      launch_variant<0, CHUNK>(d, args);
-  else if (nk == 1) launch_variant<1, CHUNK>(d, args);
-  else              launch_variant<2, CHUNK>(d, args);
+  if (d.longstk) launch_nk_stk<CHUNK, TREE_STKLONG>(d, args, nk);
+  else           launch_nk_stk<CHUNK, TREE_STK>(d, args, nk);
 }
 
 // the two passes of a call on a device: the leaves, then the chunks of the heavy leaves
@@ -978,6 +1185,18 @@ void launch_two(TreeDev &d)
   CUDA_SAFE_CALL(cudaEventRecord(d.em, 0));
   launch_nk<true>(d, d.a2, d.nk);
   CUDA_SAFE_CALL(cudaGetLastError());
+}
+
+// the call of a device done again (a longer stack, or a larger pool, is set): the counts are cleared, the two passes are launched, the result and the counts come back
+void redo_call(TreeDev &d, const int k)
+{
+  CUDA_SAFE_CALL(cudaMemsetAsync(d.counter, 0, sizeof(int), 0));
+  CUDA_SAFE_CALL(cudaMemsetAsync(d.st, 0, sizeof(TreeStats), 0));
+  CUDA_SAFE_CALL(cudaMemsetAsync(d.hcount, 0, 2 * sizeof(int), 0));
+  launch_two(d);
+  CUDA_SAFE_CALL(cudaMemcpyAsync(h_out + d.plo, d.out + d.plo, (size_t)(d.phi - d.plo + 1) * sizeof(D4), cudaMemcpyDeviceToHost, 0));
+  CUDA_SAFE_CALL(cudaMemcpyAsync(&t_host_st[k], d.st, sizeof(TreeStats), cudaMemcpyDeviceToHost, 0));
+  CUDA_SAFE_CALL(cudaDeviceSynchronize());
 }
 
 // the division of nw leaves among nd devices in proportion to their speed (largest remainder; one leaf at least for each when there are enough)
@@ -1183,6 +1402,14 @@ extern "C"
       CUDA_SAFE_CALL(cudaEventSynchronize(d.e3));
       float b1 = 0.0f;
       CUDA_SAFE_CALL(cudaEventElapsedTime(&b1, d.e1, d.em));
+      // a visit did not fit in the stack of TREE_STK entries: the call is done again with the stack of TREE_STKLONG, which is kept for the next calls (the result is the same)
+      if (d.cnt > 0 && (t_host_st[k].err & 1) && !d.longstk)
+      {
+        fprintf(stderr, "gpu_tree: a visit needed more than %d entries of the stack: the call is done again on device %d with %d, and so are the next ones\n", TREE_STK, d.dev,
+                TREE_STKLONG);
+        d.longstk = true;
+        redo_call(d, k);
+      }
       // the pool of the chunks was full: the call is done again on this device with a pool that has room for all (the result is the same)
       int tries = 0;
       while (d.cnt > 0 && (t_host_st[k].err & 2) && tries < 3)
@@ -1197,13 +1424,7 @@ extern "C"
         d.a2.poolcap = d.a1.poolcap;
         d.a2.part = d.part;
         d.a2.pdesc = d.pdesc;
-        CUDA_SAFE_CALL(cudaMemsetAsync(d.counter, 0, sizeof(int), 0));
-        CUDA_SAFE_CALL(cudaMemsetAsync(d.st, 0, sizeof(TreeStats), 0));
-        CUDA_SAFE_CALL(cudaMemsetAsync(d.hcount, 0, 2 * sizeof(int), 0));
-        launch_two(d);
-        CUDA_SAFE_CALL(cudaMemcpyAsync(h_out + d.plo, d.out + d.plo, (size_t)(d.phi - d.plo + 1) * sizeof(D4), cudaMemcpyDeviceToHost, 0));
-        CUDA_SAFE_CALL(cudaMemcpyAsync(&t_host_st[k], d.st, sizeof(TreeStats), cudaMemcpyDeviceToHost, 0));
-        CUDA_SAFE_CALL(cudaDeviceSynchronize());
+        redo_call(d, k);
         tries++;
       }
       k1ms[k] = b1;
