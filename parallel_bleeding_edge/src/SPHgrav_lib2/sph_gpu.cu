@@ -24,6 +24,7 @@
 // bonetsum_d2 and bonetsumwithphi of advance.f90, in the same order of the arithmetic (the sums run over the candidates in the
 // order of the index).  The candidates are searched again, further out, when a trial radius goes past what was searched.  The
 // tables of the kernel are those of the CPU (kernels.f), read with the same linear interpolation.
+// The tests of non-negative squared distances are made on the integer bits of the doubles (dlt, dle): the same answers, and the double precision unit, which is slow on most GPUs, does less.
 //
 // Nothing here changes the values of any array of the CPU but the ones the caller names; a call that does not return 0 has
 // changed nothing, and the caller does the work on the CPU.
@@ -481,6 +482,11 @@ __device__ __forceinline__ int sort_entries(double *cd, double *tmp, int np, int
   return passes;
 }
 
+// a < b and a <= b for two doubles that are not negative and not NaN, on the integer bits (the order of the bits is the order of the numbers): the same answer as the double
+// comparison, made by the integer unit (the double precision unit of most GPUs does a fraction of an operation of the others a cycle)
+__device__ __forceinline__ bool dlt(double a, double b) { return __double_as_longlong(a) < __double_as_longlong(b); }
+__device__ __forceinline__ bool dle(double a, double b) { return __double_as_longlong(a) <= __double_as_longlong(b); }
+
 // the test in double precision of the entries in src (element k at [k*sst]), in order: the place read from each, the squared distance of the CPU, the candidates
 // kept in the order they are in, in ck and cd (element k at [k*st]).  The index written never passes the index read, so src may be cd itself (with sst = st).
 // Returns the number of candidates.
@@ -493,7 +499,7 @@ __device__ __forceinline__ int dense_exact(const View &V, double xi, double yi, 
     const D4 r = V.rec[(unsigned)(e & 0xffffffffull)];
     const double ex = xi - r.x, ey = yi - r.y, ez = zi - r.z;
     const double d2 = (ex * ex + ey * ey) + ez * ez;
-    if (d2 <= Rc2)
+    if (dle(d2, Rc2))
     {
       ck[m * st] = (unsigned)(e >> 32);
       cd[m * st] = d2;
@@ -719,10 +725,10 @@ __device__ bool bfun(const View &V, double xi, double yi, double zi, Cand &C, do
   for (int k = 0; k < C.m; k++)
   {
     const double d2 = C.cd[k * C.st];
-    if (d2 < r2 && (C.ck[k * C.st] & 1u))
+    if (dlt(d2, r2) && (C.ck[k * C.st] & 1u))
     {
       double xq = ctoh2 * d2;
-      xq = xq < V.c4 ? xq : V.c4;
+      xq = dlt(xq, V.c4) ? xq : V.c4;
       const int it = (int)xq;
       const double fq = xq - (double)it;
       const double2 g0 = V.gd[it], g1 = V.gd[it + 1];
@@ -902,7 +908,7 @@ __device__ __forceinline__ void finish_particle(const View &V, Cand &C, bool ok,
   const double r2f = F.r2f;
   int nn = 0;
   for (int a = 0; a < C.m; a++)
-    if (cd[(a)] < r2f) nn++;
+    if (dlt(cd[(a)], r2f)) nn++;
   F.nn = nn;
   const double hpi = F.hfin;
   const double h2 = hpi * hpi;
@@ -914,11 +920,11 @@ __device__ __forceinline__ void finish_particle(const View &V, Cand &C, bool ok,
     for (int a = 0; a < C.m; a++)
     {
       const double r2p = cd[(a)];
-      if (!(r2p < r2f)) continue;
+      if (!dlt(r2p, r2f)) continue;
       if (ck[(a)] & 1u)
       {
         double xq = ctoh2 * r2p;
-        xq = xq < V.c4 ? xq : V.c4;
+        xq = dlt(xq, V.c4) ? xq : V.c4;
         const int it = (int)xq;
         const double fq = xq - (double)it;
         const D4 w0 = V.wdp[it], w1 = V.wdp[it + 1];
@@ -940,29 +946,29 @@ __device__ __forceinline__ void finish_particle(const View &V, Cand &C, bool ok,
     for (int a = 0; a < C.m; a++)
     {
       const double r2p = cd[(a)];
-      if (!(r2p < r2f)) continue;
+      if (!dlt(r2p, r2f)) continue;
       const unsigned jj = ck[(a)] >> 1;
       const bool gj = (ck[(a)] & 1u) != 0u;
       const double amj = V.am[jj];
       const double xqr = ctoh2 * r2p;
-      const double xq = xqr < V.c4 ? xqr : V.c4;
+      const double xq = dlt(xqr, V.c4) ? xqr : V.c4;
       const int it = (int)xq;
       const double fq = xq - (double)it;
       const D4 w0 = V.wdp[it], w1 = V.wdp[it + 1];
-      if (r2p < 4.0 * h2)
+      if (dlt(r2p, 4.0 * h2))
       {
         if ((V.nselfg == 1 || !gj) && true)
           psi = psi + amj * (w0.z + fq * (w1.z - w0.z));
       }
       if (gj)
       {
-        if (r2p < 4.0 * h2t)
+        if (dlt(r2p, 4.0 * h2t))
         {
           // without a floor h2t is h2, the index and the fraction of the smoothing length without the floor are the same ones, unless the
           // table was clamped
           int itt = it;
           double fqt = fq;
-          if (!(samet && xqr <= V.c4))
+          if (!(samet && dle(xqr, V.c4)))
           {
             const double xqt = ctoh2t * r2p;
             itt = (int)xqt;
@@ -972,7 +978,7 @@ __device__ __forceinline__ void finish_particle(const View &V, Cand &C, bool ok,
           wn = wn + (g0.x + fqt * (g1.x - g0.x));
           om0 = om0 - (g0.y + fqt * (g1.y - g0.y));
         }
-        if (r2p < 4.0 * h2)
+        if (dlt(r2p, 4.0 * h2))
         {
           rho = rho + amj * (w0.x + fq * (w1.x - w0.x));
           omg = omg + amj * (w0.y + fq * (w1.y - w0.y));
@@ -1014,7 +1020,7 @@ __device__ __forceinline__ void emit_particle(const View &V, typename WarpScanI:
       int c = 0;
       const double r2f = F.r2f;
       for (int a = 0; a < C.m; a++)
-        if (cd[(a)] < r2f) V.list[base + c++] = (int)(ck[(a)] >> 1) + 1;   // (the lists of the CPU hold the index from 1, as Fortran numbers the particles)
+        if (dlt(cd[(a)], r2f)) V.list[base + c++] = (int)(ck[(a)] >> 1) + 1;   // (the lists of the CPU hold the index from 1, as Fortran numbers the particles)
     }
     SphOut o;
     o.hp = F.hfin; o.rho = F.rho; o.omega = F.omg; o.om0 = F.om0; o.psi = F.psi; o.wn = F.wn;
