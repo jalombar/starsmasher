@@ -119,6 +119,15 @@ something changed.  These tell you whether the answer is right.
        (``SPHGPU_FECHECK``), and particles left to the CPU (``SPHGPU_FLAGMOD`` 7 and
        2): the energies of every row and the bytes of every dump are those of the
        default.
+   * - ``gpu_integ``
+     - With one device the device goes on by itself with the integration of the step (the
+       corrector, the predictor of the next step with the dt it takes from the candidates it
+       sends, and the smoothing lengths of the next step) and no bit changes: an unrelaxed
+       polytrope with the gravity of the tree on the GPU, ``ngpusph`` 7 and 3, by default, with
+       ``SPHGPU_NOINT`` (the step as it was), with ``SPHGPU_INTCHECK`` (every array of the device is
+       compared with the CPU's at every step) and with particles left to the CPU
+       (``SPHGPU_FLAGMOD``): the energies of every row and the bytes of every dump are those of the
+       step as it was, and ``log0.sph`` says that the device went on and was collected.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
