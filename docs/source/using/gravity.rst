@@ -190,7 +190,10 @@ builds gave -1.8% (start), -1.2% (t = 8), -4.0% (pericentre), +1.0% (late) and -
 
 ``ngravrebuild = -1`` chooses 16 for the tree on the GPUs (``ngravtree = 2``) with at most 32 threads of the gravity process for each GPU (the number of threads of the rank divided by ``ngpuperrank``), and 1 otherwise (more
 threads, where the gain is small and not reproducible, the tree on the CPUs, block steps, the direct sum), from nothing but the threads, the GPUs and the options (never from a time measured), and writes the choice in the log of rank 0.
-The result with the automatic value depends on the number of threads only through that limit.  The default is ``ngravrebuild = 1``.
+The result with the automatic value depends on the number of threads only through that limit.
+
+The default is ``ngravrebuild = 1``: the option is off unless ``sph.input`` writes it.  It is faster only with few CPU threads for each GPU (the rows of 8 and 16 threads above); with
+all the cores of a node for one GPU it gains nothing that can be told from the spread, and it changes the last digits of the result.
 
 Letting the code choose
 -----------------------
