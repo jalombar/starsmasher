@@ -56,6 +56,9 @@
 !     kernels and the collection of their results): the structure of the tree of the gravity (gw_tree).  The caller sets what it wants
 !     done before rho_and_h and clears it after.
       logical, save :: gw_tree=.false.
+!     gv_ok: rho_and_h may start the gravity (gravforce) as soon as the smoothing lengths are final, before it does the pressure; gv_done
+!     says that it did (the caller then does not call gravforce)
+      logical, save :: gv_ok=.false., gv_done=.false.
 !     0: the library has not been asked yet, 1: ready, 2: not usable (gs_why says why)
       integer, save :: gs_state=0, gs_why=0
 !     the reason written last, for the smoothing lengths (1) and the forces (2)
