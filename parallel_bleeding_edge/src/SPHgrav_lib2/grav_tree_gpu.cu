@@ -39,6 +39,10 @@
 // Sizes: the stack has TREE_STK entries per warp (gpu_tree_wait_ says if it was not enough, and Fortran stops with a message), the lists of far
 // nodes and near leaves have room for 256 entries and are done when they have more than 224.
 //
+// The order of the leaves.  The warps take the leaves of the list one after the other, and what a leaf costs goes with the size of its cell (a larger cell has fewer nodes that are
+// well separated).  The first pass sorts the leaves by the size of their cell, the largest first (a counting sort on the device), so that the leaves that wait at the end of the
+// kernel are the short ones.  The result of a leaf does not depend on when it is done, nor on the order of the leaves that become heavy.
+//
 // Several devices for one process (ngpuperrank): each takes a run of consecutive leaves from the list of the leaves that have a
 // particle to do, divided in proportion to the speed of its first pass measured in the calls before.  The leaves are independent, so the bits do not depend
 // on the division.
@@ -687,6 +691,110 @@ __global__ void __launch_bounds__(TREE_WARPS * 32, 4) tree_kernel(const TreeArgs
 }
 
 // ---------------------------------------------------------------------------------------------------------------------------
+// the order of the leaves of the first pass
+//
+// The warps take the leaves of the list work one after the other, and a leaf costs from half to five times the average (the cost goes with the size of its cell: a larger cell has
+// fewer nodes that are well separated).  Taken in the order of the tree, the last leaves are as likely to be long as short ones, and the kernel waits for the longest of them at the end
+// (30% of the time on the collisions of two stars of 100000 particles each).  The leaves are taken from the largest cell to the smallest, which is much closer to the best order
+// (longest first).  The sort is a counting sort of the size of the cell, in classes of an eighth of an octave, made on the device before the first pass.  The result of a leaf does
+// not depend on when it is done (nor on the order of the leaves that become heavy), so this changes the time only.
+// ---------------------------------------------------------------------------------------------------------------------------
+#define TREE_SORTB 2048
+#ifndef TREE_SORTMAX
+#define TREE_SORTMAX 32      // the first pass is sorted when it has no more leaves than this for each warp that can be resident
+#endif
+
+__device__ __forceinline__ int size_class(const float4 *nf, const int leaf)
+{
+  return min(max(__float_as_int(__ldg(&nf[4 * leaf].w)) >> 20, 0), TREE_SORTB - 1);
+}
+
+// the number of leaves of each class (the lanes of a warp that have the same class add together: one atomic for them all)
+__global__ void k_sort_count(const int *work, const float4 *nf, const int n, int *cnt)
+{
+  __shared__ int sh[TREE_SORTB];
+  for (int i = threadIdx.x; i < TREE_SORTB; i += blockDim.x)
+    sh[i] = 0;
+  __syncthreads();
+  const int lane = threadIdx.x & 31;
+  for (int i0 = blockIdx.x * blockDim.x; i0 < n; i0 += gridDim.x * blockDim.x)
+  {
+    const int i = i0 + threadIdx.x;
+    const bool v = i < n;
+    const int c = v ? size_class(nf, __ldg(&work[i])) : -1;
+    const unsigned m = __match_any_sync(0xffffffffu, c);
+    if (v && lane == __ffs(m) - 1)
+      atomicAdd(&sh[c], __popc(m));
+  }
+  __syncthreads();
+  for (int i = threadIdx.x; i < TREE_SORTB; i += blockDim.x)
+    if (sh[i] != 0)
+      atomicAdd(&cnt[i], sh[i]);
+}
+
+// for each class, the place of its first leaf in the new list: the classes with the larger cells come first (one block of 1024 threads, two classes each)
+__global__ void k_sort_scan(int *cnt)
+{
+  __shared__ int tot[32];
+  const int t = threadIdx.x;
+  const int c0 = TREE_SORTB - 1 - 2 * t, c1 = c0 - 1;      // the two classes of this thread, from the last class down
+  const int v0 = cnt[c0], v1 = cnt[c1];
+  int x = v0 + v1;
+  // inclusive scan of x over the 1024 threads: in each warp, then over the warps
+  const int lane = t & 31, wid = t >> 5;
+  for (int o = 1; o < 32; o <<= 1)
+  {
+    const int y = __shfl_up_sync(0xffffffffu, x, o);
+    if (lane >= o)
+      x += y;
+  }
+  if (lane == 31)
+    tot[wid] = x;
+  __syncthreads();
+  if (wid == 0)
+  {
+    int w = tot[lane];
+    for (int o = 1; o < 32; o <<= 1)
+    {
+      const int y = __shfl_up_sync(0xffffffffu, w, o);
+      if (lane >= o)
+        w += y;
+    }
+    tot[lane] = w;
+  }
+  __syncthreads();
+  const int incl = x + (wid > 0 ? tot[wid - 1] : 0);
+  const int excl = incl - (v0 + v1);
+  cnt[c0] = excl;
+  cnt[c1] = excl + v0;
+}
+
+// the leaves to their places (within a class the order is the one of the atomic counter: it does not matter); the lanes of a warp with the same class take their places with one atomic
+__global__ void k_sort_put(const int *work, const float4 *nf, const int n, int *pos, int *out)
+{
+  const int lane = threadIdx.x & 31;
+  for (int i0 = blockIdx.x * blockDim.x; i0 < n; i0 += gridDim.x * blockDim.x)
+  {
+    const int i = i0 + threadIdx.x;
+    const bool v = i < n;
+    int leaf = 0, c = -1;
+    if (v)
+    {
+      leaf = __ldg(&work[i]);
+      c = size_class(nf, leaf);
+    }
+    const unsigned m = __match_any_sync(0xffffffffu, c);
+    const int lead = __ffs(m) - 1;
+    int base = 0;
+    if (v && lane == lead)
+      base = atomicAdd(&pos[c], __popc(m));
+    base = __shfl_sync(0xffffffffu, base, lead);
+    if (v)
+      out[base + __popc(m & ((1u << lane) - 1u))] = leaf;
+  }
+}
+
+// ---------------------------------------------------------------------------------------------------------------------------
 // the host side
 // ---------------------------------------------------------------------------------------------------------------------------
 
@@ -705,7 +813,7 @@ struct TreeDev
   float4 *pa, *pb, *nf;
   unsigned char *need;
   int4 *ni;
-  int *work;
+  int *work, *work2, *sortcnt;     // the leaves to do, as the host gave them, and in the order of the first pass; the classes of the counting sort
   D4 *out;
   int *counter;
   TreeStats *st;
@@ -722,7 +830,7 @@ struct TreeDev
   int off, cnt;      // the leaves of this call: work[off .. off+cnt)
   int plo, phi;      // the particles of those leaves: plo .. phi (0-based, in the order of the tree)
   int nlaunch;
-  TreeDev() : dev(0), nsm(0), pa(NULL), pb(NULL), nf(NULL), need(NULL), ni(NULL), work(NULL), out(NULL), counter(NULL), st(NULL),
+  TreeDev() : dev(0), nsm(0), pa(NULL), pb(NULL), nf(NULL), need(NULL), ni(NULL), work(NULL), work2(NULL), sortcnt(NULL), out(NULL), counter(NULL), st(NULL),
               cn(0), cnode(0), cwork(0), events(false), counter2(NULL), hcount(NULL), hdone(NULL), hrec(NULL), pdesc(NULL), part(NULL), poolcap(0),
               nk(0), off(0), cnt(0), plo(0), phi(-1), nlaunch(0) { memset(&a1, 0, sizeof(a1)); memset(&a2, 0, sizeof(a2)); }
 };
@@ -791,6 +899,7 @@ void ensure_dev(TreeDev &d, const size_t n, const size_t nnode, const size_t nwo
     CUDA_SAFE_CALL(cudaEventCreate(&d.em));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.counter, sizeof(int)));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.counter2, sizeof(int)));
+    CUDA_SAFE_CALL(cudaMalloc((void **)&d.sortcnt, TREE_SORTB * sizeof(int)));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.hcount, 2 * sizeof(int)));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.st, sizeof(TreeStats)));
     int nsm = 0;
@@ -816,8 +925,9 @@ void ensure_dev(TreeDev &d, const size_t n, const size_t nnode, const size_t nwo
   }
   if (nwork > d.cwork)
   {
-    if (d.work) { cudaFree(d.work); cudaFree(d.hrec); cudaFree(d.hdone); }
+    if (d.work) { cudaFree(d.work); cudaFree(d.work2); cudaFree(d.hrec); cudaFree(d.hdone); }
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.work, nwork * sizeof(int)));
+    CUDA_SAFE_CALL(cudaMalloc((void **)&d.work2, nwork * sizeof(int)));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.hrec, nwork * sizeof(int4)));
     CUDA_SAFE_CALL(cudaMalloc((void **)&d.hdone, nwork * sizeof(int)));
     d.cwork = nwork;
@@ -836,7 +946,19 @@ void launch_variant(TreeDev &d, const TreeArgs &args)
   // the first pass has a block for four leaves of the call (not more than can be resident); the second pass does not know how many chunks there are, and the leaves of a device are few when it
   // holds heavy leaves (see the speed in gpu_tree_wait_), so it has as many blocks as can be resident
   const int blocks = CHUNK ? std::max(1, occ * d.nsm) : std::max(1, std::min(occ * d.nsm, (args.nwork + TREE_WARPS - 1) / TREE_WARPS));
-  tree_kernel<NK, CHUNK><<<blocks, TREE_WARPS * 32>>>(args);
+  TreeArgs a = args;
+  if (!CHUNK && args.nwork > blocks * TREE_WARPS && args.nwork <= TREE_SORTMAX * blocks * TREE_WARPS)
+  {
+    // more leaves than warps, and not more than TREE_SORTMAX for each warp: they are taken from the largest cell to the smallest (with fewer leaves than warps every leaf has a warp, and
+    // with many for each warp the wait at the end is a small part of the time, so the sort would cost more than it gives: 2% of the call for a star of 2000000 particles on an H100)
+    CUDA_SAFE_CALL(cudaMemsetAsync(d.sortcnt, 0, TREE_SORTB * sizeof(int), 0));
+    const int sb = std::min(64, (args.nwork + 255) / 256);
+    k_sort_count<<<sb, 256>>>(args.work, args.nf, args.nwork, d.sortcnt);
+    k_sort_scan<<<1, 1024>>>(d.sortcnt);
+    k_sort_put<<<sb, 256>>>(args.work, args.nf, args.nwork, d.sortcnt, d.work2);
+    a.work = d.work2;
+  }
+  tree_kernel<NK, CHUNK><<<blocks, TREE_WARPS * 32>>>(a);
 }
 
 template<bool CHUNK>
