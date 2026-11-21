@@ -78,7 +78,7 @@ module gravtree
   type walkbuf
      integer :: capm = 0, capn = 0, capc = 0
      real(dp), allocatable :: mb(:,:), nb(:,:), cb(:,:), sb(:,:)
-     integer, allocatable :: ci(:)
+     integer, allocatable :: ci(:), si(:)
      integer, allocatable :: stack(:)
   end type walkbuf
   type(walkbuf), allocatable, save :: wb(:)
@@ -228,7 +228,7 @@ contains
        wb(it)%capm = 2048
        wb(it)%capn = 4096
        wb(it)%capc = 4096
-       allocate (wb(it)%mb(2056,10), wb(it)%nb(4104,4), wb(it)%cb(4104,8), wb(it)%ci(4104), wb(it)%sb(4104,6))
+       allocate (wb(it)%mb(2056,10), wb(it)%nb(4104,4), wb(it)%cb(4104,8), wb(it)%ci(4104), wb(it)%sb(4104,6), wb(it)%si(4104))
        allocate (wb(it)%stack(stackmax))
     end if
   end subroutine walk_setup
@@ -813,38 +813,42 @@ contains
     integer, intent(in) :: it, nn, nc, nnp, ncp, i, nk
     real(dp), intent(in) :: xi, yi, zi, h2i, hi
     real(dp), intent(inout) :: ax, ay, az, pt
-    integer :: jj, ns, nsp
-    real(dp) :: sx, sy, sz, sp, r2, hm, gacc, gpt, selff
+    integer :: jj, k, ns, nsp, nsoft
+    real(dp) :: sx, sy, sz, sp, r2, gacc, gpt, selff
     sx = 0.d0
     sy = 0.d0
     sz = 0.d0
     sp = 0.d0
     call newton_all(nnp, size(wb(it)%nb,1), xi, yi, zi, wb(it)%nb, sx, sy, sz, sp)
     call newton_masked(ncp, size(wb(it)%cb,1), xi, yi, zi, h2i, wb(it)%cb, sx, sy, sz, sp)
-    ! the pairs inside a softening: collected, then done together
-    ns = 0
+    ! The pairs inside a softening: their places in c are found without a branch (in order), then they are collected and done
+    ! together
+    nsoft = 0
     do jj = 1, nc
+       wb(it)%si(nsoft+1) = jj
+       nsoft = nsoft + merge(1, 0, wb(it)%cb(jj,8) < max(h2i, wb(it)%cb(jj,6)))
+    end do
+    ns = 0
+    do k = 1, nsoft
+       jj = wb(it)%si(k)
        r2 = wb(it)%cb(jj,8)
-       hm = max(h2i, wb(it)%cb(jj,6))
-       if (r2 < hm) then
-          if (r2 <= 0.d0 .or. nk /= 2) then
-             ! at zero distance (the particle itself), and the kernels other than the Wendland C4, one by one
-             selff = 0.5d0
-             if (wb(it)%ci(jj) == i) selff = 1.d0
-             call grav_soft(nk, r2, hi, wb(it)%cb(jj,5), wb(it)%cb(jj,4), wb(it)%cb(jj,7), selff, gacc, gpt)
-             sx = sx + gacc*(wb(it)%cb(jj,1) - xi)
-             sy = sy + gacc*(wb(it)%cb(jj,2) - yi)
-             sz = sz + gacc*(wb(it)%cb(jj,3) - zi)
-             sp = sp + gpt
-          else
-             ns = ns + 1
-             wb(it)%sb(ns,1) = r2
-             wb(it)%sb(ns,2) = wb(it)%cb(jj,1) - xi
-             wb(it)%sb(ns,3) = wb(it)%cb(jj,2) - yi
-             wb(it)%sb(ns,4) = wb(it)%cb(jj,3) - zi
-             wb(it)%sb(ns,5) = wb(it)%cb(jj,5)
-             wb(it)%sb(ns,6) = wb(it)%cb(jj,4)
-          end if
+       if (r2 <= 0.d0 .or. nk /= 2) then
+          ! at zero distance (the particle itself), and the kernels other than the Wendland C4, one by one
+          selff = 0.5d0
+          if (wb(it)%ci(jj) == i) selff = 1.d0
+          call grav_soft(nk, r2, hi, wb(it)%cb(jj,5), wb(it)%cb(jj,4), wb(it)%cb(jj,7), selff, gacc, gpt)
+          sx = sx + gacc*(wb(it)%cb(jj,1) - xi)
+          sy = sy + gacc*(wb(it)%cb(jj,2) - yi)
+          sz = sz + gacc*(wb(it)%cb(jj,3) - zi)
+          sp = sp + gpt
+       else
+          ns = ns + 1
+          wb(it)%sb(ns,1) = r2
+          wb(it)%sb(ns,2) = wb(it)%cb(jj,1) - xi
+          wb(it)%sb(ns,3) = wb(it)%cb(jj,2) - yi
+          wb(it)%sb(ns,4) = wb(it)%cb(jj,3) - zi
+          wb(it)%sb(ns,5) = wb(it)%cb(jj,5)
+          wb(it)%sb(ns,6) = wb(it)%cb(jj,4)
        end if
     end do
     if (ns > 0) then
@@ -910,9 +914,8 @@ contains
     real(dp), intent(inout) :: c(ld,8)
     real(dp), intent(inout) :: sx, sy, sz, sp
     integer :: jb, l, jj
-    real(dp) :: dx, dy, dz, r2, rinv, mr1, mr3, hm
+    real(dp) :: dx, dy, dz, r2, rinv, mr1, mr3, hm, mr1m, mr3m
     real(dp) :: accx(8), accy(8), accz(8), accp(8)
-    logical :: nwt
     accx = 0.d0
     accy = 0.d0
     accz = 0.d0
@@ -926,7 +929,7 @@ contains
           dz = c(jj,3) - zi
           c(jj,8) = dx*dx + dy*dy + dz*dz
        end do
-!$omp simd private(jj,dx,dy,dz,r2,rinv,mr1,mr3,nwt,hm)
+!$omp simd private(jj,dx,dy,dz,r2,rinv,mr1,mr3,hm,mr1m,mr3m)
        do l = 1, 8
           jj = jb + l - 1
           dx = c(jj,1) - xi
@@ -937,13 +940,16 @@ contains
           mr1 = rinv*c(jj,4)
           mr3 = rinv*rinv*mr1
           hm = merge(h2i, c(jj,6), h2i > c(jj,6))
-          nwt = (r2 >= hm)
-          if (nwt) then
-             accx(l) = accx(l) + mr3*dx
-             accy(l) = accy(l) + mr3*dy
-             accz(l) = accz(l) + mr3*dz
-             accp(l) = accp(l) - mr1
-          end if
+          ! The pairs inside a softening add nothing here.  A select instead of an update under a condition: the compiler
+          ! turns that update into a masked store of the accumulators in memory, 2.3 times slower.  The same bits: an
+          ! accumulator is never -0 (it starts at +0, and a sum that is zero is +0), so adding +0 changes nothing, and mr3m*dx
+          ! is still fused into the accumulator.
+          mr3m = merge(mr3, 0.d0, r2 >= hm)
+          mr1m = merge(-mr1, 0.d0, r2 >= hm)
+          accx(l) = accx(l) + mr3m*dx
+          accy(l) = accy(l) + mr3m*dy
+          accz(l) = accz(l) + mr3m*dz
+          accp(l) = accp(l) + mr1m
        end do
     end do
     sx = sx + (((accx(1) + accx(2)) + (accx(3) + accx(4))) + ((accx(5) + accx(6)) + (accx(7) + accx(8))))
@@ -1141,8 +1147,8 @@ contains
     allocate (ti(nc+8))
     ti(1:wb(it)%capc) = wb(it)%ci(1:wb(it)%capc)
     call move_alloc(ti, wb(it)%ci)
-    deallocate (wb(it)%sb)
-    allocate (wb(it)%sb(nc+8,6))
+    deallocate (wb(it)%sb, wb(it)%si)
+    allocate (wb(it)%sb(nc+8,6), wb(it)%si(nc+8))
     wb(it)%capc = nc
   end subroutine grow_c
 
