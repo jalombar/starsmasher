@@ -2150,5 +2150,31 @@ extern "C"
   {
     SPHgrav::setHilo(*ngravhilo != 0);
   }
+
+  // The number of multiprocessors (multiProcessorCount of cudaGetDeviceProperties) of the GPU of this process: the smallest of the devices it can see
+  // (CUDA_VISIBLE_DEVICES applies).  It is a coarse hint of the speed of the GPU, read by the automatic choice of ngpusph (init.f, ngpuclass).  0 if it
+  // cannot be read; nothing here stops the run (get_gpu_sm_count of gpu_grav.f)
+  void gpu_sm_count_(int *nsm)
+  {
+    *nsm = 0;
+    int ndev = 0;
+    if (cudaGetDeviceCount(&ndev) != cudaSuccess || ndev < 1)
+    {
+      cudaGetLastError();
+      return;
+    }
+    for (int dev = 0; dev < ndev; dev++)
+    {
+      cudaDeviceProp p;
+      if (cudaGetDeviceProperties(&p, dev) != cudaSuccess || p.multiProcessorCount < 1)
+      {
+        cudaGetLastError();
+        *nsm = 0;
+        return;
+      }
+      if (*nsm == 0 || p.multiProcessorCount < *nsm)
+        *nsm = p.multiProcessorCount;
+    }
+  }
 }
 
