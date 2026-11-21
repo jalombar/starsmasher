@@ -47,7 +47,7 @@ module gravtree
   use gravpair
   implicit none
   private
-  public :: gt_forces, gt_gpu, gt_start, gt_finish, gt_pend
+  public :: gt_forces, gt_gpu, gt_start, gt_finish, gt_pend, gt_early
   integer, parameter :: dp = kind(1.d0)
   integer, parameter :: lenf = 20
   ! node data: 1:3 centre of mass, 4 size, 5 hmax, 6 mass, 7:12 second moments (xx,xy,xz,yy,yz,zz)
@@ -60,6 +60,13 @@ module gravtree
   ! ngravoverlap=1 with ngravtree=2: gt_start has made the tree and queued the visit on the gpus, and gt_finish has not
   ! collected it yet
   logical, save :: gt_pend = .false.
+  ! gt_early has made the structure of the tree (its nodes and the order of the particles), which depends on the positions only, and the
+  ! next gt_start uses it instead of making it again; st_early_n is the number of particles it was made for
+  logical, save :: st_early = .false.
+  integer, save :: st_early_n = 0
+  ! the host buffers of the visit that gpu_visit_pack filled, for visit_hfill: the second part of the particles (pb(4,:): 2h, negative for a
+  ! point particle) and the nodes (nf(8,:): the largest 2h of the node)
+  real(c_float), pointer, contiguous, save :: vp_pb(:,:) => null(), vp_nf(:,:) => null()
   integer, save :: ps_n = 0, ps_ilow = 0, ps_ihigh = 0, ps_nwork = 0, ps_nnode = 0
   integer(c_signed_char), pointer, contiguous, save :: ps_needf(:) => null()
   real(c_double), pointer, contiguous, save :: ps_out(:,:) => null()
@@ -78,7 +85,7 @@ module gravtree
   type walkbuf
      integer :: capm = 0, capn = 0, capc = 0
      real(dp), allocatable :: mb(:,:), nb(:,:), cb(:,:), sb(:,:)
-     integer, allocatable :: ci(:)
+     integer, allocatable :: ci(:), si(:)
      integer, allocatable :: stack(:)
   end type walkbuf
   type(walkbuf), allocatable, save :: wb(:)
@@ -107,11 +114,22 @@ module gravtree
 
 contains
 
-!     The tree of the n particles, its moments, and the particles in tree order (xt.. ft).
+!     The tree of the n particles, its moments, and the particles in tree order (xt.. ft).  It is made in two parts: the structure
+!     (the nodes and the order of the particles, from the positions only) and what the masses, the smoothing lengths and u add to it
+!     (their values in tree order and the moments of the nodes).
   subroutine make_tree(n, x, y, z, am, hp, u, nleaf)
     integer, intent(in) :: n, nleaf
     real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n)
-    integer :: i, j
+    st_early = .false.
+    call make_tree_struct(n, x, y, z, nleaf)
+    call make_tree_fill(n, am, hp, u)
+  end subroutine make_tree
+
+!     The structure of the tree of the n particles: nodes, the order of the particles (gind) and their positions in that order.
+  subroutine make_tree_struct(n, x, y, z, nleaf)
+    integer, intent(in) :: n, nleaf
+    real(dp), intent(in) :: x(n), y(n), z(n)
+    integer :: i
     call reserve(n, nleaf)
 !$omp parallel do simd schedule(static)
     do i = 1, n
@@ -125,12 +143,22 @@ contains
        deallocate (nd)
        allocate (nd(nfd,gtw%nidmax))
     end if
-!$omp parallel do simd schedule(static) private(j)
+!$omp parallel do simd schedule(static)
     do i = 1, n
-       j = gind(i)
        xt(i) = gpos(1,i)
        yt(i) = gpos(2,i)
        zt(i) = gpos(3,i)
+    end do
+  end subroutine make_tree_struct
+
+!     The masses, 2h and the flag of a point particle in tree order, and the moments of the nodes (after make_tree_struct).
+  subroutine make_tree_fill(n, am, hp, u)
+    integer, intent(in) :: n
+    real(dp), intent(in) :: am(n), hp(n), u(n)
+    integer :: i, j
+!$omp parallel do simd schedule(static) private(j)
+    do i = 1, n
+       j = gind(i)
        mt(i) = am(j)
        ht(i) = 2*hp(j)
        h2t(i) = ht(i)*ht(i)
@@ -141,7 +169,38 @@ contains
        end if
     end do
     call moments()
-  end subroutine make_tree
+  end subroutine make_tree_fill
+
+!     Everything of the tree and of the buffers of the visit that does not depend on the smoothing lengths, for gt_start to find it made (it is
+!     the work that the cpus do while the gpus solve the smoothing lengths, see gpusph.f90): the structure, the masses and the moments of the
+!     nodes (the size of a node and its mass moments come from the positions and the masses; 2h and the largest 2h of the nodes are the
+!     only values that come from h), and the buffers of the visit.  The positions, masses and the particles to do must not change before
+!     gt_start.
+  subroutine gt_early(n, x, y, z, am, u, act, blk, ilow, ihigh, nleaf)
+    integer, intent(in) :: n, ilow, ihigh, nleaf
+    real(dp), intent(in) :: x(n), y(n), z(n), am(n), u(n)
+    logical, intent(in) :: act(n), blk
+    integer :: i, j
+    call make_tree_struct(n, x, y, z, nleaf)
+    ! the masses and the flags of the point particles in tree order, 2h not known yet (zero: the moments do not use it but for the
+    ! largest 2h of the nodes, which visit_hfill makes)
+!$omp parallel do simd schedule(static) private(j)
+    do i = 1, n
+       j = gind(i)
+       mt(i) = am(j)
+       ht(i) = 0.d0
+       h2t(i) = 0.d0
+       if (u(j) /= 0.d0) then
+          ft(i) = 1.d0
+       else
+          ft(i) = 0.d0
+       end if
+    end do
+    call moments()
+    call gpu_visit_pack(n, ilow, ihigh, act, blk)
+    st_early = .true.
+    st_early_n = n
+  end subroutine gt_early
 
 !     Gravity on the particles ilow..ihigh (and, with block steps, only the active ones: the others get zero).
   subroutine gt_forces(n, x, y, z, am, hp, u, act, blk, ilow, ihigh, nk, theta, nleaf, gx, gy, gz, gpot)
@@ -186,8 +245,15 @@ contains
     integer, intent(in) :: n, ilow, ihigh, nk, nleaf
     real(dp), intent(in) :: x(n), y(n), z(n), am(n), hp(n), u(n), theta
     logical, intent(in) :: act(n), blk
-    call make_tree(n, x, y, z, am, hp, u, nleaf)
-    call gpu_visit_start(n, ilow, ihigh, act, blk, nk, theta*theta)
+    if (st_early .and. st_early_n == n) then
+       ! the tree and the buffers were made while the gpus solved the smoothing lengths: what comes from h is added
+       st_early = .false.
+       call visit_hfill(n, hp)
+    else
+       call make_tree(n, x, y, z, am, hp, u, nleaf)
+       call gpu_visit_pack(n, ilow, ihigh, act, blk)
+    end if
+    call gpu_visit_launch(n, nk, theta*theta)
   end subroutine gt_start
 
 !     the second half: wait for the visit queued by gt_start and put the forces of the particles ilow..ihigh of gt_start in gx,
@@ -228,7 +294,7 @@ contains
        wb(it)%capm = 2048
        wb(it)%capn = 4096
        wb(it)%capc = 4096
-       allocate (wb(it)%mb(2056,10), wb(it)%nb(4104,4), wb(it)%cb(4104,8), wb(it)%ci(4104), wb(it)%sb(4104,6))
+       allocate (wb(it)%mb(2056,10), wb(it)%nb(4104,4), wb(it)%cb(4104,8), wb(it)%ci(4104), wb(it)%sb(4104,6), wb(it)%si(4104))
        allocate (wb(it)%stack(stackmax))
     end if
   end subroutine walk_setup
@@ -404,11 +470,9 @@ contains
     call gpu_visit_finish(gx, gy, gz, gpot)
   end subroutine gpu_visit
 
-!     The first half: the buffers of the library are filled and the visit is queued on the gpus (the call returns before it is
-!     done).
-  subroutine gpu_visit_start(n, ilow, ihigh, act, blk, nk, theta2)
-    integer, intent(in) :: n, ilow, ihigh, nk
-    real(dp), intent(in) :: theta2
+!     The first half: the buffers of the library are filled (the call does not queue anything on the gpus).
+  subroutine gpu_visit_pack(n, ilow, ihigh, act, blk)
+    integer, intent(in) :: n, ilow, ihigh
     logical, intent(in) :: act(n), blk
     integer :: ntop, nsub, nnode, nwork, nblk, i, j, k, b, c, p, id, ig, hi, base, newb
     real(dp) :: xr, yr, zr, d
@@ -556,9 +620,6 @@ contains
        end do
     end do
 
-    ! the visit, queued
-    if (nwork > 0) &
-         call gpu_tree_launch(int(n, c_int), int(nnode, c_int), int(nwork, c_int), int(nk, c_int), real(theta2, c_double))
     ps_n = n
     ps_ilow = ilow
     ps_ihigh = ihigh
@@ -566,8 +627,85 @@ contains
     ps_nnode = nnode
     ps_needf => needf
     ps_out => out
+    vp_pb => pb
+    vp_nf => nf
+  end subroutine gpu_visit_pack
+
+!     The second half: the visit is queued on the gpus (the call returns before it is done).
+  subroutine gpu_visit_launch(n, nk, theta2)
+    integer, intent(in) :: n, nk
+    real(dp), intent(in) :: theta2
+    if (ps_nwork > 0) &
+         call gpu_tree_launch(int(n, c_int), int(ps_nnode, c_int), int(ps_nwork, c_int), int(nk, c_int), real(theta2, c_double))
     gt_pend = .true.
+  end subroutine gpu_visit_launch
+
+!     Both halves: the buffers are filled and the visit is queued on the gpus (the call returns before it is done).
+  subroutine gpu_visit_start(n, ilow, ihigh, act, blk, nk, theta2)
+    integer, intent(in) :: n, ilow, ihigh, nk
+    real(dp), intent(in) :: theta2
+    logical, intent(in) :: act(n), blk
+    call gpu_visit_pack(n, ilow, ihigh, act, blk)
+    call gpu_visit_launch(n, nk, theta2)
   end subroutine gpu_visit_start
+
+!     What the buffers of the visit take from the smoothing lengths, for the tree that gt_early made and the buffers that gpu_visit_pack filled
+!     without them: 2h of each particle in tree order (ht, h2t, and pb(4,:), negative for a point particle) and the largest 2h of each node
+!     (nd(5,:), nf(8,:)), the maximum over the particles of the node, which does not depend on the order in which it is taken.
+  subroutine visit_hfill(n, hp)
+    integer, intent(in) :: n
+    real(dp), intent(in) :: hp(n)
+    integer :: i, j, k, id, ntop, base, newb
+    ntop = gtw%ntop
+!$omp parallel default(shared) private(i, j, k, id, base, newb)
+!$omp do schedule(static)
+    do i = 1, n
+       ht(i) = 2*hp(gind(i))
+       h2t(i) = ht(i)*ht(i)
+       if (ft(i) /= 0.d0) then
+          vp_pb(4,i) = real(ht(i), c_float)
+       else
+          vp_pb(4,i) = -real(ht(i), c_float)
+       end if
+    end do
+!$omp end do
+!$omp do schedule(dynamic,1)
+    do j = 1, gtw%nsub
+       base = gtw%sub_base(j)
+       newb = soff(j) - base - 1
+       do k = base + gtw%sub_used(j), base + 1, -1
+          call node_hmax(k)
+          vp_nf(8,k+newb+1) = real(nd(5,k), c_float)
+       end do
+       call node_hmax(gtw%sub_id(j))
+    end do
+!$omp end do
+!$omp end parallel
+    ! the nodes made while the big ones were divided: the children have the larger numbers
+    do id = ntop, 1, -1
+       if (gtw%lc(id) /= 0) call node_hmax(id)
+    end do
+!$omp parallel do simd schedule(static)
+    do id = 1, ntop
+       vp_nf(8,id) = real(nd(5,id), c_float)
+    end do
+  end subroutine visit_hfill
+
+!     The largest 2h of node id: of its particles if it is a leaf, of its two children otherwise
+  subroutine node_hmax(id)
+    integer, intent(in) :: id
+    integer :: i
+    real(dp) :: hm
+    if (gtw%lc(id) == 0) then
+       hm = 0.d0
+       do i = gtw%nl(id), gtw%nu(id)
+          hm = max(hm, ht(i))
+       end do
+       nd(5,id) = hm
+    else
+       nd(5,id) = max(nd(5,gtw%lc(id)), nd(5,gtw%rc(id)))
+    end if
+  end subroutine node_hmax
 
 !     The second half: wait for the gpus and put the results in gx, gy, gz, gpot (those of ilow..ihigh are zero but for the
 !     particles
@@ -813,38 +951,42 @@ contains
     integer, intent(in) :: it, nn, nc, nnp, ncp, i, nk
     real(dp), intent(in) :: xi, yi, zi, h2i, hi
     real(dp), intent(inout) :: ax, ay, az, pt
-    integer :: jj, ns, nsp
-    real(dp) :: sx, sy, sz, sp, r2, hm, gacc, gpt, selff
+    integer :: jj, k, ns, nsp, nsoft
+    real(dp) :: sx, sy, sz, sp, r2, gacc, gpt, selff
     sx = 0.d0
     sy = 0.d0
     sz = 0.d0
     sp = 0.d0
     call newton_all(nnp, size(wb(it)%nb,1), xi, yi, zi, wb(it)%nb, sx, sy, sz, sp)
     call newton_masked(ncp, size(wb(it)%cb,1), xi, yi, zi, h2i, wb(it)%cb, sx, sy, sz, sp)
-    ! the pairs inside a softening: collected, then done together
-    ns = 0
+    ! The pairs inside a softening: their places in c are found without a branch (in order), then they are collected and done
+    ! together
+    nsoft = 0
     do jj = 1, nc
+       wb(it)%si(nsoft+1) = jj
+       nsoft = nsoft + merge(1, 0, wb(it)%cb(jj,8) < max(h2i, wb(it)%cb(jj,6)))
+    end do
+    ns = 0
+    do k = 1, nsoft
+       jj = wb(it)%si(k)
        r2 = wb(it)%cb(jj,8)
-       hm = max(h2i, wb(it)%cb(jj,6))
-       if (r2 < hm) then
-          if (r2 <= 0.d0 .or. nk /= 2) then
-             ! at zero distance (the particle itself), and the kernels other than the Wendland C4, one by one
-             selff = 0.5d0
-             if (wb(it)%ci(jj) == i) selff = 1.d0
-             call grav_soft(nk, r2, hi, wb(it)%cb(jj,5), wb(it)%cb(jj,4), wb(it)%cb(jj,7), selff, gacc, gpt)
-             sx = sx + gacc*(wb(it)%cb(jj,1) - xi)
-             sy = sy + gacc*(wb(it)%cb(jj,2) - yi)
-             sz = sz + gacc*(wb(it)%cb(jj,3) - zi)
-             sp = sp + gpt
-          else
-             ns = ns + 1
-             wb(it)%sb(ns,1) = r2
-             wb(it)%sb(ns,2) = wb(it)%cb(jj,1) - xi
-             wb(it)%sb(ns,3) = wb(it)%cb(jj,2) - yi
-             wb(it)%sb(ns,4) = wb(it)%cb(jj,3) - zi
-             wb(it)%sb(ns,5) = wb(it)%cb(jj,5)
-             wb(it)%sb(ns,6) = wb(it)%cb(jj,4)
-          end if
+       if (r2 <= 0.d0 .or. nk /= 2) then
+          ! at zero distance (the particle itself), and the kernels other than the Wendland C4, one by one
+          selff = 0.5d0
+          if (wb(it)%ci(jj) == i) selff = 1.d0
+          call grav_soft(nk, r2, hi, wb(it)%cb(jj,5), wb(it)%cb(jj,4), wb(it)%cb(jj,7), selff, gacc, gpt)
+          sx = sx + gacc*(wb(it)%cb(jj,1) - xi)
+          sy = sy + gacc*(wb(it)%cb(jj,2) - yi)
+          sz = sz + gacc*(wb(it)%cb(jj,3) - zi)
+          sp = sp + gpt
+       else
+          ns = ns + 1
+          wb(it)%sb(ns,1) = r2
+          wb(it)%sb(ns,2) = wb(it)%cb(jj,1) - xi
+          wb(it)%sb(ns,3) = wb(it)%cb(jj,2) - yi
+          wb(it)%sb(ns,4) = wb(it)%cb(jj,3) - zi
+          wb(it)%sb(ns,5) = wb(it)%cb(jj,5)
+          wb(it)%sb(ns,6) = wb(it)%cb(jj,4)
        end if
     end do
     if (ns > 0) then
@@ -910,9 +1052,8 @@ contains
     real(dp), intent(inout) :: c(ld,8)
     real(dp), intent(inout) :: sx, sy, sz, sp
     integer :: jb, l, jj
-    real(dp) :: dx, dy, dz, r2, rinv, mr1, mr3, hm
+    real(dp) :: dx, dy, dz, r2, rinv, mr1, mr3, hm, mr1m, mr3m
     real(dp) :: accx(8), accy(8), accz(8), accp(8)
-    logical :: nwt
     accx = 0.d0
     accy = 0.d0
     accz = 0.d0
@@ -926,7 +1067,7 @@ contains
           dz = c(jj,3) - zi
           c(jj,8) = dx*dx + dy*dy + dz*dz
        end do
-!$omp simd private(jj,dx,dy,dz,r2,rinv,mr1,mr3,nwt,hm)
+!$omp simd private(jj,dx,dy,dz,r2,rinv,mr1,mr3,hm,mr1m,mr3m)
        do l = 1, 8
           jj = jb + l - 1
           dx = c(jj,1) - xi
@@ -937,13 +1078,16 @@ contains
           mr1 = rinv*c(jj,4)
           mr3 = rinv*rinv*mr1
           hm = merge(h2i, c(jj,6), h2i > c(jj,6))
-          nwt = (r2 >= hm)
-          if (nwt) then
-             accx(l) = accx(l) + mr3*dx
-             accy(l) = accy(l) + mr3*dy
-             accz(l) = accz(l) + mr3*dz
-             accp(l) = accp(l) - mr1
-          end if
+          ! The pairs inside a softening add nothing here.  A select instead of an update under a condition: the compiler
+          ! turns that update into a masked store of the accumulators in memory, 2.3 times slower.  The same bits: an
+          ! accumulator is never -0 (it starts at +0, and a sum that is zero is +0), so adding +0 changes nothing, and mr3m*dx
+          ! is still fused into the accumulator.
+          mr3m = merge(mr3, 0.d0, r2 >= hm)
+          mr1m = merge(-mr1, 0.d0, r2 >= hm)
+          accx(l) = accx(l) + mr3m*dx
+          accy(l) = accy(l) + mr3m*dy
+          accz(l) = accz(l) + mr3m*dz
+          accp(l) = accp(l) + mr1m
        end do
     end do
     sx = sx + (((accx(1) + accx(2)) + (accx(3) + accx(4))) + ((accx(5) + accx(6)) + (accx(7) + accx(8))))
@@ -1141,8 +1285,8 @@ contains
     allocate (ti(nc+8))
     ti(1:wb(it)%capc) = wb(it)%ci(1:wb(it)%capc)
     call move_alloc(ti, wb(it)%ci)
-    deallocate (wb(it)%sb)
-    allocate (wb(it)%sb(nc+8,6))
+    deallocate (wb(it)%sb, wb(it)%si)
+    allocate (wb(it)%sb(nc+8,6), wb(it)%si(nc+8))
     wb(it)%capc = nc
   end subroutine grow_c
 
@@ -1215,6 +1359,22 @@ subroutine tree_grav_forces(ntot_in, gxo, gyo, gzo, grpoto)
        gxo, gyo, gzo, grpoto)
   return
 end subroutine tree_grav_forces
+
+!***********************************************************************
+!     The tree of the gravity and the buffers of its visit, but for what comes from the smoothing lengths, made while the gpus solve them
+!     (gpusph_work in gpusph.f90); the particles must not move before tree_gpu_start, which finds it made.
+!***********************************************************************
+subroutine tree_early_struct
+  use gravtree
+  include 'starsmasher.h'
+  logical blk
+  if (ngravtree.ne.2 .or. ngravoverlap.eq.0) return
+  if (myrank.ge.ngravprocs) return
+  blk = (nblock.eq.1)
+  if (blk) blk = (count(actblk(1:ntot)).lt.ntot)
+  call gt_early(ntot, x, y, z, am, u, actblk, blk, ngrav_lower, ngrav_upper, nleafgrav)
+  return
+end subroutine tree_early_struct
 
 !***********************************************************************
 !     ngravtree=2 with ngravoverlap=1, to be called where the direct sum on the gpus is started (gravforce): the tree is made

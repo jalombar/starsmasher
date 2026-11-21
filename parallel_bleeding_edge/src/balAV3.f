@@ -1,5 +1,6 @@
       subroutine uvdots
       use riemann_data
+      use gpusph_mod
 c     evaluate right-hand sides of equations of motion:
 c=======================================================================
 c  balvdots creates arrays of the accelerations of each particle, using
@@ -22,14 +23,17 @@ c=======================================================================
       common/uijmax/ uijmax
       real*8 dwijin,pijin,sxijin,syijin,szijin,divin, diwkin
       real*8 sxijingc,syijingc,szijingc
-      logical switchedav
+      logical switchedav,gdone
       double precision divv(nmax)
       common/commdivv/divv
       integer mylength, mygravlength
       integer comm_worker
       common/gravworkers/comm_worker
-      real*8 myvxdot(ntot),myvydot(ntot),myvzdot(ntot)
-      real*8 myvxdotgc(ntot),myvydotgc(ntot),myvzdotgc(ntot)
+c     the arrays of the sums of the pairs, kept from one call to the next: arrays of ntot elements made at each call went to the system and
+c     back each time (mmap and munmap, and the page faults of 6 arrays of 4 MB at 500000 particles), or not, according to where the other
+c     allocations of the step had left the top of the heap
+      real*8, allocatable, save :: myvxdot(:),myvydot(:),myvzdot(:)
+      real*8, allocatable, save :: myvxdotgc(:),myvydotgc(:),myvzdotgc(:)
       integer irank
       real*8 invh, invh2, invh5
       real*8 dx, dy, dz
@@ -55,6 +59,12 @@ c     table position in units of the table spacing, and its fraction
 c     nav=4: the pair's Riemann problem along r_ij (see riemann.f)
       real*8 rij,vir,vjr,pstar,pstat,vsig,cj
       real*8 rhl,rhr,vl,vr,pl,pr
+
+      if(allocated(myvxdot)) then
+         if(size(myvxdot).lt.ntot) deallocate(myvxdot,myvydot,myvzdot,myvxdotgc,myvydotgc,myvzdotgc)
+      endif
+      if(.not.allocated(myvxdot)) allocate(myvxdot(ntot),myvydot(ntot),myvzdot(ntot),
+     $     myvxdotgc(ntot),myvydotgc(ntot),myvzdotgc(ntot))
 
       if(nav.eq.0) then
          if(nintvar.eq.1 .or. nintvar.eq.3)then
@@ -125,9 +135,15 @@ c     share of the particles to be solved, otherwise its own index range):
       else
          nloop=n_upper-n_lower+1
       endif
-c     the pair loop, by chunks of particles on the threads (uvpairs, below)
-      call uvpairs(nloop,alpha1,beta1,myvxdot,myvydot,myvzdot,
-     $     myvxdotgc,myvydotgc,myvzdotgc)
+c     the pair loop, by chunks of particles on the threads (uvpairs, below),
+c     or on the GPU (bit 2 of ngpusph, gpusph.f90), which leaves the same
+c     arrays (and with ngpusphcheck=2 runs uvpairs too, to compare)
+      gdone=.false.
+      if(iand(ngpusph,2).ne.0)
+     $     call gpusph_forces(nloop,alpha1,beta1,myvxdot,myvydot,
+     $     myvzdot,myvxdotgc,myvydotgc,myvzdotgc,gdone)
+      if(.not.gdone) call uvpairs(nloop,alpha1,beta1,myvxdot,myvydot,
+     $     myvzdot,myvxdotgc,myvydotgc,myvzdotgc)
 c      write(6,'(a)')'hydrompi'
 
       if(nblock.eq.1) then
