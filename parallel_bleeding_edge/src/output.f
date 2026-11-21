@@ -288,49 +288,39 @@ c     (if dtout<0, interpret as a number of iterations)
       return
       end
 ********************************************************************
-      subroutine enout(printingenergytofile)
+      subroutine enout_early
+c     The part of enout that does not need the gravitational potential: the sums over the particles, kept in enout_early_mod for enout
+c     (which calls this routine itself when advance has not).  They are the same sums, made in the same blocks and added in the same order.
       use omp_utils
+      use enout_early_mod
       include 'starsmasher.h'
       include 'mpif.h'
-      real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
-      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       real*8 hpi,ui,rhoi,
-     $     etot,epot,ekin,eint,v2i,stot,ajtot,vcm,ajx,
+     $     v2i,ajtot,vcm,ajx,
      $     ajy,ajz,vcmx,vcmy,vcmz,xcm,ycm,zcm,amtot,xmax,
      $     ymax,zmax,xmin,ymin,zmin,pressi
-      integer ihpmin,ihpmax,iumin,iumax,irhomin,irhomax,
-     $     ipmin,ipmax
-      logical printingenergytofile,logit,firstenout
-      save firstenout
-      data firstenout/.true./
-      real*8 etotlast
-      common/energyblock/ etotlast,etot
-      real*8, save :: einit = +128.0;
-      integer mynnemin(2),nnemin(2),mynnemax(2),nnemax(2)
-      real*8 myrhomin(2),rhomin(2),myrhomax(2),rhomax(2)
-      real*8 myumin(2),umin(2),myumax(2),umax(2)
-      real*8 myhpmin(2),hpmin(2),myhpmax(2),hpmax(2)
-      real*8 mypmin(2),pmin(2),mypmax(2),pmax(2)
+      integer mynnemin(2),mynnemax(2)
+      real*8 myrhomin(2),myrhomax(2)
+      real*8 myumin(2),myumax(2)
+      real*8 myhpmin(2),myhpmax(2)
+      real*8 mypmin(2),mypmax(2)
       integer ierr,i
-c     the sums of enout are made of partial sums over fixed blocks of
-c     particles, added in block order (see omp_utils), so that their bits
-c     do not depend on the number of threads
-      integer ib,nb,nspecial,nown
+      integer ib,nb,nown
       real*8 bs(10),bm(6)
       real*8 bsm(5),bmm(20)
-      double precision mynneavr,nneavr,mynnesig,nnesig
+      double precision mynneavr,mynnesig
       double precision myeint,mystot,myekin
       real*8 rhocgs, ucgs, temperature, ugas
-
-c     variables used for radiative cooling portion of the code:
-      real*8 erad
-      common/lostenergy/ erad
-
       real*8 xi,yi,zi
-      real*8 epoteat,ekineat,einteat
-      common /eatenenergy/ epoteat,ekineat,einteat
 
-
+      xmin=0.d0
+      ymin=0.d0
+      zmin=0.d0
+      xmax=0.d0
+      ymax=0.d0
+      zmax=0.d0
+      vcm=0.d0
+      ajtot=0.d0
       if(myrank.eq.0) then
 c     find system box and center of mass:
          xmin=1.d30
@@ -349,8 +339,6 @@ c     find system box and center of mass:
          ajx=0.d0
          ajy=0.d0
          ajz=0.d0
-c     omeg=sqrt(omega2)
-         if(nrelax.eq.2) write(69,*)'enout: omeg=',omeg
          nb=nredblocks(ntot)
          call reserve_rpart(16,nb)
 !$omp parallel do schedule(static) private(ib,i,xi,yi,zi,bs,bm)
@@ -422,76 +410,6 @@ c     ajx=ajx/amtot
 c     ajy=ajy/amtot
 c     ajz=ajz/amtot
          ajtot=sqrt(ajx**2+ajy**2+ajz**2)
-!         if(mod(nit,nitpot).eq.0)then
-c     With block steps enout writes an energy*.sph row at every full
-c     synchronization, which can be many per dtmaxblk.  The summary in the
-c     log stays at one per dtmaxblk, plus the first call, at the start.
-         logit=nblock.ne.1 .or. blkfull .or. .not.printingenergytofile
-     $        .or. firstenout
-         firstenout=.false.
-         if(logit) then
-            write (69,90) nit,t,
-     $           xmin,xmax,ymin,ymax,zmin,zmax
-!         else
-!            write (69,91) nit,t,
-!     $           xmin,xmax,ymin,ymax,zmin,zmax
-!         endif
-            write(6,*)'end it.',nit,'t=',t
-         endif
- 90      format(/,
-     $        ' output: end of iteration ',i8,'       time=',f12.5,/,
-     $        '   system box= ',g10.3,'< x <',g10.3,/,
-     $        '               ',g10.3,'< y <',g10.3,/,
-     $        '               ',g10.3,'< z <',g10.3)      
-! 91      format(/,
-!     $        ' output: end of iteration ',i8,'       time=',f12.5,/,
-!     $        '   system box= ',g10.3,'< x <',g10.3,/,
-!     $        '               ',g10.3,'< y <',g10.3,/,
-!     $        '               ',g10.3,'< z <',g10.3)
-
-         epot=0.d0
-         if(ngr.ne.0)then
-c     do loop to get total gravitational potential energy:
-c     the sum is made by blocks.  The loop that follows it is the one that
-c     reports point masses and NaNs, and it adds up epot itself in the
-c     old way, so it runs only when there is something to report
-            nb=nredblocks(ntot)
-            call reserve_rpart(2,nb)
-!$omp parallel do schedule(static) private(ib,i)
-            do ib=1,nb
-               rpart(1,ib)=0.d0
-               rpart(2,ib)=0.d0
-               do i=(ib-1)*redblock+1,min(ib*redblock,ntot)
-                  rpart(1,ib)=rpart(1,ib)+am(i)*grpot(i)
-                  if(grpot(i).ne.grpot(i)) rpart(2,ib)=rpart(2,ib)+1.d0
-                  if(logit .and. (hp(i).le.0.d0 .or. u(i).eq.0.d0))
-     $                 rpart(2,ib)=rpart(2,ib)+1.d0
-               enddo
-            enddo
-            nspecial=0
-            do ib=1,nb
-               epot=epot+rpart(1,ib)
-               nspecial=nspecial+nint(rpart(2,ib))
-            enddo
-            if(nspecial.gt.0) then
-               epot=0.d0
-               do i=1,ntot
-                  if(logit .and. (hp(i).le.0.d0 .or. u(i).eq.0.d0)) then
-                     write(69,'(a,i6,3g17.9)')
-     $                    'position of point mass',i,x(i),y(i),z(i)
-                  endif
-                  epot=epot+am(i)*grpot(i)
-                  if(grpot(i).ne.grpot(i)) then
-                     write(129,*) epot,i,am(i),grpot(i),hp(i),x(i),y(i),z(i),u(i)
-                  endif
-               enddo
-            endif
-            if (epot.eq.0) then
-               write(69,*) 'Problem calculating gravity: epot=0'
-               stop
-            endif
-            epot=0.5d0*epot
-         endif
       endif
 
 c     get min/max values of various quantities:
@@ -706,6 +624,182 @@ c     particle to reach a minimum or maximum, as the plain loop gave)
          mystot=mystot+rpart(24,ib)
          myekin=myekin+rpart(25,ib)
       enddo
+
+      eo_xmin=xmin
+      eo_ymin=ymin
+      eo_zmin=zmin
+      eo_xmax=xmax
+      eo_ymax=ymax
+      eo_zmax=zmax
+      eo_vcm=vcm
+      eo_ajtot=ajtot
+      eo_nnemin=mynnemin
+      eo_nnemax=mynnemax
+      eo_rhomin=myrhomin
+      eo_rhomax=myrhomax
+      eo_umin=myumin
+      eo_umax=myumax
+      eo_hpmin=myhpmin
+      eo_hpmax=myhpmax
+      eo_pmin=mypmin
+      eo_pmax=mypmax
+      eo_nneavr=mynneavr
+      eo_nnesig=mynnesig
+      eo_eint=myeint
+      eo_stot=mystot
+      eo_ekin=myekin
+      eo_ready=.true.
+      return
+      end
+********************************************************************
+      subroutine enout(printingenergytofile)
+      use omp_utils
+      use enout_early_mod
+      include 'starsmasher.h'
+      include 'mpif.h'
+      real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
+      common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
+      real*8 hpi,ui,rhoi,
+     $     etot,epot,ekin,eint,v2i,stot,ajtot,vcm,ajx,
+     $     ajy,ajz,vcmx,vcmy,vcmz,xcm,ycm,zcm,amtot,xmax,
+     $     ymax,zmax,xmin,ymin,zmin,pressi
+      integer ihpmin,ihpmax,iumin,iumax,irhomin,irhomax,
+     $     ipmin,ipmax
+      logical printingenergytofile,logit,firstenout
+      save firstenout
+      data firstenout/.true./
+      real*8 etotlast
+      common/energyblock/ etotlast,etot
+      real*8, save :: einit = +128.0;
+      integer mynnemin(2),nnemin(2),mynnemax(2),nnemax(2)
+      real*8 myrhomin(2),rhomin(2),myrhomax(2),rhomax(2)
+      real*8 myumin(2),umin(2),myumax(2),umax(2)
+      real*8 myhpmin(2),hpmin(2),myhpmax(2),hpmax(2)
+      real*8 mypmin(2),pmin(2),mypmax(2),pmax(2)
+      integer ierr,i
+c     the sums of enout are made of partial sums over fixed blocks of
+c     particles, added in block order (see omp_utils), so that their bits
+c     do not depend on the number of threads
+      integer ib,nb,nspecial,nown
+      real*8 bs(10),bm(6)
+      real*8 bsm(5),bmm(20)
+      double precision mynneavr,nneavr,mynnesig,nnesig
+      double precision myeint,mystot,myekin
+      real*8 rhocgs, ucgs, temperature, ugas
+
+c     variables used for radiative cooling portion of the code:
+      real*8 erad
+      common/lostenergy/ erad
+
+      real*8 xi,yi,zi
+      real*8 epoteat,ekineat,einteat
+      common /eatenenergy/ epoteat,ekineat,einteat
+
+
+c     the sums over the particles that do not need the gravitational potential (the box, the centre of mass velocity, the angular
+c     momentum, the extremes of the neighbour numbers, density, u, h and pressure, the neighbour, entropy, internal and kinetic energies)
+c     were made by enout_early, which advance can call while the GPUs are busy with the pair sums (see gpusph.f90); here if not
+      if(.not.eo_ready) call enout_early
+      eo_ready=.false.
+      xmin=eo_xmin
+      ymin=eo_ymin
+      zmin=eo_zmin
+      xmax=eo_xmax
+      ymax=eo_ymax
+      zmax=eo_zmax
+      vcm=eo_vcm
+      ajtot=eo_ajtot
+      mynnemin=eo_nnemin
+      mynnemax=eo_nnemax
+      myrhomin=eo_rhomin
+      myrhomax=eo_rhomax
+      myumin=eo_umin
+      myumax=eo_umax
+      myhpmin=eo_hpmin
+      myhpmax=eo_hpmax
+      mypmin=eo_pmin
+      mypmax=eo_pmax
+      mynneavr=eo_nneavr
+      mynnesig=eo_nnesig
+      myeint=eo_eint
+      mystot=eo_stot
+      myekin=eo_ekin
+
+      if(myrank.eq.0) then
+c     omeg=sqrt(omega2)
+         if(nrelax.eq.2) write(69,*)'enout: omeg=',omeg
+!         if(mod(nit,nitpot).eq.0)then
+c     With block steps enout writes an energy*.sph row at every full
+c     synchronization, which can be many per dtmaxblk.  The summary in the
+c     log stays at one per dtmaxblk, plus the first call, at the start.
+         logit=nblock.ne.1 .or. blkfull .or. .not.printingenergytofile
+     $        .or. firstenout
+         firstenout=.false.
+         if(logit) then
+            write (69,90) nit,t,
+     $           xmin,xmax,ymin,ymax,zmin,zmax
+!         else
+!            write (69,91) nit,t,
+!     $           xmin,xmax,ymin,ymax,zmin,zmax
+!         endif
+            write(6,*)'end it.',nit,'t=',t
+         endif
+ 90      format(/,
+     $        ' output: end of iteration ',i8,'       time=',f12.5,/,
+     $        '   system box= ',g10.3,'< x <',g10.3,/,
+     $        '               ',g10.3,'< y <',g10.3,/,
+     $        '               ',g10.3,'< z <',g10.3)      
+! 91      format(/,
+!     $        ' output: end of iteration ',i8,'       time=',f12.5,/,
+!     $        '   system box= ',g10.3,'< x <',g10.3,/,
+!     $        '               ',g10.3,'< y <',g10.3,/,
+!     $        '               ',g10.3,'< z <',g10.3)
+
+         epot=0.d0
+         if(ngr.ne.0)then
+c     do loop to get total gravitational potential energy:
+c     the sum is made by blocks.  The loop that follows it is the one that
+c     reports point masses and NaNs, and it adds up epot itself in the
+c     old way, so it runs only when there is something to report
+            nb=nredblocks(ntot)
+            call reserve_rpart(2,nb)
+!$omp parallel do schedule(static) private(ib,i)
+            do ib=1,nb
+               rpart(1,ib)=0.d0
+               rpart(2,ib)=0.d0
+               do i=(ib-1)*redblock+1,min(ib*redblock,ntot)
+                  rpart(1,ib)=rpart(1,ib)+am(i)*grpot(i)
+                  if(grpot(i).ne.grpot(i)) rpart(2,ib)=rpart(2,ib)+1.d0
+                  if(logit .and. (hp(i).le.0.d0 .or. u(i).eq.0.d0))
+     $                 rpart(2,ib)=rpart(2,ib)+1.d0
+               enddo
+            enddo
+            nspecial=0
+            do ib=1,nb
+               epot=epot+rpart(1,ib)
+               nspecial=nspecial+nint(rpart(2,ib))
+            enddo
+            if(nspecial.gt.0) then
+               epot=0.d0
+               do i=1,ntot
+                  if(logit .and. (hp(i).le.0.d0 .or. u(i).eq.0.d0)) then
+                     write(69,'(a,i6,3g17.9)')
+     $                    'position of point mass',i,x(i),y(i),z(i)
+                  endif
+                  epot=epot+am(i)*grpot(i)
+                  if(grpot(i).ne.grpot(i)) then
+                     write(129,*) epot,i,am(i),grpot(i),hp(i),x(i),y(i),z(i),u(i)
+                  endif
+               enddo
+            endif
+            if (epot.eq.0) then
+               write(69,*) 'Problem calculating gravity: epot=0'
+               stop
+            endif
+            epot=0.5d0*epot
+         endif
+      endif
+
 
       call mpi_reduce(mynnemin,nnemin,1,mpi_2integer,mpi_minloc,0,
      $     mpi_comm_world,ierr)
