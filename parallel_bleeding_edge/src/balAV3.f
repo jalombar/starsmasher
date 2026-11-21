@@ -1,5 +1,6 @@
       subroutine uvdots
       use riemann_data
+      use gpusph_mod
 c     evaluate right-hand sides of equations of motion:
 c=======================================================================
 c  balvdots creates arrays of the accelerations of each particle, using
@@ -22,14 +23,17 @@ c=======================================================================
       common/uijmax/ uijmax
       real*8 dwijin,pijin,sxijin,syijin,szijin,divin, diwkin
       real*8 sxijingc,syijingc,szijingc
-      logical switchedav
+      logical switchedav,gdone,fuseacc
       double precision divv(nmax)
       common/commdivv/divv
       integer mylength, mygravlength
       integer comm_worker
       common/gravworkers/comm_worker
-      real*8 myvxdot(ntot),myvydot(ntot),myvzdot(ntot)
-      real*8 myvxdotgc(ntot),myvydotgc(ntot),myvzdotgc(ntot)
+c     the arrays of the sums of the pairs, kept from one call to the next: arrays of ntot elements made at each call went to the system and
+c     back each time (mmap and munmap, and the page faults of 6 arrays of 4 MB at 500000 particles), or not, according to where the other
+c     allocations of the step had left the top of the heap
+      real*8, allocatable, save :: myvxdot(:),myvydot(:),myvzdot(:)
+      real*8, allocatable, save :: myvxdotgc(:),myvydotgc(:),myvzdotgc(:)
       integer irank
       real*8 invh, invh2, invh5
       real*8 dx, dy, dz
@@ -56,6 +60,12 @@ c     nav=4: the pair's Riemann problem along r_ij (see riemann.f)
       real*8 rij,vir,vjr,pstar,pstat,vsig,cj
       real*8 rhl,rhr,vl,vr,pl,pr
 
+      if(allocated(myvxdot)) then
+         if(size(myvxdot).lt.ntot) deallocate(myvxdot,myvydot,myvzdot,myvxdotgc,myvydotgc,myvzdotgc)
+      endif
+      if(.not.allocated(myvxdot)) allocate(myvxdot(ntot),myvydot(ntot),myvzdot(ntot),
+     $     myvxdotgc(ntot),myvydotgc(ntot),myvzdotgc(ntot))
+
       if(nav.eq.0) then
          if(nintvar.eq.1 .or. nintvar.eq.3)then
 !$omp parallel do simd schedule(static)
@@ -80,6 +90,12 @@ c     rho_and_h, otherwise only this rank's own particles hold them.
             if(neos.ne.0) call sync_all(gam1p)
          endif
       endif
+
+c     the accelerations are summed in one pass when there is one rank, the gravity is the gpu's for all the particles (and is collected below)
+c     and nothing needs the hydrodynamic part alone (cooling)
+      fuseacc=nprocs.eq.1 .and. ngr.ne.0 .and. nusegpus.eq.1 .and.
+     $     ncooling.eq.0 .and. ngrav_lower.eq.1 .and. ngrav_upper.eq.n
+     $     .and. .not.(blkdist .and. nblock.eq.1)
 
       switchedav=.false.
       if(nrelax.eq.1
@@ -125,9 +141,15 @@ c     share of the particles to be solved, otherwise its own index range):
       else
          nloop=n_upper-n_lower+1
       endif
-c     the pair loop, by chunks of particles on the threads (uvpairs, below)
-      call uvpairs(nloop,alpha1,beta1,myvxdot,myvydot,myvzdot,
-     $     myvxdotgc,myvydotgc,myvzdotgc)
+c     the pair loop, by chunks of particles on the threads (uvpairs, below),
+c     or on the GPU (bit 2 of ngpusph, gpusph.f90), which leaves the same
+c     arrays (and with ngpusphcheck=2 runs uvpairs too, to compare)
+      gdone=.false.
+      if(iand(ngpusph,2).ne.0)
+     $     call gpusph_forces(nloop,alpha1,beta1,myvxdot,myvydot,
+     $     myvzdot,myvxdotgc,myvydotgc,myvzdotgc,gdone)
+      if(.not.gdone) call uvpairs(nloop,alpha1,beta1,myvxdot,myvydot,
+     $     myvzdot,myvxdotgc,myvydotgc,myvzdotgc)
 c      write(6,'(a)')'hydrompi'
 
       if(nblock.eq.1) then
@@ -341,7 +363,11 @@ c     (with block steps the potential is needed only when every particle is acti
          if(myrank.eq.ngravprocs-1)then
             write(6,'(a,f6.3,a,g10.3,a,i4)')'2ndhalf:',time1-time0
          endif
-         if(nusegpus.eq.1)then
+         if(fuseacc) then
+c           (one rank, the gravity of the gpu for all the particles, no cooling: the three additions of the accelerations and the copy that
+c           sumvdot makes are one pass below, with each addition as it was)
+            continue
+         else if(nusegpus.eq.1)then
 !$omp parallel do simd schedule(static)
             do i=ngrav_lower,ngrav_upper
                myvxdot(i)=myvxdot(i)+gx(i)
@@ -367,6 +393,14 @@ c     to all processes
 
 c     Now that scaleheight has been calculated, we can include all
 c     relevant terms in the calculation of the acceleration:
+      if(fuseacc) then
+!$omp parallel do simd schedule(static)
+         do i=1,n
+            vxdot(i)=(myvxdot(i)+gx(i))+myvxdotgc(i)
+            vydot(i)=(myvydot(i)+gy(i))+myvydotgc(i)
+            vzdot(i)=(myvzdot(i)+gz(i))+myvzdotgc(i)
+         enddo
+      else
 !$omp parallel do simd schedule(static)
       do i=1,n
          myvxdot(i)=myvxdot(i)+myvxdotgc(i)
@@ -375,6 +409,7 @@ c     relevant terms in the calculation of the acceleration:
       enddo
 
       call sumvdot(myvxdot,myvydot,myvzdot)
+      endif
 
 cc     if this is a relaxation calculation, add centrifugal and drag forces:
 c      if (nrelax.ne.0 .and. .not. gonedynamic ) then

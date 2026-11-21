@@ -231,7 +231,7 @@ GROUPS = [
                       'dtforce','nstartramp']),
  ('Parallelism and GPUs',
                      ['ngravprocs','ngpuperrank','ngravhilo','ngravoverlap','ngravtree','ngravtreeauto','treeacc','nleafgrav','qthreads','ppn',
-                      'computeexclusivemode','gflag']),
+                      'computeexclusivemode','gflag','ngpusph','ngpusphcheck','ngpusphskin','ngpusphprec','ngpuclass']),
  ('Units',           ['runit','munit','gravconst']),
  ('Periodic box',    ['boxx','boxy','boxz']),
  ('Smoothing-length solve', ['hgroup']),
@@ -294,7 +294,7 @@ def main():
     w('')
 
     # settings read only by init.f, which applies_to leaves out, and that matter to every run
-    always = {'ngravtreeauto'}
+    always = {'ngravtreeauto', 'ngpuclass'}
 
     def scope(name):
         codes, evo = applies = usage.get(name.lower(), ([], False))
