@@ -157,7 +157,8 @@ The rule is:
 
 The choice depends on nothing but N and the hardware, never on a time measured during
 the run, so a run and its restart choose the same, and the results are bit for bit
-those of the value chosen, set by hand.  ``ngravtreeauto`` was measured on one kind
+those of the value chosen, set by hand.  The part of the SPH done on the GPUs is chosen the same way
+by ``ngpusph = -1`` from the gravity chosen here, the threads per rank and the GPUs (see :doc:`gpu_sph`).  ``ngravtreeauto`` was measured on one kind
 of node (63 cores and Blackwell GPUs); on other hardware the best value may be
 different.  ``ngravoverlap = -1`` (the default) then takes the value that suits the
 choice, 1 for the tree on the GPU.  With several MPI processes

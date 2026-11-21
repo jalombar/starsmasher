@@ -16,7 +16,7 @@ begins with ``&input`` and ends with ``&end``::
 
    The variables, defaults and descriptions on this page are read directly
    from the namelist declaration and the default-initialisation block in
-   ``parallel_bleeding_edge/src/init.f``.  There are **110** settings.
+   ``parallel_bleeding_edge/src/init.f``.  There are **114** settings.
 
 
 .. _sph-input-time-and-output:
@@ -474,6 +474,22 @@ Parallelism and GPUs
      - ``1``
      - every run
      - set to 0 for g function from appendix of gaburov et al. (2010); set to 1 for a g function that works better when there are black holes, or 2 for G=(1-q^3)^2 with q=r/2h, which decreases strictly with r so that the h solution has no flat stretches. It gives about 3\*nnopt neighbours within 2h, so it needs about half the nnopt of gflag=1 for the same neighbour count
+   * - ``ngpusph``
+     - ``0``
+     - every run
+     - SPH work done on the GPUs, a bit mask: 0, 1, 3 or 7; or -1.  0 (the default): all on the CPUs, the code as it was.  -1 chooses from the configuration (see below); it is off unless asked for, and with a CUDA build it is the value recommended for speed, together with ngravtree=-1.  Bit 1 (value 1): the smoothing lengths, the densities and the other sums of the SPH and the neighbour lists are solved and made on the GPU, with the same bits as the CPU (the sums are made in the order of the particle index, in double precision without fused multiply-add).  Bit 4 (value 4, ngpusph=7): the candidate lists of the smoothing-length search are kept on the GPU between steps (Verlet lists, the margin is ngpusphskin) and the results are the bits of ngpusph=3.  Bit 2 (value 2, always with bit 1, so ngpusph=3): the pair sums of the forces (div v and curl v, the accelerations, du/dt, with Balsara's viscosity) are made on the GPU too, with the terms and the order of the sums of the CPU, so that the bits are those of the CPU except where a pair approaches and the root of its viscosity term is taken (sqrt on the GPU, pow on the CPU).  What the GPU cannot do is done by the CPUs for the whole step and a line of log0.sph says why (CPU build, Metal build, MARCH, periodic box, dynhco>0, nav=4 or nintvar=3 for the forces, block steps and the first step of a run for bit 1); a particle with more than 128 candidates is solved by the CPU  -1: chosen once, when the number of particles is known, from nothing but the configuration (never a time): no GPU, MARCH, a periodic box or dynhco>0: 0; nav=4 or nintvar=3: 1; the direct sum on several GPUs (several ranks or ngpuperrank>1): 1; the direct sum on one GPU: 7 with at most 8 threads per rank, 0 with 32 or more, and in between 7 below 300000 particles and 0 from there; the tree on the GPU or on the CPUs, or no gravity: 7.  The choice and why are written in log0.sph. Measured on one kind of node (63 cores, Blackwell GPUs): other hardware may need other rules
+   * - ``ngpusphcheck``
+     - ``0``
+     - every run
+     - 0, 1, 2 or 3 (a bit mask).  Bit 1 (value 1): whatever ngpusph=1 puts on the GPU is also done on the CPUs and compared, and the run stops at the first particle that differs.  Bit 2 (value 2): the forces of ngpusph=3 are also made by the CPUs, on the same data, and the differences are written to log0.sph at each step (the run goes on with the CPU results).  A diagnostic, slower than either alone
+   * - ``ngpusphskin``
+     - ``0.3d0``
+     - every run
+     - margin of the Verlet lists of bit 4 of ngpusph (ngpusph=7), as a fraction of the search radius: the candidates of the smoothing-length search are kept this much further out and used while they are complete (a larger margin makes them last longer and the lists longer).  The results do not depend on it
+   * - ``ngpusphprec``
+     - ``0``
+     - every run
+     - 1: the terms of the pairs of the forces on the GPU (ngpusph=3 or 7) are made in single precision (the differences of positions and velocities in double precision, rounded to float; the sums in double precision); div v, curl v, the smoothing lengths and the densities stay in double precision.  About 1e-6 of the acceleration of a particle is lost, and the results are not the bits of ngpusphprec=0.  Never the default: qualified with the tolerances (accelerations 1e-4, du/dt 1e-3 of the largest, energy, momentum and angular momentum drifts within 2 times the CPU's)
 
 .. _sph-input-units:
 
