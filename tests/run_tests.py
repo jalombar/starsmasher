@@ -549,6 +549,39 @@ def t_gravity_auto(ctx):
             out.append('%s N=%d thr=%d -> %d' % (tag, n, thr, want))
     return 'chosen as expected and the same bits as by hand: ' + '; '.join(out)
 
+def t_gpu_sph(ctx):
+    """ngpusph=1 (the SPH on the GPU) gives exactly the bits of ngpusph=0, and ngpusphcheck=1 finds no difference.
+
+    With bit 1 of ngpusph the smoothing lengths, the densities and the neighbour lists are solved and made on the
+    GPU.  The energies of every row and the bytes of every dump must be those of ngpusph=0, on one rank and on
+    several.  ngpusphcheck=1 makes the CPUs do the work too and stops the run at the first difference, so a run
+    with it must also finish.  The CPU build has no GPU code: it must say so in log0.sph and give the same bits.
+    """
+    out = []
+    for tag, exe in (('gpu', ctx.exe), ('cpu', ctx.cpu_exe)):
+        if not exe:
+            continue
+        for np_ in (1, ctx.np):
+            res = {}
+            for mode, extra in (('0', dict(ngpusph=0)), ('1', dict(ngpusph=1)), ('1c', dict(ngpusph=1, ngpusphcheck=1))):
+                d = ctx.dir('gs_%s_%d_%s' % (tag, np_, mode))
+                p, e = run(exe, d, np=np_, **dict(POLY, tf=1, dtout=1, **extra))
+                names = sorted(f for f in os.listdir(d) if f.startswith('out') and f.endswith('.sph'))
+                if not names:
+                    raise Fail('%s build, np=%d, ngpusph mode %s: no dump was written\n%s' % (tag, np_, mode, (p.stdout + p.stderr)[-800:]))
+                log = open(os.path.join(d, 'log0.sph')).read() if os.path.exists(os.path.join(d, 'log0.sph')) else ''
+                if mode != '0':
+                    want = 'ngpusph: h, rho and neighbour lists on the CPUs: this build has no GPU code' if tag == 'cpu' else 'ngpusph: h, rho and neighbour lists on the GPU'
+                    if want not in log:
+                        raise Fail('%s build, np=%d, ngpusph mode %s: log0.sph does not say "%s"' % (tag, np_, mode, want))
+                res[mode] = (energies(e), [(f, open(os.path.join(d, f), 'rb').read()) for f in names])
+            for mode in ('1', '1c'):
+                if res['0'][0] != res[mode][0]:
+                    raise Fail('%s build, np=%d: ngpusph mode %s changes the energies' % (tag, np_, mode))
+                if res['0'][1] != res[mode][1]:
+                    raise Fail('%s build, np=%d: ngpusph mode %s changes a dump' % (tag, np_, mode))
+            out.append('%s np=%d: %d rows, %d dumps' % (tag, np_, len(res['0'][0]), len(res['0'][1])))
+    return 'ngpusph=0, 1 and 1 with the check give the same bits: ' + '; '.join(out)
 # --------------------------------------------------------------- HDF5 -----
 
 def t_hdf5_dump(ctx):
@@ -647,6 +680,7 @@ TESTS = {
     'gpu_hilo':         t_gpu_hilo,
     'gpu_tree':         t_gpu_tree,
     'gravity_auto':     t_gravity_auto,
+    'gpu_sph':          t_gpu_sph,
     'guard_ngravprocs': t_guard_ngravprocs,
     'startfiles':       t_startfiles,
     'periodic':         t_periodic,

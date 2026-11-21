@@ -44,6 +44,12 @@ something changed.  These tell you whether the answer is right.
        a GPU, the tree on the CPUs in the CPU build), writes the choice in
        ``log0.sph``, and gives exactly the energies of the value it chose, set by
        hand.
+   * - ``gpu_sph``
+     - ``ngpusph = 1`` (the smoothing lengths, densities and neighbour lists on the GPU) gives exactly the bits of
+       ``ngpusph = 0``: the energies of every row and the bytes of every dump, on
+       one rank and on several; a run with ``ngpusphcheck = 1`` finishes (the CPUs
+       and the GPU agree particle by particle); the CPU build says in ``log0.sph``
+       that it has no GPU code and gives the same bits.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
