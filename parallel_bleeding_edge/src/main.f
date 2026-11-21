@@ -7,12 +7,13 @@ c
 c *****************************************
 
       use omp_utils
+      use gpusph_mod, only: gi_report
       include 'starsmasher.h'
       include 'mpif.h'
 
       real*8 xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
       common/centersofmass/xcm1,ycm1,zcm1,xcm2,ycm2,zcm2,am1,am2
-      integer i,ierr
+      integer i,ierr,nbld,nreu
       common /jumpcomm/ tjumpahead,rjump,rjumpfactor,rjumppercent,
      $     reentryfactor
       logical autotf,autojump
@@ -118,6 +119,12 @@ c     only a run with a negative tf, or with rjump set, is allowed to make.
          if (t.ge.tf) then
             if(myrank.eq.0) then
                write (69,*) 'main: end of integration, t=',t,tf
+               call gi_report
+               if(ngravrebuild.gt.1) then
+                  call gt_report(nbld,nreu)
+                  write(69,*) 'gravity: the structure of the tree was made',nbld,' times and kept for',nreu,' calls (ngravrebuild=',
+     $                 ngravrebuild,')'
+               endif
                close(22)
                close(69)
                if(reat.gt.0) close(43)
@@ -188,14 +195,23 @@ c     called by init,lfstart,setup1em,setup1es,setup2cm,setup2cs
       common/gravworkers/comm_worker
       integer ranks(nprocsmax)
       integer imax,itreeok
+      integer nthrgr,irb,rebuildthr,rebuildk
+      parameter (rebuildthr=32,rebuildk=16)
+      character*120 rebwhy
+      character*200 rebmsg
+      character*16 rebthr
+!$    integer omp_get_max_threads
       logical alreadyinitialized
       data alreadyinitialized /.false./
       save alreadyinitialized
       real*8 theta_angle
       real*8 numinteractions,totnuminteractions ! declare as real*8 so don't run into max integer problems
 
-c     ngravtree=-1: the first call knows the number of particles, so this is where the choice is made (init.f)
+c     ngravtree=-1: the first call knows the number of particles, so this is where the choice is made (init.f); it takes the SPH that goes with the
+c     gravity from ngpusph if that is written, and, with ngpusph=-1 too, chooses the fastest pair of the two
       if(ngravtree.eq.-1) call gravtree_auto
+c     ngpusph=-1: chosen here too, from the gravity just chosen, the threads and the gpus (init.f)
+      if(ngpusph.eq.-1) call sph_auto
       if(myrank.eq.0)write(69,*)'called gravquant'
       if(nprocs.gt.nprocsmax)then
          write(69,*)'increase nprocsmax in starsmasher.h'
@@ -222,6 +238,57 @@ c     ngravtree=-1: the first call knows the number of particles, so this is whe
       if(ngravprocs.gt.ngravprocsmax)then
          write(69,*)'increase ngravprocsmax in starsmasher.h'
          stop
+      endif
+
+c     ngravrebuild=-1 (automatic): 16 for the tree on the gpus (ngravtree=2) with at most rebuildthr threads of the gravity process for each gpu, 1 otherwise.  With 8 and 16 threads on
+c     an H100 and 8 on an L40S the step was shorter by 14% to 25% in every window of the collision (the intervals of the repetitions apart), with 32 at the pericentre by 7.5%; with 63
+c     threads the change was between -9% and +1% and the intervals touched in one of the two jobs (see the user guide).  The choice is a function of the threads, the gpus and the
+c     options only, never of a time measured, so a run and its restart choose the same.  The default is ngravrebuild=1 (off): this rule acts only when -1 is written in sph.input,
+c     because the option is faster only with few threads for each gpu and changes the last digits
+      if(ngravrebuild.lt.0) then
+         nthrgr=1
+!$       nthrgr=omp_get_max_threads()
+         if(ngpuperrank.gt.1) nthrgr=max(1,nthrgr/ngpuperrank)
+         write(rebthr,'(i0)') nthrgr
+         irb=1
+         rebwhy=trim(rebthr)//' threads for each gpu: not the tree on the gpus, or more than the limit measured'
+         if(ngravtree.eq.2 .and. ngpuperrank.ne.0 .and. nthrgr.le.rebuildthr) then
+            irb=rebuildk
+            rebwhy=trim(rebthr)//' threads for each gpu, the tree on the gpus'
+         endif
+         if(ngravtree.eq.0) rebwhy='no tree (ngravtree=0)'
+         if(nblock.eq.1) then
+            irb=1
+            rebwhy='block steps (nblock=1)'
+         endif
+         call mpi_bcast(irb,1,mpi_integer,0,mpi_comm_world,ierr)
+         ngravrebuild=irb
+         if(ngravtree.eq.0) ngravrebuild=1
+         if(myrank.eq.0) then
+            write(rebmsg,'(a,i0,a)') 'gravity: ngravrebuild=-1 (auto): '//trim(rebwhy)//' -> ngravrebuild=',ngravrebuild,
+     $           ': the structure of the tree is made every that many steps'
+            write(69,'(a)') trim(rebmsg)
+            write(6,'(a)') trim(rebmsg)
+         endif
+      endif
+c     ngravrebuild>1: the structure of the gravity tree is made every ngravrebuild steps (gravtree.f90).  It needs a tree (ngravtree 1 or 2) and shared steps:
+c     with the direct sum or with block steps the value is 1, and the log says so
+      if(ngravrebuild.gt.1 .and. ngravtree.eq.0) then
+         ngravrebuild=1
+         if(myrank.eq.0) then
+            write(69,'(a)') 'gravity: ngravrebuild>1 is not used with the direct sum (ngravtree=0): ngravrebuild=1'
+            write(6,'(a)') 'gravity: ngravrebuild>1 is not used with the direct sum (ngravtree=0): ngravrebuild=1'
+         endif
+      endif
+      if(ngravrebuild.gt.1 .and. nblock.eq.1) then
+         ngravrebuild=1
+         if(myrank.eq.0) then
+            write(69,'(a)') 'gravity: ngravrebuild>1 is not used with block steps (nblock=1): ngravrebuild=1'
+            write(6,'(a)') 'gravity: ngravrebuild>1 is not used with block steps (nblock=1): ngravrebuild=1'
+         endif
+      endif
+      if(ngravrebuild.gt.1 .and. myrank.eq.0) then
+         write(69,'(a,i0,a)') 'gravity: ngravrebuild=',ngravrebuild,': the structure of the tree is made every that many steps'
       endif
 
 c     ngravoverlap=-1 (automatic): the overlap of the gpus with the smoothing-length solve is on, except for the direct sum on more
