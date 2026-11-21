@@ -30,6 +30,17 @@
       return
       end
 
+c     the number of multiprocessors of the GPU of this process (the smallest of those it sees), which the automatic choice of ngpusph
+c     takes as a coarse hint of how fast the GPU is (init.f, auto_gpuclass); 0 if it cannot be read.  The C side is in
+c     SPHgrav_lib2/grav_force_direct.cu; the CPU build and the Metal one say 0
+      subroutine get_gpu_sm_count(nsm,myrank_in)
+      implicit none
+      integer nsm,myrank_in
+      nsm=0
+      call gpu_sm_count(nsm)
+      return
+      end
+
       subroutine get_gravity_using_cpus
       return
       end
