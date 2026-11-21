@@ -47,7 +47,7 @@ endif
 # LDFLAGS   +=  -fopenmp
 LDGPUGLAGS := $(LDFLAGS) $(CUDA_LIBS)
 
-OBJS = grav_force_direct.cu_o grav_tree_gpu.cu_o
+OBJS = grav_force_direct.cu_o grav_tree_gpu.cu_o sph_gpu.cu_o
 GRAVLIB = libSPHgrav.a
 
 all: $(GRAVLIB)
@@ -67,6 +67,18 @@ $(GRAVLIB): $(OBJS)
 
 %.cu_o:  %.cu cutil.h cuVec3.h cuVector.h $(FLAGSTAMP)
 	 $(NVCC) $(NVCCFLAGS) -c $< -o $@
+
+# The SPH on the GPU (ngpusph) must give the bits of the CPU: no fused multiply-add (--fmad=false), whatever NVCCFLAGS says.  A
+# build of the CPU code for the machine it runs on (MARCH), or for a processor that fuses by default, does not give the same
+# bits, and the library says so (SS_CPU_FMA, gpu_sph_available_)
+SPHDEFS =
+ifneq ($(MARCH),)
+  SPHDEFS += -DSS_CPU_FMA
+else ifneq ($(shell uname -m),x86_64)
+  SPHDEFS += -DSS_CPU_FMA
+endif
+sph_gpu.cu_o:  sph_gpu.cu $(FLAGSTAMP)
+	 $(NVCC) $(NVCCFLAGS) --fmad=false $(SPHDEFS) -c $< -o $@
 
 clean:
 	/bin/rm -rf *.cu_o $(GRAVLIB) $(FLAGSTAMP)
