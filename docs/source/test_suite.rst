@@ -44,6 +44,24 @@ something changed.  These tell you whether the answer is right.
        a GPU, the tree on the CPUs in the CPU build), writes the choice in
        ``log0.sph``, and gives exactly the energies of the value it chose, set by
        hand.
+   * - ``gpu_sph``
+     - ``ngpusph = 1`` (the smoothing lengths, densities and neighbour lists on the GPU) gives exactly the bits of
+       ``ngpusph = 0``: the energies of every row and the bytes of every dump, on
+       one rank and on several; a run with ``ngpusphcheck = 1`` finishes (the CPUs
+       and the GPU agree particle by particle); the CPU build says in ``log0.sph``
+       that it has no GPU code and gives the same bits.
+   * - ``gpu_forces``
+     - ``ngpusph = 3`` (the pair sums of the forces on the GPU too) agrees with
+       ``ngpusph = 1`` to the rounding of the sums, with shared and with block
+       steps, on one rank and on several: the energies of every row to one unit of the last digit that
+       ``energy0.sph`` prints (7 digits), and with ``ngpusphcheck = 2`` the accelerations to 1e-12 and du/dt to 1e-10 of
+       the largest; the CPU build says in ``log0.sph`` that it has no GPU code and
+       gives the same bits.
+   * - ``gpu_ranks``
+     - ``ngpusphcheck = 2`` and ``3`` with more ranks than GPUs
+       (``CUDA_VISIBLE_DEVICES=0`` with 2 and with 3 ranks): the ranks without a
+       GPU of their own take part in the comparison of the forces, the run
+       finishes (it used to hang) and agrees with ``ngpusph = 1`` to 1e-9.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
