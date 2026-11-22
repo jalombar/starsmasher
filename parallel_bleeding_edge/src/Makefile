@@ -242,11 +242,11 @@ ifeq ($(shell uname -m),x86_64)
   HGFLAGS ?= -mavx2
 endif
 HGDEFS = $(if $(findstring avx2,$(HGFLAGS)),-DHG_AVX2)
-FOBJS += hgroup.o hgcpu.o
+FOBJS += hgroup.o hgcpu.o gpusph.o
 hgroup.o: FFLAGS += -ffp-contract=off $(HGFLAGS)
 hgcpu.o: FFLAGS += -cpp $(HGDEFS)
 hgroup.o: kdtree2.o
-advance.o: hgroup.o
+advance.o: hgroup.o gpusph.o
 
 CPUOBJS = $(FOBJS) cpu_grav.o
 GPUOBJS = $(FOBJS) $(GPU_GRAV_OBJ)
@@ -278,7 +278,7 @@ $(LIMITS_FILE): Makefile FORCE
 initialize_parent.o initialize_polyes.o useeostable.o: eos_table_data.o
 advance.o balAV3.o pressure.o riemann.o: riemann_data.o
 advance.o balAV3.o blockstep.o kdtree2.o main.o output.o pressure.o relax.o resplintmu.o tstep.o grav.o pairbuf.o: omp_utils.o
-balAV3.o: pairbuf.o riemann_data.o
+balAV3.o: pairbuf.o riemann_data.o gpusph.o
 kdtree2.o: treebuild.o
 advance.o blockstep.o: kdtree2.o
 gravtree.o: treebuild.o gravpair.o

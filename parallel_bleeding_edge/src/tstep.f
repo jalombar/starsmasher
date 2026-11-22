@@ -8,6 +8,7 @@ c***********************************************************************
       real*8 dtiacc,dtivel,dtvelmin(2),dtaccmin(2),dtiacc4,dtacc4min(2)
       real*8 dtvelcomin(2),dtacccomin(2)
       real*8 mydt
+      logical needvdotsm
       integer i,j,irank
       real*8 uijmax(nmax)
       common/uijmax/ uijmax
@@ -35,7 +36,13 @@ c     substeps since the last full synchronization
       save dtsblk,indblk
       data dtsblk/7*1.d30/, indblk/6*0/
       
-      if(nrelax.ne.1) then
+c     the smoothed accelerations are read by dt2 and dt4 only: with cn2
+c     and cn4 of 1d29 or more (the default is 1d30) they cannot change
+c     the step, and vdotsm (a sum over the neighbour lists of every
+c     particle) is not called.  vxdotsm, vydotsm and vzdotsm stay zero
+c     (init), so the columns dt2 and dt4 of the log, which are only
+c     written, are then made with the acceleration itself
+      if(needvdotsm()) then
          call vdotsm
       endif
       mydtvel(1)=1.d30          ! dt1 (on this myrank process)
