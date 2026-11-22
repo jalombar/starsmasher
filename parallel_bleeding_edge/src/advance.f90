@@ -19,6 +19,43 @@
       integer*8 :: nrebuild = 0, ncalls = 0
       end module stale_tree_mod
 !*********************************************************
+!     The kd tree over all the particles that rho_and_h needs when the GPUs leave it particles to solve, made while the GPUs solve the
+!     others (rhoh_early_kd, called by the library of the GPUs between the launch of the kernels and the collection of their results).
+!     It is the tree that rho_and_h makes itself from the same positions, by the same builder: only the moment at which it is made differs.
+!     ek_array holds the positions the tree refers to; ek_tree is the tree, kept until rho_and_h takes it (ek_valid) or discards it.
+      module kdearly_mod
+      use kdtree2_module
+      implicit none
+      real(kdkind), allocatable, target, save :: ek_array(:,:)
+      type(kdtree2), pointer, save :: ek_tree => null()
+      logical, save :: ek_valid = .false.
+      contains
+      subroutine ek_discard
+      if(ek_valid) call kdtree2_destroy(ek_tree)
+      nullify(ek_tree)
+      ek_valid=.false.
+      end subroutine ek_discard
+      end module kdearly_mod
+
+      subroutine rhoh_early_kd
+      use kdearly_mod
+      include 'starsmasher.h'
+      integer k
+      call ek_discard
+      if(allocated(ek_array)) then
+         if(size(ek_array,2).ne.n) deallocate(ek_array)
+      endif
+      if(.not.allocated(ek_array)) allocate(ek_array(3,n))
+!$omp parallel do simd schedule(static)
+      do k=1,n
+         ek_array(1,k)=x(k)
+         ek_array(2,k)=y(k)
+         ek_array(3,k)=z(k)
+      enddo
+      ek_tree => kdtree2_create(ek_array,sort=.false.,rearrange=.true.)
+      ek_valid=.true.
+      end subroutine rhoh_early_kd
+!*********************************************************
 !     What a thread of rho_and_h needs for the particle it is solving: the
 !     candidate neighbours (res(1:ncand), every particle within sqrt(r2last)
 !     of it, with its squared distance) and its current block of the
@@ -52,12 +89,22 @@
 !*********************************************************
       subroutine advance
 !     implements second-order accurate leap-frog sph step
+      use gpusph_mod, only: gw_tree,gv_ok,gv_done,gw_enout,gw_vkept,gi_pending,gi_hash,gi_fresh,gi_go,gi_drop,gi_allowed
+      use enout_early_mod, only: eo_ready
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 uo(nmax),vxo(nmax),vyo(nmax),vzo(nmax)
       common/oldarrays/uo,vxo,vyo,vzo
       integer i
       real*8 dthnew
+!     the integration on the device (gpusph.f90, gi_*): the sum of the check made in the predictor loop
+      double precision divv(nmax)
+      common/commdivv/divv
+      integer(8) ghash,gq
+      integer gk
+      real*8 gw(14)
+      logical gsend
+      integer(8), parameter :: gm1=-7046029254386353131_8, gm2=-4417276706812531889_8, gk1=-2960836687051489901_8
 !     for the nintvar=12 handover below
       integer mylength,irank,ierr
       real*8 tswitchuse,rhocgsswitch,tswitch
@@ -135,6 +182,58 @@
          endif
       endif
 
+!     the device goes on by itself after the step (gi_go below): this step's tree of the gravity sends it the order of the particles, and its visit is counted
+      gsend=.false.
+      if(ngr.ne.0) gsend=gi_allowed()
+      call gt_int_mark(gsend)
+      if(gi_pending) then
+!        the same loop, with the sum of the check of what the device made in advance (gi_hash14 in gpusph.f90, written out here: a call for each particle would not be
+!        inlined).  The device has done the corrector and the predictor already; the sum is added over the particles modulo 2**64, in any order.  (the integration on the device
+!        is only started with ncooling=0 and nintvar=2)
+         ghash=0_8
+!$omp parallel do schedule(static) private(i,gq,gk,gw) reduction(+:ghash)
+         do i=1,n
+            x(i)=x(i)+dt*vx(i)    ! update x to half-timestep
+            y(i)=y(i)+dt*vy(i)    ! update y to half-timestep
+            z(i)=z(i)+dt*vz(i)    ! update z to half-timestep
+            vxo(i)=vx(i)           ! store old value of vx
+            vyo(i)=vy(i)           ! store old value of vy
+            vzo(i)=vz(i)           ! store old value of vz
+            vx(i)=vx(i)+dth*vxdot(i) ! update vx to half-timestep
+            vy(i)=vy(i)+dth*vydot(i) ! update vy to half-timestep
+            vz(i)=vz(i)+dth*vzdot(i) ! update vz to half-timestep
+            if(u(i).ne.0.d0) then
+               uo(i)=u(i)             ! store old value of u
+               u(i)=u(i)+dth*udot(i)  ! update u to half-timestep
+            else if(udot(i).ne.0.d0) then
+               write(6,*)'warning: black hole particle has udot=',udot(i),i,myrank
+               if(myrank.eq.0) write(69,*)'warning: black hole particle has udot=',udot(i),i
+               stop
+            endif
+            gw(1)=x(i)
+            gw(2)=y(i)
+            gw(3)=z(i)
+            gw(4)=vx(i)
+            gw(5)=vy(i)
+            gw(6)=vz(i)
+            gw(7)=u(i)
+            gw(8)=vxo(i)
+            gw(9)=vyo(i)
+            gw(10)=vzo(i)
+            gw(11)=uo(i)
+            gw(12)=hp(i)
+            gw(13)=divv(i)
+            gw(14)=am(i)
+            gq=int(i,8)*gk1
+            do gk=1,14
+               gq=ieor(ishftc(gq,27),transfer(gw(gk),0_8))*gm1
+            enddo
+            gq=ieor(gq,ishft(gq,-32))*gm2
+            ghash=ghash+gq
+         enddo
+         gi_hash=ghash
+         gi_fresh=.true.
+      else
 !$omp parallel do schedule(static) private(i,ttherm)
       do i=1,n
          x(i)=x(i)+dt*vx(i)    ! update x to half-timestep
@@ -162,6 +261,7 @@
          endif
 
       enddo
+      endif
 
       t=t+dth
 
@@ -176,15 +276,35 @@
       ! need the most up-to-date smoothing lengths for the integrator to achieve
       ! second order accuracy
       ! ngravoverlap=1: the gpu starts on the far tiles while the smoothing lengths are solved
+!     the gravity tree: this is a step (ngravrebuild>1 makes the structure of the tree only in some steps, gravtree.f90)
+      call gt_step_begin
       if(ngr.ne.0) call gravfar_start
+!     ngravtree=2 with ngravoverlap=1: gravforce makes the tree of the gravity, whose structure (it depends on the positions only) the
+!     CPUs can make while the GPUs solve the smoothing lengths
+      gw_tree=ngr.ne.0 .and. nusegpus.ne.0 .and. ngravtree.eq.2 .and. ngravoverlap.eq.1
+!     in the same case rho_and_h starts the gravity itself, as soon as the smoothing lengths are final (before it does the pressure)
+      gv_ok=gw_tree
+      gv_done=.false.
+!     nothing between this call and uvdots writes the velocities and u: the forces on the GPU may be sent them while it solves
+      gw_vkept=.true.
       call rho_and_h            ! evaluate rho and h at half-timestep
+      gw_vkept=.false.
+      call gi_drop
+      gw_tree=.false.
+      gv_ok=.false.
 
 !     get potential energy at half-timestep:
 !      if( ngr.ne.0 .and. mod(nit,nitpot).eq.0 ) call gravpot
-      if(ngr.ne.0) call gravforce
+      if(ngr.ne.0 .and. .not.gv_done) call gravforce
 
       if(myrank.eq.nprocs-1) call wall_time(time1)
+!     one rank: the sums of enout that do not need the gravity are made while the GPUs do the pair sums of uvdots (nothing that enout
+!     reads is changed by uvdots: it writes accelerations, du/dt and div v)
+      eo_ready=.false.
+      gw_enout=nprocs.eq.1 .and. nrelax.eq.0
       call uvdots                ! evaluate udot and accelerations at half-timestep
+      gw_enout=.false.
+      call gt_step_end
       if(myrank.eq.nprocs-1) then
          call wall_time(time2)
          write (6,'(a,f6.3,a,i4)')&
@@ -199,6 +319,8 @@
 
       call tstep
       dthnew=0.5d0*dt
+!     the device goes on by itself (the corrector of this step, the predictor and the smoothing lengths of the next one) while the CPU does the same below
+      call gi_go
 
 !     advance velocities:
 !$omp parallel do simd schedule(static)
@@ -412,6 +534,8 @@
       use omp_utils
       use hscratch_mod
       use hgroup_mod
+      use gpusph_mod
+      use kdearly_mod
       include 'starsmasher.h'
       include 'mpif.h'
       real*8 divv(nmax)
@@ -464,7 +588,7 @@
 !     the particles are handed out in chunks of this many consecutive indices
       integer, parameter :: hchunk=64
       type(hscratch), allocatable, save :: hsc(:)
-      integer listtop,listfail,failfirst,failneed,nthr,it
+      integer listtop,listfail,failfirst,failneed,nthr,it,k2
 !     the groups a thread takes at a time (hgroup.f90): the groups of the rank over 16 times the threads, at most hg_chunk
       integer hgch
 !     The lists in the order of the particles (hg_listord): particle k of the own range has room for lcap(k) entries at
@@ -479,8 +603,30 @@
       integer ngl,ngrp,ig
       integer, allocatable, save :: gord(:)
       integer(1), allocatable :: gsel(:)
+!     The smoothing lengths, densities and neighbour lists solved on the GPU (ngpusph, gpusph.f90): gpudone says that they are in
+!     the arrays, except for the gnflag particles flagged in gs_flag, which the CPU solves below; they take gltot entries of list().
+!     gcheck: ngpusphcheck, the CPU solves everything and compares with what the GPU made.
+      logical gpudone,gcheck
+      integer gnflag,gltot
 
       if(myrank.eq.nprocs-1) call wall_time(time1)
+      gpudone=.false.
+      gcheck=.false.
+      gnflag=0
+      gltot=0
+!     ownall is what useown says below (the tree over own particles), in terms that are the same on every rank
+!     (build_own_tree can turn useown off on one rank): every rank has to reach the collective at 7000, also the one for
+!     which the GPU did everything
+      nfb=0
+      ownall=nprocs.gt.1 .and. .not.periodic .and. .not.blkdist .and. (nblock.eq.0 .or. nblockfull.ne.0)
+!     the kd tree over all the particles is made while the GPUs solve if the last call left some particles to the CPUs (one rank, shared
+!     steps: the case in which rho_and_h would make it over the positions it has now)
+      call ek_discard
+      gw_kd=gs_kdneed .and. nprocs.eq.1 .and. .not.periodic .and. nblock.eq.0
+      if(iand(ngpusph,1).ne.0) call gpusph_rhoh(divv,gpudone,gnflag,gltot,gcheck)
+      gw_kd=.false.
+      gs_kdneed=gnflag.gt.0 .or. .not.gpudone
+      if(gpudone .and. gnflag.eq.0) go to 7000
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 !      call linkedlists
 !     is being replaced with the creation of a kd tree...
@@ -505,6 +651,9 @@
          call pbcimages(pad,.true.,nimg,ximg,imgmap)
       endif
       ntree=n+nimg
+!     the kd tree made while the GPUs solved (the positions are the ones it was made for)
+      if(ek_valid .and. (nimg.ne.0 .or. nprocs.gt.1 .or. nblock.ne.0)) call ek_discard
+      if(.not.ek_valid) then
       allocate(my_array(3,ntree))
 !$omp parallel do simd schedule(static)
       do k=1,n
@@ -516,6 +665,7 @@
       do k=1,nimg
          my_array(:,n+k)=ximg(:,k)
       enddo
+      endif
 !     block steps: when few particles on this rank need a neighbour search,
 !     search directly instead of building the tree over all particles (not
 !     in a periodic box, whose images only the full tree holds)
@@ -537,13 +687,19 @@
 !     over a part of them relies on
       useown=usecache .and. nprocs.gt.1 .and. .not.blkdist .and.&
            (nblock.eq.0 .or. nblockfull.ne.0)
-!     the same on every rank (build_own_tree can turn useown off on one rank)
-      ownall=useown
       nsub=0
       nfb=0
       if(useown) call build_own_tree
 ! this is how you create a tree.
-      if(.not.usebrute .and. .not.useown) tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.)
+      if(.not.usebrute .and. .not.useown) then
+         if(ek_valid) then
+            tree2 => ek_tree
+            nullify(ek_tree)
+            ek_valid=.false.
+         else
+            tree2 => kdtree2_create(my_array,sort=.false.,rearrange=.true.)
+         endif
+      endif
       if(usebrute) then
          hsmall=1.d30
          if(blkdist) then
@@ -561,7 +717,7 @@
       ngl=0
       ngrp=0
 !     (dt is zero at the first call of a run, when the guess of h can be far off)
-      if(usecache .and. .not.blkdist .and. dynhco.eq.0 .and. .not.hcolim .and. dt.gt.0.d0) then
+      if(usecache .and. .not.blkdist .and. dynhco.eq.0 .and. .not.hcolim .and. dt.gt.0.d0 .and. .not.gpudone) then
          if(hgroup.gt.0 .and. hg_cpu_ok(myrank)) then
             call hg_tune(hgroup)
             usegroup=hg_on
@@ -645,7 +801,7 @@
          hsc(it)%ncand=0
          hsc(it)%r2last=-1.d30
       enddo
-      listtop=0
+      listtop=gltot
       listfail=0
       failfirst=0
       failneed=0
@@ -654,7 +810,7 @@
 !     The particles are independent: each one is solved by one thread, which
 !     writes only the elements of the arrays with the index of the particle
 !     and the list in its own block.
-!$omp parallel default(shared) private(iw,it) num_threads(nthr)
+!$omp parallel default(shared) private(iw,it,k2) num_threads(nthr)
       it=thread_id()+1
       if(usegroup) then
 !$omp do schedule(dynamic,hgch)
@@ -670,12 +826,22 @@
          enddo
 !$omp end do
       else
-!$omp do schedule(dynamic,hchunk)
-         do iw=1,nloop
-            if(listfailed()) cycle
-            call solve_particle(iw,hsc(it))
-         enddo
+         if(gpudone) then
+!           (the GPU did the others: only the particles of the list that gpusph_rhoh made are solved here, one at a time to a thread)
+!$omp do schedule(dynamic,1)
+            do k2=1,gs_nlist
+               if(listfailed()) cycle
+               call solve_particle(gs_list(k2),hsc(it))
+            enddo
 !$omp end do
+         else
+!$omp do schedule(dynamic,hchunk)
+            do iw=1,nloop
+               if(listfailed()) cycle
+               call solve_particle(iw,hsc(it))
+            enddo
+!$omp end do
+         endif
       endif
 !$omp end parallel
       if(usegroup) deallocate(gsel)
@@ -690,19 +856,24 @@
          nn(listfail)=failneed
          call check_neighbor_capacity(listfail)
       endif
+!     ngpusphcheck: what the GPU made against what the CPU has just made (gpusph.f90)
+      if(gcheck) call gpusph_compare
+      if(associated(tree2)) call kdtree2_destroy(tree2)
+      if(associated(treeown)) call kdtree2_destroy(treeown)
+      if(allocated(sub2glob)) deallocate(sub2glob,rb2,sub_array)
+      if(allocated(my_array)) deallocate(my_array)
+      if(periodic) deallocate(ximg,imgmap)
+
+ 7000 continue
+!     a tree that was made in case it was needed and was not
+      call ek_discard
 !     searches that went beyond the tree over own particles: in the log only
-!     when there were some
+!     when there were some.  Every rank gets here, also the one for which the GPU did everything (go to 7000): it is a collective
       if(ownall) then
          call mpi_reduce(nfb,nfbsum,1,mpi_integer,mpi_sum,0,mpi_comm_world,ierr)
          if(myrank.eq.0 .and. nfbsum.gt.0) write(69,*)'rho_and_h: ',nfbsum,&
               ' searches went beyond the trees over own particles at t=',t
       endif
-      if(associated(tree2)) call kdtree2_destroy(tree2)
-      if(associated(treeown)) call kdtree2_destroy(treeown)
-      if(allocated(sub2glob)) deallocate(sub2glob,rb2,sub_array)
-      deallocate(my_array)
-      if(periodic) deallocate(ximg,imgmap)
-
 ! make mpi call to insure all processors doing gravity have the same
 ! hp values (only nodes doing gravity need the hp values):
       mylength=n_upper-n_lower+1
@@ -711,6 +882,13 @@
            recvcounts,displs,mpi_double_precision,mpi_comm_world,ierr)
 
       nnvalid=.true.
+!     The smoothing lengths are final: the gravity starts here (ngravtree=2 with ngravoverlap=1: its tree is made and its visit queued
+!     on the GPUs), so that the GPUs work on it while the CPUs do the pressure
+      if(gv_ok) then
+         gv_ok=.false.
+         gv_done=.true.
+         call gravforce
+      endif
       call pressure
       if(blkdist) then
 !     each listed particle's values from the rank that solved it
@@ -1831,6 +2009,16 @@
 !      endif
       dbonetfuncdh = bonetdrhodh
 
+      return
+      end
+!***********************************************************************
+!     true if tstep needs the smoothed accelerations of vdotsm.  Only the criteria dt2 (cn2) and dt4 (cn4) read them, and with cn2
+!     and cn4 of 1d29 or more (the default is 1d30) the reciprocals 1/dt2 and 1/dt4 are far below the rounding of the sum
+!     1/dt1+1/dt2+1/dt3+1/dt4, so that vdotsm cannot change the step.  Never in a relaxation (nrelax=1).  vdotsm reads the
+!     neighbour lists in list(), so whoever keeps them on the GPU (gpusph_rhoh) copies them when this is true.
+      logical function needvdotsm()
+      include 'starsmasher.h'
+      needvdotsm=(nrelax.ne.1 .and. (cn2.lt.1.d29 .or. cn4.lt.1.d29))
       return
       end
 !***********************************************************************

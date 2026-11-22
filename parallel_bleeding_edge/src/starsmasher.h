@@ -65,10 +65,17 @@
       integer ngravtree,nleafgrav,ngravoverlap
       real*8 treeacc
       common/gravtreepars/treeacc,ngravtree,nleafgrav,ngravoverlap
-!     ngravtree=-1: chosen by gravtree_auto (init.f) when the number of particles is known: ngravtreeauto is the number of particles
-!     from which the tree walked on the gpus is taken; ngravgpuok: 0 no gpu, 1 a gpu that can walk the tree, 2 a gpu that cannot
-      integer ngravtreeauto,ngravgpuok
-      common/gravautopars/ngravtreeauto,ngravgpuok
+!     ngravrebuild: the structure of the tree (ngravtree=1 or 2) is made every ngravrebuild steps, the steps in between use it with the positions of
+!     now (gravtree.f90, make_tree_struct); 1 every step (the default: the option is off unless written, it is faster only with few cpu threads for each gpu);
+!     -1 is replaced in gravquant (main.f)
+      integer ngravrebuild
+      common/gravrebuildpar/ngravrebuild
+!     ngravtree=-1: chosen by gravtree_auto (init.f) when the number of particles is known: ngravtreeauto=-1 takes the limits measured
+!     (auto_limits), 0 or more is the number of particles from which the tree walked on the gpus is taken; ngravgpuok: 0 no gpu,
+!     1 a gpu that can walk the tree, 2 a gpu that cannot.  ngpuclass (input): the class of the GPU for the limits of the automatic
+!     SPH with the direct sum on one GPU (auto_limits, init.f): -1 from the multiprocessors of the GPU (get_gpu_sm_count), 1 mid, 2 strong
+      integer ngravtreeauto,ngravgpuok,ngpuclass
+      common/gravautopars/ngravtreeauto,ngravgpuok,ngpuclass
       real*8 vxdotsm(nmax),vydotsm(nmax),vzdotsm(nmax)
       integer n,nnopt,ntot,nout,nit,nitpot,ngr,nrelax,nav,nintvar
       common/mine/vxdotsm,vydotsm,vzdotsm
@@ -136,6 +143,17 @@
 !     hgroup (input): particles per group of the neighbour search of the smoothing-length solve (hgroup.f90); 0: one search for each particle
       integer hgroup
       common/hgrouppars/ hgroup
+!     ngpusph (input): the SPH work done on the GPUs, a bit mask: 1 the smoothing lengths, densities and lists, 2 (with 1) the pair
+!     sums of the forces, 4 (with 1 and 2) the Verlet lists (gpusph.f90, SPHgrav_lib2/sph_gpu.cu); ngpusphcheck: do it on the CPUs too and compare (a diagnostic;
+!     bit 1 stops at the first difference, bit 2 writes the differences of the forces to log0.sph)
+      integer ngpusph,ngpusphcheck
+      common/gpusphpars/ ngpusph,ngpusphcheck
+!     ngpusphskin (input): the margin of the Verlet lists of bit 4 of ngpusph, as a fraction of the search radius
+      real*8 ngpusphskin
+      common/gpusphpars2/ ngpusphskin
+!     ngpusphprec (input): 1 makes the terms of the pairs of the forces on the GPU in single precision (never the default)
+      integer ngpusphprec
+      common/gpusphpars3/ ngpusphprec
       integer stellarevolutioncodetype	
       common/inputfilenames/startfile1,startfile2,eosfile,opacityfile,profilefile
       common/inputfilenames2/startfile3,binaryfile,triplefile,bpbhfile,imagefile,advectedfile
