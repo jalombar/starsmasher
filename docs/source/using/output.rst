@@ -155,7 +155,13 @@ this is the file that says what the code thought it was doing at the time.
    Two things follow that are not obvious from the numbers alone.  ``cn2`` and
    ``cn4`` default to ``1d30``, which makes ``dt2`` and ``dt4`` enormous and
    their reciprocals negligible: those two criteria are effectively switched
-   off unless you turn them on.  And ``dt`` is smaller than every individual
+   off unless you turn them on.  When both are ``1d29`` or more the code does
+   not compute the smoothed acceleration :math:`a_{sm}` at all (it is a sum over
+   the neighbours of every particle, a large part of the step of a dynamical
+   run), and the ``dt2`` and ``dt4`` columns are then made with :math:`a` itself,
+   that is :math:`a_{sm}=0`: they are still enormous, and the step, the dumps and
+   ``energy*.sph`` are not changed.  With either of them below ``1d29`` the
+   smoothed acceleration is computed as before.  And ``dt`` is smaller than every individual
    column, because reciprocals add, so do not read ``dt`` as the minimum of
    what precedes it.
 
