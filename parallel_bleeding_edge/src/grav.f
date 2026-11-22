@@ -36,11 +36,13 @@ c     has grown past its limit.
       include 'starsmasher.h'
       include 'mpif.h'
       integer i, ierr
-      real*8 range(ntot)
+c     kept from one call to the next (see uvdots)
+      real*8, allocatable, save :: range(:)
       real*8 amasstot,fcmx,fcmy,fcmz
       integer mylength, mygravlength
       integer irank      
-      integer nlist,ilist(ntot)
+      integer nlist
+      integer, allocatable, save :: ilist(:)
       integer nfallback,nfar
       real*8 rbound(nmax)
       logical farstarted,donegrav
@@ -49,6 +51,10 @@ c     has grown past its limit.
       common/gravfari/farstarted,nfallback,nfar
 
       if(nusegpus.eq.0)return
+      if(allocated(range)) then
+         if(size(range).lt.ntot) deallocate(range,ilist)
+      endif
+      if(.not.allocated(range)) allocate(range(ntot),ilist(ntot))
 c     ngravtree=2 with ngravoverlap=1: the tree is made and its visit queued on the gpus now, so that the cpus do the pair loop
 c     while
 c     the gpus work; grav_collect finishes it
