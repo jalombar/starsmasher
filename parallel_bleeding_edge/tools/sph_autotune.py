@@ -358,7 +358,10 @@ class Runner(object):
                 res['note'] = '%s after %d steps in %.0f s, and at least %d are needed (%d of warm-up and 3 to time)' % (reason_text(reason), len(marks), elapsed, self.skip + 3, self.skip)
             else:
                 res['ms'] = [(marks[k] - marks[k - 1]) * 1000.0 for k in range(self.skip, min(len(marks), self.need))]
-                if len(res['ms']) < args.steps:
+                if sum(res['ms']) <= 0.0:
+                    res['status'], res['ms'] = 'notmeasured', []
+                    res['note'] = 'the lines of the %d steps arrived together (a busy machine, or an output held in a buffer), so the steps have no time' % len(marks)
+                elif len(res['ms']) < args.steps:
                     res['note'] = '%s after %d steps: the %d steps after the warm-up are used' % (reason_text(reason), len(marks), len(res['ms']))
         if not args.keep and os.path.realpath(cdir).startswith(os.path.realpath(self.work) + os.sep):
             shutil.rmtree(cdir, ignore_errors=True)
