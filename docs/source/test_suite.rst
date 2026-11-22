@@ -39,11 +39,95 @@ something changed.  These tell you whether the answer is right.
        has the threshold of the leaves with a very long list so low that most
        leaves are divided in chunks.
    * - ``gravity_auto``
-     - ``ngravtree = -1`` chooses the gravity from the number of particles (the
-       direct sum below ``ngravtreeauto`` and the tree on the GPU from it up with
-       a GPU, the tree on the CPUs in the CPU build), writes the choice in
-       ``log0.sph``, and gives exactly the energies of the value it chose, set by
-       hand.
+     - ``ngravtree = -1`` chooses the gravity from the number of particles, the
+       threads, the ranks and the SPH (with a GPU: the direct sum below
+       ``ngravtreeauto`` and the tree on the GPU from it up when it is written,
+       the limits measured for the SPH that goes with the gravity by default;
+       the tree on the CPUs in the CPU build), writes the choice in
+       ``log0.sph``, and gives exactly the energies and dumps of the value it
+       chose, set by hand; with three or more GPUs it is tried with 4 ranks and with
+       one rank of ``ngpuperrank = 4`` (skipped on a machine with fewer than 4 GPUs).
+   * - ``gpu_sph``
+     - ``ngpusph = 1`` (the smoothing lengths, densities and neighbour lists on the GPU) gives exactly the bits of
+       ``ngpusph = 0``: the energies of every row and the bytes of every dump, on
+       one rank and on several; a run with ``ngpusphcheck = 1`` finishes (the CPUs
+       and the GPU agree particle by particle); the CPU build says in ``log0.sph``
+       that it has no GPU code and gives the same bits.
+   * - ``gpu_forces``
+     - ``ngpusph = 3`` (the pair sums of the forces on the GPU too) agrees with
+       ``ngpusph = 1`` to the rounding of the sums, with shared and with block
+       steps, on one rank and on several: the energies of every row to one unit of the last digit that
+       ``energy0.sph`` prints (7 digits), and with ``ngpusphcheck = 2`` the accelerations to 1e-12 and du/dt to 1e-10 of
+       the largest; the CPU build says in ``log0.sph`` that it has no GPU code and
+       gives the same bits.
+   * - ``gpu_ranks``
+     - ``ngpusphcheck = 2`` and ``3`` with more ranks than GPUs
+       (``CUDA_VISIBLE_DEVICES=0`` with 2 and with 3 ranks): the ranks without a
+       GPU of their own take part in the comparison of the forces, the run
+       finishes (it used to hang) and agrees with ``ngpusph = 1`` to 1e-9.
+   * - ``gpu_resident``
+     - ``ngpusph = 7`` (the candidates of the smoothing-length search kept on the
+       GPU between steps, with a small margin so that they are built again in the
+       run) gives exactly the bits of ``ngpusph = 3``: the energies of every row
+       and the bytes of every dump, on one rank and on several, also with
+       ``ngpusphcheck = 3``; the CPU build says in ``log0.sph`` that it has no GPU
+       code and gives the same bits.
+   * - ``gpu_mixed``
+     - ``ngpusphprec = 1`` (the terms of the pairs of the forces on the GPU in
+       single precision, sums in double) stays within the tolerances:
+       with ``ngpusphcheck = 2`` the accelerations differ from the CPU's by less
+       than 1e-4 and du/dt by less than 1e-3 of the largest at every step, and the
+       energies are within 1e-4 of those in double precision; the CPU build says in
+       ``log0.sph`` that it has no GPU code and gives the same bits.
+   * - ``sph_auto``
+     - ``ngpusph = -1`` chooses from the configuration, writes the
+       choice and the reason in ``log0.sph`` (the CPU build chooses 0, a GPU build
+       with the tree 7, with the direct sum by threads per rank, particles and
+       ranks), and gives exactly the bits of a run with the value it chose set by
+       hand, on one rank and on several; each limit of the rule is tried with a
+       star below it and a star above it, for the mid and the strong class of the
+       GPU (``ngpuclass``) where the limit depends on it; with ``ngpuclass = -1``
+       the class that ``log0.sph`` says must agree with the number of
+       multiprocessors it says it read, and ``ngpuclass = 3`` must be refused
+       (in a build without OpenMP the cases that need more than one thread per rank
+       are skipped; the cases with ``ngpuperrank = 4`` need 4 GPUs).
+   * - ``vdotsm``
+     - With ``cn2`` and ``cn4`` finite (so that ``tstep`` uses the smoothed
+       accelerations of ``vdotsm``, which sums over the neighbour lists on the
+       CPU) ``ngpusph = 1`` gives exactly the bits of ``ngpusph = 0`` and
+       ``ngpusph = 7`` those of ``ngpusph = 3``: the energies of every row, the
+       bytes of every dump and the number of steps, on one rank and on several;
+       the same run with the default ``cn2`` and ``cn4`` comes out different.
+   * - ``autotune``
+     - ``tools/sph_autotune.py`` tries the pairs of ``ngravtree`` and ``ngpusph`` on a run folder (GPU build: 0 and 2 with 0 and 7; CPU build: 0, 1 and 2, which it refuses),
+       with a star, with the same star restarted from a dump (a folder with ``restartrad.sph`` and no ``sph.init``) and with a periodic box where ``ngpusph = 7`` is not done on the GPU (a folder with neither ``sph.init`` nor ``restartrad.sph`` stops the tool with exit code 2 and a message), with ``ngpusph = 3`` written in ``sph.input`` (not among the candidates: it is added, and marked as the pair of the file) and with the pair of the file the only candidate (it is the one advised: "Nothing to change"); the advice is also tried on candidates with step times written in the test (the pair of the file is kept when it is equivalent to the fastest, it is always said how the pair of the file does, a difference below 10% with one repetition is said not to be sure) and the second measure of a candidate whose steps were not steady on runs with steps written in the test (only the second run counts when it is steady, both when it is not): the table has the expected candidates, with the status the build must give them (measured,
+       died, or changed by the code with the reason from ``log0.sph``), the choice of the automatic values is read from ``log0.sph``, the advice is a pair that was measured, every
+       file of the folder of the run (and the leftovers of an earlier run) is the same after, the work folder holds only the table, and no process is left.
+   * - ``gpu_multidev``
+     - The SPH and the forces with several devices for the rank, tried on one GPU
+       with ``SPHGPU_NDEV`` (logical devices dealt out round the GPUs): with 1, 2
+       and 4 logical devices the run reaches the end, with ``ngpusphcheck = 2`` the
+       accelerations differ from the CPU's by less than 1e-12 and du/dt by less than
+       1e-10 of the largest, and the energies are those of one device to 1e-9; with
+       3 logical devices the dump and the energies do not depend on
+       ``SPHGPU_FLAGMOD``.
+   * - ``gpu_hostpath``
+     - With one device and ``ngpusph = 7`` the host side of a step does not change a
+       bit: the results of the smoothing lengths copied in one piece or by chunks
+       (``SPHGPU_SLOWDRAIN``), the velocities sent while the device solves or in the
+       forces (``SPHGPU_NOEARLY``), the check that the CPU still holds what was sent
+       (``SPHGPU_FECHECK``), and particles left to the CPU (``SPHGPU_FLAGMOD`` 7 and
+       2): the energies of every row and the bytes of every dump are those of the
+       default.
+   * - ``gpu_integ``
+     - With one device the device goes on by itself with the integration of the step (the
+       corrector, the predictor of the next step with the dt it takes from the candidates it
+       sends, and the smoothing lengths of the next step) and no bit changes: an unrelaxed
+       polytrope with the gravity of the tree on the GPU, ``ngpusph`` 7 and 3, by default, with
+       ``SPHGPU_NOINT`` (the step as it was), with ``SPHGPU_INTCHECK`` (every array of the device is
+       compared with the CPU's at every step) and with particles left to the CPU
+       (``SPHGPU_FLAGMOD``): the energies of every row and the bytes of every dump are those of the
+       step as it was, and ``log0.sph`` says that the device went on and was collected.
    * - ``guard_ngravprocs``
      - Asking for more gravity processes than there are GPUs is clamped rather
        than fatal.
